@@ -22,10 +22,10 @@ This is not an irritating-agent simulator.
 
 ## Usage
 
-Install the package locally:
+Create the uv-managed environment:
 
 ```bash
-python3 -m pip install -e .
+uv sync
 ```
 
 Run with OpenRouter through Pydantic AI:
@@ -33,11 +33,11 @@ Run with OpenRouter through Pydantic AI:
 ```bash
 export OPENROUTER_API_KEY=...
 export WHOSE_AGENT_MODEL=openrouter:openai/gpt-4o-mini
-python -m whose_agent.cli run --scenarios scenarios --outputs outputs
+uv run python -m whose_agent.cli run --scenarios scenarios --outputs outputs
 ```
 
 For an offline deterministic run:
 
 ```bash
-python -m whose_agent.cli run --scenarios scenarios --outputs outputs --mock
+uv run python -m whose_agent.cli run --scenarios scenarios --outputs outputs --mock
 ```

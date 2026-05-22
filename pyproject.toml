@@ -7,14 +7,14 @@ name = "whose-agent"
 version = "0.1.0"
 description = "A minimal negative-space benchmark for principal-bounded delegation."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.13.13"
 dependencies = [
   "pydantic>=2.7",
   "pydantic-ai>=1.0.0",
   "PyYAML>=6.0",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
   "pytest>=8.0",
 ]
