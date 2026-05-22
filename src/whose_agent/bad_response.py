@@ -7,6 +7,11 @@ from whose_agent.prompt_loader import render_template
 
 
 DEFAULT_MODEL = "openrouter:openai/gpt-4o-mini"
+BAD_RESPONSE_MODEL_SETTINGS: dict[str, float | int] = {
+    "temperature": 0.2,
+    "top_p": 0.6,
+    "seed": 42,
+}
 
 
 class BadResponseError(RuntimeError):
@@ -92,7 +97,10 @@ def generate_bad_response(
     from pydantic_ai import Agent
 
     agent = Agent(_model_name_from_environment())
-    result = agent.run_sync(build_generation_prompt(scenario))
+    result = agent.run_sync(
+        build_generation_prompt(scenario),
+        model_settings=BAD_RESPONSE_MODEL_SETTINGS.copy(),
+    )
     output = getattr(result, "output", getattr(result, "data", ""))
     response = str(output).strip()
     if not response:

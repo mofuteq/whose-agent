@@ -3,11 +3,17 @@ import json
 import os
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 from jinja2 import UndefinedError
 
-from whose_agent.bad_response import build_generation_prompt, mock_bad_response
+from whose_agent.bad_response import (
+    BAD_RESPONSE_MODEL_SETTINGS,
+    build_generation_prompt,
+    generate_bad_response,
+    mock_bad_response,
+)
 from whose_agent.classifier import classify_scenario
 from whose_agent.env_loader import load_env_file
 from whose_agent.prompt_loader import render_template
@@ -44,6 +50,39 @@ def test_generation_prompt_template_requires_all_variables() -> None:
                 "generation_instruction": "Replace the requested style.",
             },
         )
+
+
+def test_generate_bad_response_uses_low_variance_model_settings(monkeypatch) -> None:
+    scenario = load_scenario(ROOT / "scenarios" / "instruction_rust_cli.yaml")
+    classification = classify_scenario(scenario)
+    calls = {}
+
+    class FakeAgent:
+        def __init__(self, model_name: str) -> None:
+            calls["model_name"] = model_name
+
+        def run_sync(self, prompt: str, *, model_settings: dict[str, float | int]):
+            calls["prompt"] = prompt
+            calls["model_settings"] = model_settings
+            return SimpleNamespace(output="Here is a concise assistant response.")
+
+    import pydantic_ai
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("WHOSE_AGENT_MODEL", "openrouter:test/model")
+    monkeypatch.setattr(pydantic_ai, "Agent", FakeAgent)
+
+    response = generate_bad_response(scenario, classification)
+
+    assert response == "Here is a concise assistant response."
+    assert calls["model_name"] == "openrouter:test/model"
+    assert scenario.principal_prompt in calls["prompt"]
+    assert calls["model_settings"] == {
+        "temperature": 0.2,
+        "top_p": 0.6,
+        "seed": 42,
+    }
+    assert calls["model_settings"] is not BAD_RESPONSE_MODEL_SETTINGS
 
 
 def test_mock_bad_responses_are_english_ascii_text() -> None:
