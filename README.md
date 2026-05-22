@@ -34,13 +34,12 @@ uv sync --dev
 Run with OpenRouter through Pydantic AI:
 
 ```bash
-cat > .env <<'EOF'
-OPENROUTER_API_KEY=...
-WHOSE_AGENT_MODEL=openrouter:openai/gpt-4o-mini
-EOF
+cp .env.example .env
+# Edit .env and set OPENROUTER_API_KEY.
 uv run python -m whose_agent.cli run --scenarios scenarios --outputs outputs
 ```
 
+`.env` is ignored by git. Commit `.env.example` when the set of supported variables changes.
 Existing shell environment variables take precedence over `.env`.
 The `.env` file is parsed with `python-dotenv`.
 Use `--env-file path/to/.env` to load a different dotenv file.

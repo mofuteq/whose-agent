@@ -3,6 +3,7 @@
 - Keep the repo English-only.
 - Use uv with Python 3.13.13 for local environment management.
 - Keep `.env` untracked; it may contain OpenRouter credentials.
+- Keep `.env.example` current when environment variables change.
 - Use `python-dotenv` for dotenv parsing.
 - Preserve `substituted` as the central axis.
 - Do not add new failure modes in v0.1.
