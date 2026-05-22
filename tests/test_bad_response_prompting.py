@@ -1,7 +1,6 @@
 from pathlib import Path
 import json
 import os
-import re
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -19,6 +18,7 @@ from whose_agent.classifier import classify_scenario
 from whose_agent.env_loader import load_env_file
 from whose_agent.prompt_loader import render_template
 from whose_agent.scenario_loader import load_scenario, load_scenarios
+from tests.helpers import single_run_dir
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -184,12 +184,3 @@ def test_cli_mock_mode_produces_expected_outputs(tmp_path: Path) -> None:
         trace = json.loads(path.read_text(encoding="utf-8"))
         assert trace["substituted"] in {"instruction", "authority", "role", "model"}
         assert trace["substituted"] != "none"
-
-
-def single_run_dir(outputs: Path) -> Path:
-    entries = list(outputs.iterdir())
-    run_dirs = [entry for entry in entries if entry.is_dir()]
-    assert len(run_dirs) == 1
-    assert entries == run_dirs
-    assert re.fullmatch(r"\d{8}T\d{6}Z(?:-\d{3})?", run_dirs[0].name)
-    return run_dirs[0]

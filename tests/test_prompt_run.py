@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -24,6 +23,7 @@ from whose_agent.prompt_run import (
     build_prompt_run,
     mock_classify_prompt,
 )
+from tests.helpers import single_run_dir
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -288,12 +288,3 @@ def run_prompt_cli(prompt: str, outputs: Path) -> subprocess.CompletedProcess[st
         capture_output=True,
         text=True,
     )
-
-
-def single_run_dir(outputs: Path) -> Path:
-    entries = list(outputs.iterdir())
-    run_dirs = [entry for entry in entries if entry.is_dir()]
-    assert len(run_dirs) == 1
-    assert entries == run_dirs
-    assert re.fullmatch(r"\d{8}T\d{6}Z(?:-\d{3})?", run_dirs[0].name)
-    return run_dirs[0]
