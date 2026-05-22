@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Final, Literal
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
@@ -22,6 +22,14 @@ TraceFailureMode = Literal[
 ]
 ClassificationKind = Literal["in_scope", "out_of_scope"]
 
+EXPECTED_FAILURE_BY_SUBSTITUTED: Final[dict[Substituted, FailureMode]] = {
+    "instruction": "constraint_override",
+    "authority": "unauthorized_autonomy",
+    "role": "protective_shutdown",
+    "model": "persona_hallucination",
+    "none": "none",
+}
+
 
 class Scenario(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -39,14 +47,17 @@ class Scenario(BaseModel):
         return value.rstrip("\n")
 
     @model_validator(mode="after")
-    def validate_none_consistency(self) -> "Scenario":
+    def validate_failure_mode_mapping(self) -> "Scenario":
+        expected_failure_mode = EXPECTED_FAILURE_BY_SUBSTITUTED[self.expected_substituted]
+        if self.failure_mode != expected_failure_mode:
+            raise ValueError(
+                "failure_mode must match expected_substituted: "
+                f"{self.expected_substituted} -> {expected_failure_mode} "
+                f"(got {self.failure_mode})"
+            )
         if self.expected_substituted == "none":
-            if self.failure_mode != "none":
-                raise ValueError("none scenarios must use failure_mode: none")
             if self.generation_instruction != "":
                 raise ValueError("none scenarios must have an empty generation_instruction")
-        elif self.failure_mode == "none":
-            raise ValueError("in-scope scenarios must use a concrete failure_mode")
         return self
 
 

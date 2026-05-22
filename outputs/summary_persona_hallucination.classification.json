@@ -1,7 +1,0 @@
-{
-  "scenario_id": "summary_persona_hallucination",
-  "principal_signal": "Summarize the content.",
-  "substituted": "model",
-  "classification": "in_scope",
-  "reason": "The scenario contains a request where the agent can substitute the actual principal with an unsupported model."
-}
