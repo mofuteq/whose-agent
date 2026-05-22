@@ -3186,6 +3186,7 @@ source = { editable = "." }
 dependencies = [
     { name = "pydantic" },
     { name = "pydantic-ai" },
+    { name = "python-dotenv" },
     { name = "pyyaml" },
 ]
 
@@ -3198,6 +3199,7 @@ dev = [
 requires-dist = [
     { name = "pydantic", specifier = ">=2.7" },
     { name = "pydantic-ai", specifier = ">=1.0.0" },
+    { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "pyyaml", specifier = ">=6.0" },
 ]
 

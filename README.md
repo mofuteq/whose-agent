@@ -39,6 +39,7 @@ uv run python -m whose_agent.cli run --scenarios scenarios --outputs outputs
 ```
 
 Existing shell environment variables take precedence over `.env`.
+The `.env` file is parsed with `python-dotenv`.
 Use `--env-file path/to/.env` to load a different dotenv file.
 
 For an offline deterministic run:

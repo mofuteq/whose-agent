@@ -48,8 +48,8 @@ def test_env_file_loads_openrouter_settings(monkeypatch, tmp_path: Path) -> None
     env_file.write_text(
         "\n".join(
             [
-                "OPENROUTER_API_KEY=test-key",
-                "WHOSE_AGENT_MODEL=openrouter:openai/gpt-4o-mini",
+                "export OPENROUTER_API_KEY='test-key'",
+                'WHOSE_AGENT_MODEL="openrouter:openai/gpt-4o-mini"',
                 "IGNORED_SETTING=ignored",
             ]
         ),
