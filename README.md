@@ -22,10 +22,13 @@ This is not an irritating-agent simulator.
 
 ## Usage
 
+whose-agent uses uv with Python 3.13.13.
+The Python version is pinned in `.python-version`.
+
 Create the uv-managed environment:
 
 ```bash
-uv sync
+uv sync --dev
 ```
 
 Run with OpenRouter through Pydantic AI:
