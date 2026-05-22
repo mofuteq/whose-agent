@@ -49,3 +49,18 @@ For an offline deterministic run:
 ```bash
 uv run python -m whose_agent.cli run --scenarios scenarios --outputs outputs --mock
 ```
+
+## Arbitrary prompt path
+
+Fixed scenarios remain the deterministic baseline.
+
+For exploratory runs, `run-prompt` classifies an arbitrary principal prompt into the same
+`substituted` axis and, when in scope, produces a poor e2e trace.
+Classification may use an LLM, but failure mode mapping and trace emission remain deterministic.
+
+```bash
+uv run python -m whose_agent.cli run-prompt \
+  --prompt "Implement a CLI in Rust that counts lines in a file." \
+  --outputs outputs \
+  --mock
+```
