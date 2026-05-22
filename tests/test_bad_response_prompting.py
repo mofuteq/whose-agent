@@ -6,6 +6,7 @@ import sys
 
 from whose_agent.bad_response import build_generation_prompt, mock_bad_response
 from whose_agent.classifier import classify_scenario
+from whose_agent.env_loader import load_env_file
 from whose_agent.scenario_loader import load_scenario, load_scenarios
 
 
@@ -38,6 +39,43 @@ def test_mock_bad_responses_are_english_ascii_text() -> None:
 
         assert response
         assert response.isascii()
+
+
+def test_env_file_loads_openrouter_settings(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("WHOSE_AGENT_MODEL", raising=False)
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "\n".join(
+            [
+                "OPENROUTER_API_KEY=test-key",
+                "WHOSE_AGENT_MODEL=openrouter:openai/gpt-4o-mini",
+                "IGNORED_SETTING=ignored",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_env_file(env_file)
+
+    assert loaded == {
+        "OPENROUTER_API_KEY": "test-key",
+        "WHOSE_AGENT_MODEL": "openrouter:openai/gpt-4o-mini",
+    }
+    assert os.environ["OPENROUTER_API_KEY"] == "test-key"
+    assert os.environ["WHOSE_AGENT_MODEL"] == "openrouter:openai/gpt-4o-mini"
+    assert "IGNORED_SETTING" not in os.environ
+
+
+def test_env_file_does_not_override_existing_shell_values(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("WHOSE_AGENT_MODEL", "openrouter:existing/model")
+    env_file = tmp_path / ".env"
+    env_file.write_text("WHOSE_AGENT_MODEL=openrouter:file/model\n", encoding="utf-8")
+
+    loaded = load_env_file(env_file)
+
+    assert loaded == {}
+    assert os.environ["WHOSE_AGENT_MODEL"] == "openrouter:existing/model"
 
 
 def test_cli_mock_mode_produces_expected_outputs(tmp_path: Path) -> None:

@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from whose_agent.bad_response import BadResponseError, generate_bad_response
 from whose_agent.classifier import classify_scenario
+from whose_agent.env_loader import load_env_file
 from whose_agent.models import Classification, Trace
 from whose_agent.scenario_loader import load_scenarios
 from whose_agent.trace_emitter import emit_trace
@@ -26,6 +27,8 @@ def write_text(path: Path, text: str) -> None:
 
 
 def run_command(args: argparse.Namespace) -> int:
+    load_env_file(Path(args.env_file))
+
     scenarios_dir = Path(args.scenarios)
     outputs_dir = Path(args.outputs)
     outputs_dir.mkdir(parents=True, exist_ok=True)
@@ -67,6 +70,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser = subparsers.add_parser("run", help="Run file-based scenarios.")
     run_parser.add_argument("--scenarios", required=True, help="Directory containing scenario YAML files.")
     run_parser.add_argument("--outputs", required=True, help="Directory for generated output files.")
+    run_parser.add_argument("--env-file", default=".env", help="Path to a dotenv file for OpenRouter settings.")
     run_parser.add_argument("--mock", action="store_true", help="Use deterministic local bad responses.")
     run_parser.set_defaults(func=run_command)
     return parser

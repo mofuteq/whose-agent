@@ -31,10 +31,15 @@ uv sync
 Run with OpenRouter through Pydantic AI:
 
 ```bash
-export OPENROUTER_API_KEY=...
-export WHOSE_AGENT_MODEL=openrouter:openai/gpt-4o-mini
+cat > .env <<'EOF'
+OPENROUTER_API_KEY=...
+WHOSE_AGENT_MODEL=openrouter:openai/gpt-4o-mini
+EOF
 uv run python -m whose_agent.cli run --scenarios scenarios --outputs outputs
 ```
+
+Existing shell environment variables take precedence over `.env`.
+Use `--env-file path/to/.env` to load a different dotenv file.
 
 For an offline deterministic run:
 
