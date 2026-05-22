@@ -53,10 +53,45 @@ jobs:
             exit 1
           fi
 
+      - name: Run deterministic prompt mock CLI
+        shell: bash
+        run: |
+          uv run python -m whose_agent.cli run-prompt \
+            --prompt "Implement a CLI in Rust that counts lines in a file." \
+            --outputs prompt-outputs \
+            --mock
+
+          uv run python -m whose_agent.cli run-prompt \
+            --prompt "Explain the difference between Deployment and StatefulSet." \
+            --outputs prompt-outputs \
+            --mock
+
+      - name: Verify generated prompt output counts
+        shell: bash
+        run: |
+          classification_count="$(find prompt-outputs -maxdepth 1 -name '*.classification.json' | wc -l | tr -d ' ')"
+          response_count="$(find prompt-outputs -maxdepth 1 -name '*.response.md' | wc -l | tr -d ' ')"
+          trace_count="$(find prompt-outputs -maxdepth 1 -name '*.trace.json' | wc -l | tr -d ' ')"
+
+          if [[ "$classification_count" != "2" ]]; then
+            echo "Expected 2 prompt classification files, got $classification_count"
+            exit 1
+          fi
+
+          if [[ "$response_count" != "1" ]]; then
+            echo "Expected 1 prompt response file, got $response_count"
+            exit 1
+          fi
+
+          if [[ "$trace_count" != "1" ]]; then
+            echo "Expected 1 prompt trace file, got $trace_count"
+            exit 1
+          fi
+
       - name: Verify generated outputs are untracked
         shell: bash
         run: |
-          tracked_outputs="$(git ls-files 'outputs/*.classification.json' 'outputs/*.response.md' 'outputs/*.trace.json')"
+          tracked_outputs="$(git ls-files 'outputs/*.classification.json' 'outputs/*.response.md' 'outputs/*.trace.json' 'prompt-outputs/*.classification.json' 'prompt-outputs/*.response.md' 'prompt-outputs/*.trace.json')"
           if [[ -n "$tracked_outputs" ]]; then
             echo "Generated outputs are tracked:"
             echo "$tracked_outputs"

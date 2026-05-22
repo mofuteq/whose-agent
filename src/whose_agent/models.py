@@ -71,6 +71,37 @@ class Classification(BaseModel):
     reason: str
 
 
+class PromptClassification(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    principal_prompt: str
+    principal_signal: str
+    substituted: Substituted
+    classification: ClassificationKind
+    reason: str
+
+    @field_validator("principal_prompt", "principal_signal", "reason")
+    @classmethod
+    def require_non_empty_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("must not be empty")
+        return value
+
+    @model_validator(mode="after")
+    def validate_classification_mapping(self) -> "PromptClassification":
+        expected_classification: ClassificationKind = (
+            "out_of_scope" if self.substituted == "none" else "in_scope"
+        )
+        if self.classification != expected_classification:
+            raise ValueError(
+                "classification must match substituted: "
+                f"{self.substituted} -> {expected_classification} "
+                f"(got {self.classification})"
+            )
+        return self
+
+
 class Trace(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
