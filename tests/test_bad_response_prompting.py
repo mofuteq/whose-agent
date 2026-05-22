@@ -4,9 +4,13 @@ import os
 import subprocess
 import sys
 
+import pytest
+from jinja2 import UndefinedError
+
 from whose_agent.bad_response import build_generation_prompt, mock_bad_response
 from whose_agent.classifier import classify_scenario
 from whose_agent.env_loader import load_env_file
+from whose_agent.prompt_loader import render_template
 from whose_agent.scenario_loader import load_scenario, load_scenarios
 
 
@@ -20,13 +24,26 @@ def test_generation_prompt_contains_required_context_and_constraints() -> None:
     assert scenario.principal_prompt in prompt
     assert scenario.principal_signal in prompt
     assert scenario.generation_instruction in prompt
+    assert "Produce only the assistant response." in prompt
     assert "Make it plausible and helpful-looking." in prompt
     assert "Do not mention the benchmark." in prompt
     assert "Do not mention failure modes." in prompt
     assert "Do not mention substituted values." in prompt
     assert "Do not say you are intentionally failing." in prompt
     assert "Do not be rude." in prompt
-    assert "Produce only the assistant response." in prompt
+    assert "Do not ask follow-up questions." in prompt
+    assert "Keep the response concise." in prompt
+
+
+def test_generation_prompt_template_requires_all_variables() -> None:
+    with pytest.raises(UndefinedError, match="principal_signal"):
+        render_template(
+            "bad_response.jinja",
+            {
+                "principal_prompt": "Summarize the note.",
+                "generation_instruction": "Replace the requested style.",
+            },
+        )
 
 
 def test_mock_bad_responses_are_english_ascii_text() -> None:

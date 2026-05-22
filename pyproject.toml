@@ -9,6 +9,7 @@ description = "A minimal negative-space benchmark for principal-bounded delegati
 readme = "README.md"
 requires-python = ">=3.13.13"
 dependencies = [
+  "jinja2>=3.1",
   "pydantic>=2.7",
   "pydantic-ai>=1.0.0",
   "python-dotenv>=1.0.0",
