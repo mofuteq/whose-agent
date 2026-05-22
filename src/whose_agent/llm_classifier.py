@@ -6,6 +6,7 @@ from typing import Any
 from whose_agent.bad_response import DEFAULT_MODEL
 from whose_agent.models import PromptClassification
 from whose_agent.prompt_loader import render_template
+from whose_agent.text_normalization import normalize_llm_text
 
 
 CLASSIFIER_MODEL_SETTINGS: dict[str, float | int] = {
@@ -56,8 +57,8 @@ def classify_prompt(principal_prompt: str) -> PromptClassification:
     classification = PromptClassification.model_validate(output)
     return PromptClassification(
         principal_prompt=principal_prompt,
-        principal_signal=classification.principal_signal,
+        principal_signal=normalize_llm_text(classification.principal_signal),
         substituted=classification.substituted,
         classification=classification.classification,
-        reason=classification.reason,
+        reason=normalize_llm_text(classification.reason),
     )

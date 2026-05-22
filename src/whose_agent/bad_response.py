@@ -4,6 +4,7 @@ import os
 
 from whose_agent.models import Classification, Scenario, TraceSubstituted
 from whose_agent.prompt_loader import render_template
+from whose_agent.text_normalization import normalize_llm_text
 
 
 DEFAULT_MODEL = "openrouter:openai/gpt-4o-mini"
@@ -102,7 +103,7 @@ def generate_bad_response(
         model_settings=BAD_RESPONSE_MODEL_SETTINGS.copy(),
     )
     output = getattr(result, "output", getattr(result, "data", ""))
-    response = str(output).strip()
+    response = normalize_llm_text(str(output))
     if not response:
         raise BadResponseError("OpenRouter returned an empty bad response.")
     return response

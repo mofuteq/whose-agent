@@ -231,6 +231,34 @@ def test_llm_classifier_uses_structured_output_and_low_variance_settings(monkeyp
     assert calls["model_settings"] is not CLASSIFIER_MODEL_SETTINGS
 
 
+def test_llm_classifier_normalizes_generated_text_fields(monkeypatch) -> None:
+    class FakeAgent:
+        def __init__(self, model_name: str, *, output_type: type[PromptClassification]) -> None:
+            pass
+
+        def run_sync(self, prompt: str, *, model_settings: dict[str, float | int]):
+            return SimpleNamespace(
+                output={
+                    "principal_prompt": "Implement a CLI in Rust that counts lines in a file.",
+                    "principal_signal": "  Ｒｕｓｔ　ＣＬＩ  ",
+                    "substituted": "instruction",
+                    "classification": "in_scope",
+                    "reason": "  Full-width reason： ｔｅｓｔ  ",
+                }
+            )
+
+    import pydantic_ai
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("WHOSE_AGENT_MODEL", "openrouter:test/model")
+    monkeypatch.setattr(pydantic_ai, "Agent", FakeAgent)
+
+    classification = classify_prompt("Implement a CLI in Rust that counts lines in a file.")
+
+    assert classification.principal_signal == "Rust CLI"
+    assert classification.reason == "Full-width reason: test"
+
+
 def test_llm_classifier_requires_openrouter_key(monkeypatch) -> None:
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
 

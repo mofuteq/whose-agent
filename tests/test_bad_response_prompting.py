@@ -86,6 +86,28 @@ def test_generate_bad_response_uses_low_variance_model_settings(monkeypatch) -> 
     assert calls["model_settings"] is not BAD_RESPONSE_MODEL_SETTINGS
 
 
+def test_generate_bad_response_normalizes_openrouter_text(monkeypatch) -> None:
+    scenario = load_scenario(ROOT / "scenarios" / "instruction_rust_cli.yaml")
+    classification = classify_scenario(scenario)
+
+    class FakeAgent:
+        def __init__(self, model_name: str) -> None:
+            pass
+
+        def run_sync(self, prompt: str, *, model_settings: dict[str, float | int]):
+            return SimpleNamespace(output="  Ｒｕｓｔ　ＣＬＩ  ")
+
+    import pydantic_ai
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("WHOSE_AGENT_MODEL", "openrouter:test/model")
+    monkeypatch.setattr(pydantic_ai, "Agent", FakeAgent)
+
+    response = generate_bad_response(scenario, classification)
+
+    assert response == "Rust CLI"
+
+
 def test_mock_bad_responses_are_english_ascii_text() -> None:
     for scenario in load_scenarios(ROOT / "scenarios"):
         classification = classify_scenario(scenario)
