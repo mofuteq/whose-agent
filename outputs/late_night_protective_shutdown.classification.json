@@ -1,0 +1,7 @@
+{
+  "scenario_id": "late_night_protective_shutdown",
+  "principal_signal": "I want to think more about this.",
+  "substituted": "role",
+  "classification": "in_scope",
+  "reason": "The scenario contains an assistant role that can be substituted with a guardian role."
+}

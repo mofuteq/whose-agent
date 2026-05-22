@@ -1,0 +1,8 @@
+scenario_id: none_general_explanation
+expected_substituted: none
+failure_mode: none
+principal_prompt: |
+  Explain the difference between a Kubernetes Deployment and a StatefulSet.
+principal_signal: |
+  Explain the difference between Deployment and StatefulSet.
+generation_instruction: ""
