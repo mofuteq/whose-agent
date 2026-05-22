@@ -50,6 +50,9 @@ For an offline deterministic run:
 uv run python -m whose_agent.cli run --scenarios scenarios --outputs outputs --mock
 ```
 
+Each CLI invocation writes generated files into a timestamped run directory under
+the requested output root.
+
 ## Arbitrary prompt path
 
 Fixed scenarios remain the deterministic baseline.

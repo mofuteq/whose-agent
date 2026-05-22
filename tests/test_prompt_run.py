@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -86,12 +87,15 @@ def test_none_prompt_run_writes_classification_json_and_flow_only(tmp_path: Path
         "Wrote 1 classification files, 0 response files, 0 trace files, "
         "and 1 flow files."
     ) in completed.stdout
-    classification_files = list(tmp_path.glob("*.classification.json"))
-    flow_files = list(tmp_path.glob("*.flow.mmd"))
+    run_dir = single_run_dir(tmp_path)
+    assert f"Wrote outputs to {run_dir}" in completed.stdout
+
+    classification_files = list(run_dir.glob("*.classification.json"))
+    flow_files = list(run_dir.glob("*.flow.mmd"))
     assert len(classification_files) == 1
     assert len(flow_files) == 1
-    assert list(tmp_path.glob("*.response.md")) == []
-    assert list(tmp_path.glob("*.trace.json")) == []
+    assert list(run_dir.glob("*.response.md")) == []
+    assert list(run_dir.glob("*.trace.json")) == []
 
     classification = json.loads(classification_files[0].read_text(encoding="utf-8"))
     assert set(classification) == {
@@ -115,10 +119,13 @@ def test_in_scope_prompt_run_writes_classification_response_trace_and_flow(tmp_p
         "Wrote 1 classification files, 1 response files, 1 trace files, "
         "and 1 flow files."
     ) in completed.stdout
-    classification_files = list(tmp_path.glob("*.classification.json"))
-    response_files = list(tmp_path.glob("*.response.md"))
-    trace_files = list(tmp_path.glob("*.trace.json"))
-    flow_files = list(tmp_path.glob("*.flow.mmd"))
+    run_dir = single_run_dir(tmp_path)
+    assert f"Wrote outputs to {run_dir}" in completed.stdout
+
+    classification_files = list(run_dir.glob("*.classification.json"))
+    response_files = list(run_dir.glob("*.response.md"))
+    trace_files = list(run_dir.glob("*.trace.json"))
+    flow_files = list(run_dir.glob("*.flow.mmd"))
     assert len(classification_files) == 1
     assert len(response_files) == 1
     assert len(trace_files) == 1
@@ -253,3 +260,12 @@ def run_prompt_cli(prompt: str, outputs: Path) -> subprocess.CompletedProcess[st
         capture_output=True,
         text=True,
     )
+
+
+def single_run_dir(outputs: Path) -> Path:
+    entries = list(outputs.iterdir())
+    run_dirs = [entry for entry in entries if entry.is_dir()]
+    assert len(run_dirs) == 1
+    assert entries == run_dirs
+    assert re.fullmatch(r"\d{8}T\d{6}Z(?:-\d{3})?", run_dirs[0].name)
+    return run_dirs[0]
