@@ -10,9 +10,11 @@ from pydantic import BaseModel
 from whose_agent.bad_response import BadResponseError, generate_bad_response
 from whose_agent.classifier import classify_scenario
 from whose_agent.env_loader import load_env_file
+from whose_agent.flow_emitter import emit_prompt_flow
 from whose_agent.llm_classifier import PromptClassifierError, classify_prompt
 from whose_agent.models import Classification, Trace
 from whose_agent.prompt_run import build_prompt_run, mock_classify_prompt, to_scenario_classification
+from whose_agent.run_directory import create_run_directory
 from whose_agent.scenario_loader import load_scenarios
 from whose_agent.trace_emitter import emit_trace
 
@@ -32,8 +34,7 @@ def run_command(args: argparse.Namespace) -> int:
     load_env_file(Path(args.env_file))
 
     scenarios_dir = Path(args.scenarios)
-    outputs_dir = Path(args.outputs)
-    outputs_dir.mkdir(parents=True, exist_ok=True)
+    run_dir = create_run_directory(Path(args.outputs))
 
     scenarios = load_scenarios(scenarios_dir)
     classification_count = 0
@@ -42,20 +43,21 @@ def run_command(args: argparse.Namespace) -> int:
 
     for scenario in scenarios:
         classification: Classification = classify_scenario(scenario)
-        write_model_json(outputs_dir / f"{scenario.scenario_id}.classification.json", classification)
+        write_model_json(run_dir / f"{scenario.scenario_id}.classification.json", classification)
         classification_count += 1
 
         if classification.classification == "out_of_scope":
             continue
 
         bad_response = generate_bad_response(scenario, classification, mock=args.mock)
-        write_text(outputs_dir / f"{scenario.scenario_id}.response.md", bad_response)
+        write_text(run_dir / f"{scenario.scenario_id}.response.md", bad_response)
         response_count += 1
 
         trace: Trace = emit_trace(scenario, classification, bad_response)
-        write_model_json(outputs_dir / f"{scenario.scenario_id}.trace.json", trace)
+        write_model_json(run_dir / f"{scenario.scenario_id}.trace.json", trace)
         trace_count += 1
 
+    print(f"Wrote outputs to {run_dir}")
     print(
         "Wrote "
         f"{classification_count} classification files, "
@@ -68,8 +70,7 @@ def run_command(args: argparse.Namespace) -> int:
 def run_prompt_command(args: argparse.Namespace) -> int:
     load_env_file(Path(args.env_file))
 
-    outputs_dir = Path(args.outputs)
-    outputs_dir.mkdir(parents=True, exist_ok=True)
+    run_dir = create_run_directory(Path(args.outputs))
 
     prompt = args.prompt
     prompt_classification = (
@@ -77,12 +78,17 @@ def run_prompt_command(args: argparse.Namespace) -> int:
     )
     prompt_run = build_prompt_run(prompt, prompt_classification)
     write_model_json(
-        outputs_dir / f"{prompt_run.scenario_id}.classification.json",
+        run_dir / f"{prompt_run.scenario_id}.classification.json",
         prompt_run.classification,
+    )
+    write_text(
+        run_dir / f"{prompt_run.scenario_id}.flow.mmd",
+        emit_prompt_flow(prompt_run),
     )
 
     response_count = 0
     trace_count = 0
+    flow_count = 1
     if prompt_run.scenario is not None:
         classification = to_scenario_classification(
             prompt_run.scenario,
@@ -93,18 +99,20 @@ def run_prompt_command(args: argparse.Namespace) -> int:
             classification,
             mock=args.mock,
         )
-        write_text(outputs_dir / f"{prompt_run.scenario_id}.response.md", bad_response)
+        write_text(run_dir / f"{prompt_run.scenario_id}.response.md", bad_response)
         response_count = 1
 
         trace: Trace = emit_trace(prompt_run.scenario, classification, bad_response)
-        write_model_json(outputs_dir / f"{prompt_run.scenario_id}.trace.json", trace)
+        write_model_json(run_dir / f"{prompt_run.scenario_id}.trace.json", trace)
         trace_count = 1
 
+    print(f"Wrote outputs to {run_dir}")
     print(
         "Wrote "
         "1 classification files, "
-        f"{response_count} response files, and "
-        f"{trace_count} trace files."
+        f"{response_count} response files, "
+        f"{trace_count} trace files, and "
+        f"{flow_count} flow files."
     )
     return 0
 

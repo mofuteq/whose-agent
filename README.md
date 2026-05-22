@@ -50,6 +50,9 @@ For an offline deterministic run:
 uv run python -m whose_agent.cli run --scenarios scenarios --outputs outputs --mock
 ```
 
+Each CLI invocation writes generated files into a timestamped run directory under
+the requested output root.
+
 ## Arbitrary prompt path
 
 Fixed scenarios remain the deterministic baseline.
@@ -57,6 +60,8 @@ Fixed scenarios remain the deterministic baseline.
 For exploratory runs, `run-prompt` classifies an arbitrary principal prompt into the same
 `substituted` axis and, when in scope, produces a poor e2e trace.
 Classification may use an LLM, but failure mode mapping and trace emission remain deterministic.
+`run-prompt` also emits a `.flow.mmd` Mermaid artifact that summarizes the execution path.
+The flow shows the pipeline path, not hidden reasoning.
 
 ```bash
 uv run python -m whose_agent.cli run-prompt \

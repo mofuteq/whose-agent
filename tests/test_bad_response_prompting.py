@@ -18,6 +18,7 @@ from whose_agent.classifier import classify_scenario
 from whose_agent.env_loader import load_env_file
 from whose_agent.prompt_loader import render_template
 from whose_agent.scenario_loader import load_scenario, load_scenarios
+from tests.helpers import single_run_dir
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -85,6 +86,28 @@ def test_generate_bad_response_uses_low_variance_model_settings(monkeypatch) -> 
     assert calls["model_settings"] is not BAD_RESPONSE_MODEL_SETTINGS
 
 
+def test_generate_bad_response_normalizes_openrouter_text(monkeypatch) -> None:
+    scenario = load_scenario(ROOT / "scenarios" / "instruction_rust_cli.yaml")
+    classification = classify_scenario(scenario)
+
+    class FakeAgent:
+        def __init__(self, model_name: str) -> None:
+            pass
+
+        def run_sync(self, prompt: str, *, model_settings: dict[str, float | int]):
+            return SimpleNamespace(output="  Ｒｕｓｔ　ＣＬＩ  ")
+
+    import pydantic_ai
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("WHOSE_AGENT_MODEL", "openrouter:test/model")
+    monkeypatch.setattr(pydantic_ai, "Agent", FakeAgent)
+
+    response = generate_bad_response(scenario, classification)
+
+    assert response == "Rust CLI"
+
+
 def test_mock_bad_responses_are_english_ascii_text() -> None:
     for scenario in load_scenarios(ROOT / "scenarios"):
         classification = classify_scenario(scenario)
@@ -150,12 +173,14 @@ def test_cli_mock_mode_produces_expected_outputs(tmp_path: Path) -> None:
     env["PYTHONPATH"] = str(ROOT / "src")
     completed = subprocess.run(command, cwd=ROOT, env=env, check=True, capture_output=True, text=True)
 
+    run_dir = single_run_dir(tmp_path)
+    assert f"Wrote outputs to {run_dir}" in completed.stdout
     assert "Wrote 6 classification files, 4 response files, and 4 trace files." in completed.stdout
-    assert len(list(tmp_path.glob("*.classification.json"))) == 6
-    assert len(list(tmp_path.glob("*.response.md"))) == 4
-    assert len(list(tmp_path.glob("*.trace.json"))) == 4
+    assert len(list(run_dir.glob("*.classification.json"))) == 6
+    assert len(list(run_dir.glob("*.response.md"))) == 4
+    assert len(list(run_dir.glob("*.trace.json"))) == 4
 
-    for path in tmp_path.glob("*.trace.json"):
+    for path in run_dir.glob("*.trace.json"):
         trace = json.loads(path.read_text(encoding="utf-8"))
         assert trace["substituted"] in {"instruction", "authority", "role", "model"}
         assert trace["substituted"] != "none"
