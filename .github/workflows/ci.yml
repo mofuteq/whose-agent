@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Run tests
+        run: uv run pytest
+
+      - name: Run deterministic mock CLI
+        run: uv run python -m whose_agent.cli run --scenarios scenarios --outputs outputs --mock
+
+      - name: Verify generated output counts
+        shell: bash
+        run: |
+          classification_count="$(find outputs -maxdepth 1 -name '*.classification.json' | wc -l | tr -d ' ')"
+          response_count="$(find outputs -maxdepth 1 -name '*.response.md' | wc -l | tr -d ' ')"
+          trace_count="$(find outputs -maxdepth 1 -name '*.trace.json' | wc -l | tr -d ' ')"
+
+          if [[ "$classification_count" != "6" ]]; then
+            echo "Expected 6 classification files, got $classification_count"
+            exit 1
+          fi
+
+          if [[ "$response_count" != "4" ]]; then
+            echo "Expected 4 response files, got $response_count"
+            exit 1
+          fi
+
+          if [[ "$trace_count" != "4" ]]; then
+            echo "Expected 4 trace files, got $trace_count"
+            exit 1
+          fi
+
+      - name: Verify generated outputs are untracked
+        shell: bash
+        run: |
+          tracked_outputs="$(git ls-files 'outputs/*.classification.json' 'outputs/*.response.md' 'outputs/*.trace.json')"
+          if [[ -n "$tracked_outputs" ]]; then
+            echo "Generated outputs are tracked:"
+            echo "$tracked_outputs"
+            exit 1
+          fi
