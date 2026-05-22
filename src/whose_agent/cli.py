@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from whose_agent.bad_response import BadResponseError, generate_bad_response
 from whose_agent.classifier import classify_scenario
 from whose_agent.env_loader import load_env_file
+from whose_agent.flow_emitter import emit_prompt_flow
 from whose_agent.llm_classifier import PromptClassifierError, classify_prompt
 from whose_agent.models import Classification, Trace
 from whose_agent.prompt_run import build_prompt_run, mock_classify_prompt, to_scenario_classification
@@ -80,9 +81,14 @@ def run_prompt_command(args: argparse.Namespace) -> int:
         outputs_dir / f"{prompt_run.scenario_id}.classification.json",
         prompt_run.classification,
     )
+    write_text(
+        outputs_dir / f"{prompt_run.scenario_id}.flow.mmd",
+        emit_prompt_flow(prompt_run),
+    )
 
     response_count = 0
     trace_count = 0
+    flow_count = 1
     if prompt_run.scenario is not None:
         classification = to_scenario_classification(
             prompt_run.scenario,
@@ -103,8 +109,9 @@ def run_prompt_command(args: argparse.Namespace) -> int:
     print(
         "Wrote "
         "1 classification files, "
-        f"{response_count} response files, and "
-        f"{trace_count} trace files."
+        f"{response_count} response files, "
+        f"{trace_count} trace files, and "
+        f"{flow_count} flow files."
     )
     return 0
 

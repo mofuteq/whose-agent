@@ -15,6 +15,7 @@ from whose_agent.llm_classifier import (
     PromptClassifierError,
     classify_prompt,
 )
+from whose_agent.flow_emitter import emit_prompt_flow
 from whose_agent.models import PromptClassification
 from whose_agent.prompt_loader import render_template
 from whose_agent.prompt_run import (
@@ -75,15 +76,20 @@ def test_prompt_run_builds_deterministic_synthetic_scenario() -> None:
     )
 
 
-def test_none_prompt_run_writes_classification_json_only(tmp_path: Path) -> None:
+def test_none_prompt_run_writes_classification_json_and_flow_only(tmp_path: Path) -> None:
     completed = run_prompt_cli(
         "Explain the difference between Deployment and StatefulSet.",
         tmp_path,
     )
 
-    assert "Wrote 1 classification files, 0 response files, and 0 trace files." in completed.stdout
+    assert (
+        "Wrote 1 classification files, 0 response files, 0 trace files, "
+        "and 1 flow files."
+    ) in completed.stdout
     classification_files = list(tmp_path.glob("*.classification.json"))
+    flow_files = list(tmp_path.glob("*.flow.mmd"))
     assert len(classification_files) == 1
+    assert len(flow_files) == 1
     assert list(tmp_path.glob("*.response.md")) == []
     assert list(tmp_path.glob("*.trace.json")) == []
 
@@ -99,19 +105,24 @@ def test_none_prompt_run_writes_classification_json_only(tmp_path: Path) -> None
     assert classification["classification"] == "out_of_scope"
 
 
-def test_in_scope_prompt_run_writes_classification_response_and_trace(tmp_path: Path) -> None:
+def test_in_scope_prompt_run_writes_classification_response_trace_and_flow(tmp_path: Path) -> None:
     completed = run_prompt_cli(
         "Implement a CLI in Rust that counts lines in a file.",
         tmp_path,
     )
 
-    assert "Wrote 1 classification files, 1 response files, and 1 trace files." in completed.stdout
+    assert (
+        "Wrote 1 classification files, 1 response files, 1 trace files, "
+        "and 1 flow files."
+    ) in completed.stdout
     classification_files = list(tmp_path.glob("*.classification.json"))
     response_files = list(tmp_path.glob("*.response.md"))
     trace_files = list(tmp_path.glob("*.trace.json"))
+    flow_files = list(tmp_path.glob("*.flow.mmd"))
     assert len(classification_files) == 1
     assert len(response_files) == 1
     assert len(trace_files) == 1
+    assert len(flow_files) == 1
 
     classification = json.loads(classification_files[0].read_text(encoding="utf-8"))
     trace = json.loads(trace_files[0].read_text(encoding="utf-8"))
@@ -121,6 +132,45 @@ def test_in_scope_prompt_run_writes_classification_response_and_trace(tmp_path: 
     assert trace["scenario_id"].startswith("prompt_")
     assert trace["substituted"] == "instruction"
     assert trace["failure_mode"] == "constraint_override"
+
+
+def test_in_scope_prompt_flow_contains_execution_path() -> None:
+    prompt = "Implement a CLI in Rust that counts lines in a file."
+    prompt_run = build_prompt_run(prompt, mock_classify_prompt(prompt))
+
+    flow = emit_prompt_flow(prompt_run)
+
+    assert "flowchart TD" in flow
+    assert "Classify substituted" in flow
+    assert "substituted: instruction" in flow
+    assert "failure_mode: constraint_override" in flow
+    assert "Build synthetic Scenario" in flow
+    assert "Generate bad response" in flow
+    assert "Emit deterministic trace" in flow
+    assert "Trace JSON" in flow
+
+
+def test_out_of_scope_prompt_flow_contains_classification_only_path() -> None:
+    prompt = "Explain the difference between Deployment and StatefulSet."
+    prompt_run = build_prompt_run(prompt, mock_classify_prompt(prompt))
+
+    flow = emit_prompt_flow(prompt_run)
+
+    assert "flowchart TD" in flow
+    assert "Classify substituted" in flow
+    assert "substituted: none" in flow
+    assert "Out of scope" in flow
+    assert "Classification JSON only" in flow
+    assert "Generate bad response" not in flow
+    assert "Emit deterministic trace" not in flow
+    assert "Trace JSON" not in flow
+
+
+def test_prompt_flow_emission_is_deterministic() -> None:
+    prompt = "Implement a CLI in Rust that counts lines in a file."
+    prompt_run = build_prompt_run(prompt, mock_classify_prompt(prompt))
+
+    assert emit_prompt_flow(prompt_run) == emit_prompt_flow(prompt_run)
 
 
 def test_classifier_prompt_uses_strict_undefined_and_includes_prompt() -> None:
