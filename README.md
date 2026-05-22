@@ -9,7 +9,7 @@ whose-agent is a minimal negative-space benchmark for principal-bounded delegati
 
 This is not a general agent UX benchmark.
 This is not a tool-use benchmark.
-This is not an irritating-agent simulator.
+This is not a general chatbot behavior simulator.
 
 ## v0.1 axis
 
