@@ -184,3 +184,5 @@ def test_cli_mock_mode_produces_expected_outputs(tmp_path: Path) -> None:
         trace = json.loads(path.read_text(encoding="utf-8"))
         assert trace["substituted"] in {"instruction", "authority", "role", "model"}
         assert trace["substituted"] != "none"
+        assert trace["reflection_substituted"] in {"instruction", "authority", "role", "model"}
+        assert trace["reflection_substituted"] == trace["substituted"]

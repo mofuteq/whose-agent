@@ -18,6 +18,7 @@ REQUIRED_TRACE_FIELDS = {
     "divergence_point",
     "why_it_breaks_delegation",
     "better_behavior",
+    "reflection_substituted",
 }
 TRACE_SUBSTITUTED_VALUES = {"instruction", "authority", "role", "model"}
 
@@ -30,11 +31,11 @@ def test_trace_json_is_emitted_only_for_in_scope_scenarios() -> None:
         classification = classify_scenario(scenario)
         if classification.classification == "out_of_scope":
             with pytest.raises(TraceNotApplicableError):
-                emit_trace(scenario, classification, "No trace should be emitted.")
+                emit_trace(scenario, classification, "No trace should be emitted.", mock=True)
             skipped.append(scenario.scenario_id)
             continue
 
-        traces.append(emit_trace(scenario, classification, mock_bad_response(classification)))
+        traces.append(emit_trace(scenario, classification, mock_bad_response(classification), mock=True))
 
     assert len(traces) == 4
     assert len(skipped) == 2
@@ -47,9 +48,20 @@ def test_trace_json_contains_required_fields_and_no_none_substituted() -> None:
             assert classification.substituted == "none"
             continue
 
-        trace = emit_trace(scenario, classification, mock_bad_response(classification))
+        trace = emit_trace(scenario, classification, mock_bad_response(classification), mock=True)
         dumped = trace.model_dump()
 
         assert set(dumped) == REQUIRED_TRACE_FIELDS
         assert trace.substituted in TRACE_SUBSTITUTED_VALUES
         assert trace.substituted != "none"
+
+
+def test_mock_trace_reflection_substituted_matches_classification() -> None:
+    for scenario in load_scenarios(ROOT / "scenarios"):
+        classification = classify_scenario(scenario)
+        if classification.classification == "out_of_scope":
+            continue
+
+        trace = emit_trace(scenario, classification, mock_bad_response(classification), mock=True)
+
+        assert trace.reflection_substituted == classification.substituted

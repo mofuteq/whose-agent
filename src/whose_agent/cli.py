@@ -14,6 +14,7 @@ from whose_agent.flow_emitter import emit_prompt_flow
 from whose_agent.llm_classifier import PromptClassifierError, classify_prompt
 from whose_agent.models import Classification, Trace
 from whose_agent.prompt_run import build_prompt_run, mock_classify_prompt, to_scenario_classification
+from whose_agent.reflection import ReflectionError
 from whose_agent.run_directory import create_run_directory
 from whose_agent.scenario_loader import load_scenarios
 from whose_agent.trace_emitter import emit_trace
@@ -53,7 +54,7 @@ def run_command(args: argparse.Namespace) -> int:
         write_text(run_dir / f"{scenario.scenario_id}.response.md", bad_response)
         response_count += 1
 
-        trace: Trace = emit_trace(scenario, classification, bad_response)
+        trace: Trace = emit_trace(scenario, classification, bad_response, mock=args.mock)
         write_model_json(run_dir / f"{scenario.scenario_id}.trace.json", trace)
         trace_count += 1
 
@@ -102,7 +103,7 @@ def run_prompt_command(args: argparse.Namespace) -> int:
         write_text(run_dir / f"{prompt_run.scenario_id}.response.md", bad_response)
         response_count = 1
 
-        trace: Trace = emit_trace(prompt_run.scenario, classification, bad_response)
+        trace: Trace = emit_trace(prompt_run.scenario, classification, bad_response, mock=args.mock)
         write_model_json(run_dir / f"{prompt_run.scenario_id}.trace.json", trace)
         trace_count = 1
 
@@ -142,7 +143,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return args.func(args)
-    except (BadResponseError, PromptClassifierError) as exc:
+    except (BadResponseError, PromptClassifierError, ReflectionError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
