@@ -9,9 +9,10 @@ whose-agent is a minimal negative-space benchmark for principal-bounded delegati
 
 This is not a general agent UX benchmark.
 This is not a tool-use benchmark.
-This is not a general chatbot behavior simulator.
+This is not an autonomous agent runtime.
+This is not a State Loop.
 
-## v0.1 axis
+## Substitution axis
 
 | substituted | failure mode | substitution |
 |---|---|---|
@@ -19,6 +20,44 @@ This is not a general chatbot behavior simulator.
 | authority | unauthorized_autonomy | agent assumes authority the principal did not delegate |
 | role | protective_shutdown | agent substitutes assistant role with guardian role |
 | model | persona_hallucination | agent substitutes the principal with a hallucinated model |
+
+## Pipeline
+
+```
+fixed scenario / prompt
+  -> classification
+  -> bad response generation
+  -> thesis-based reflection
+  -> trace.json
+  -> linear boundary state transition trace
+```
+
+The hand-written thesis is fixed. It is not generated or rewritten by the model.
+
+## Artifacts
+
+**`.classification.json`**
+Classification artifact. Records the substituted axis, classification kind, principal signal, and reason.
+
+**`.response.md`**
+Generated bad response for in-scope scenarios. Exhibits the expected substitution.
+
+**`.trace.json`**
+Benchmark trace artifact. Contains: substituted axis, failure mode, bad response, divergence point, `why_it_breaks_delegation`, `better_behavior`, and `reflection_substituted` — all grounded in the fixed thesis.
+
+**`.state_trace.json`**
+Linear boundary state transition artifact. Records each transition step with the full `BoundaryState` snapshot:
+
+```
+initialize_boundary_state
+apply_bad_response
+apply_reflection
+update_boundary_state
+finalize_boundary_state
+```
+
+**`.flow.mmd`**
+Mermaid flow artifact for the `run-prompt` path. Shows the pipeline path, not hidden reasoning.
 
 ## Usage
 
@@ -50,6 +89,12 @@ For an offline deterministic run:
 uv run python -m whose_agent.cli run --scenarios scenarios --outputs outputs --mock
 ```
 
+`--mock` is offline and deterministic. It does not require OpenRouter credentials.
+It preserves deterministic bad response and reflection behavior for reproducible CI.
+
+In non-mock runs, bad response generation and thesis-based reflection use OpenRouter through Pydantic AI.
+In mock runs, all outputs remain deterministic.
+
 Each CLI invocation writes generated files into a timestamped run directory under
 the requested output root.
 
@@ -58,10 +103,15 @@ the requested output root.
 Fixed scenarios remain the deterministic baseline.
 
 For exploratory runs, `run-prompt` classifies an arbitrary principal prompt into the same
-`substituted` axis and, when in scope, produces a poor e2e trace.
-Classification may use an LLM, but failure mode mapping and trace emission remain deterministic.
+substituted axis and, when in scope, produces a bad response, trace, and state trace.
+Classification may use an LLM. Failure-mode mapping remains deterministic.
+In non-mock runs, bad response generation and reflection may use OpenRouter.
+In mock runs, outputs remain deterministic.
+
 `run-prompt` also emits a `.flow.mmd` Mermaid artifact that summarizes the execution path.
 The flow shows the pipeline path, not hidden reasoning.
+
+Out-of-scope prompts produce only `.classification.json` and `.flow.mmd`.
 
 ```bash
 uv run python -m whose_agent.cli run-prompt \
@@ -69,3 +119,12 @@ uv run python -m whose_agent.cli run-prompt \
   --outputs outputs \
   --mock
 ```
+
+## Out of scope for the current version
+
+- tool execution
+- multi-turn interaction
+- ask_user / authority restoration interrupt
+- State Loop
+- LangGraph loops
+- Langfuse observability
