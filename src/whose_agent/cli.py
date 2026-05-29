@@ -8,6 +8,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from whose_agent.bad_response import BadResponseError, generate_bad_response
+from whose_agent.boundary_state.trace import BoundaryStateTrace, emit_state_trace
 from whose_agent.classifier import classify_scenario
 from whose_agent.env_loader import load_env_file
 from whose_agent.flow_emitter import emit_prompt_flow
@@ -41,6 +42,7 @@ def run_command(args: argparse.Namespace) -> int:
     classification_count = 0
     response_count = 0
     trace_count = 0
+    state_trace_count = 0
 
     for scenario in scenarios:
         classification: Classification = classify_scenario(scenario)
@@ -58,12 +60,19 @@ def run_command(args: argparse.Namespace) -> int:
         write_model_json(run_dir / f"{scenario.scenario_id}.trace.json", trace)
         trace_count += 1
 
+        state_trace: BoundaryStateTrace = emit_state_trace(
+            scenario, classification, bad_response, mock=args.mock
+        )
+        write_model_json(run_dir / f"{scenario.scenario_id}.state_trace.json", state_trace)
+        state_trace_count += 1
+
     print(f"Wrote outputs to {run_dir}")
     print(
         "Wrote "
         f"{classification_count} classification files, "
-        f"{response_count} response files, and "
-        f"{trace_count} trace files."
+        f"{response_count} response files, "
+        f"{trace_count} trace files, and "
+        f"{state_trace_count} state trace files."
     )
     return 0
 
@@ -90,6 +99,7 @@ def run_prompt_command(args: argparse.Namespace) -> int:
     response_count = 0
     trace_count = 0
     flow_count = 1
+    state_trace_count = 0
     if prompt_run.scenario is not None:
         classification = to_scenario_classification(
             prompt_run.scenario,
@@ -107,13 +117,20 @@ def run_prompt_command(args: argparse.Namespace) -> int:
         write_model_json(run_dir / f"{prompt_run.scenario_id}.trace.json", trace)
         trace_count = 1
 
+        state_trace: BoundaryStateTrace = emit_state_trace(
+            prompt_run.scenario, classification, bad_response, mock=args.mock
+        )
+        write_model_json(run_dir / f"{prompt_run.scenario_id}.state_trace.json", state_trace)
+        state_trace_count = 1
+
     print(f"Wrote outputs to {run_dir}")
     print(
         "Wrote "
         "1 classification files, "
         f"{response_count} response files, "
-        f"{trace_count} trace files, and "
-        f"{flow_count} flow files."
+        f"{trace_count} trace files, "
+        f"{flow_count} flow files, and "
+        f"{state_trace_count} state trace files."
     )
     return 0
 

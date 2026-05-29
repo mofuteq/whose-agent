@@ -85,7 +85,7 @@ def test_none_prompt_run_writes_classification_json_and_flow_only(tmp_path: Path
 
     assert (
         "Wrote 1 classification files, 0 response files, 0 trace files, "
-        "and 1 flow files."
+        "1 flow files, and 0 state trace files."
     ) in completed.stdout
     run_dir = single_run_dir(tmp_path)
     assert f"Wrote outputs to {run_dir}" in completed.stdout
@@ -117,19 +117,21 @@ def test_in_scope_prompt_run_writes_classification_response_trace_and_flow(tmp_p
 
     assert (
         "Wrote 1 classification files, 1 response files, 1 trace files, "
-        "and 1 flow files."
+        "1 flow files, and 1 state trace files."
     ) in completed.stdout
     run_dir = single_run_dir(tmp_path)
     assert f"Wrote outputs to {run_dir}" in completed.stdout
 
     classification_files = list(run_dir.glob("*.classification.json"))
     response_files = list(run_dir.glob("*.response.md"))
-    trace_files = list(run_dir.glob("*.trace.json"))
+    trace_files = [f for f in run_dir.glob("*.trace.json") if not f.name.endswith(".state_trace.json")]
     flow_files = list(run_dir.glob("*.flow.mmd"))
+    state_trace_files = list(run_dir.glob("*.state_trace.json"))
     assert len(classification_files) == 1
     assert len(response_files) == 1
     assert len(trace_files) == 1
     assert len(flow_files) == 1
+    assert len(state_trace_files) == 1
 
     classification = json.loads(classification_files[0].read_text(encoding="utf-8"))
     trace = json.loads(trace_files[0].read_text(encoding="utf-8"))

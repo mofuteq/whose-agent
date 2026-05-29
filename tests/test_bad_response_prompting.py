@@ -175,12 +175,14 @@ def test_cli_mock_mode_produces_expected_outputs(tmp_path: Path) -> None:
 
     run_dir = single_run_dir(tmp_path)
     assert f"Wrote outputs to {run_dir}" in completed.stdout
-    assert "Wrote 6 classification files, 4 response files, and 4 trace files." in completed.stdout
+    assert "Wrote 6 classification files, 4 response files, 4 trace files, and 4 state trace files." in completed.stdout
     assert len(list(run_dir.glob("*.classification.json"))) == 6
     assert len(list(run_dir.glob("*.response.md"))) == 4
-    assert len(list(run_dir.glob("*.trace.json"))) == 4
+    assert len([f for f in run_dir.glob("*.trace.json") if not f.name.endswith(".state_trace.json")]) == 4
 
     for path in run_dir.glob("*.trace.json"):
+        if path.name.endswith(".state_trace.json"):
+            continue
         trace = json.loads(path.read_text(encoding="utf-8"))
         assert trace["substituted"] in {"instruction", "authority", "role", "model"}
         assert trace["substituted"] != "none"
