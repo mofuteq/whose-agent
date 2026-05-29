@@ -102,6 +102,14 @@ class PromptClassification(BaseModel):
         return self
 
 
+class Reflection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reflection_substituted: TraceSubstituted
+    why_it_breaks_delegation: list[str]
+    better_behavior: list[str]
+
+
 class Trace(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -113,3 +121,4 @@ class Trace(BaseModel):
     divergence_point: str
     why_it_breaks_delegation: list[str]
     better_behavior: list[str]
+    reflection_substituted: TraceSubstituted

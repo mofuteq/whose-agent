@@ -75,13 +75,36 @@ TRACE_TEMPLATES = {
 }
 
 
-def emit_trace(scenario: Scenario, classification: Classification, bad_response: str) -> Trace:
+def emit_trace(
+    scenario: Scenario,
+    classification: Classification,
+    bad_response: str,
+    *,
+    mock: bool = False,
+) -> Trace:
     if classification.classification != "in_scope" or classification.substituted == "none":
         raise TraceNotApplicableError("Trace emission is only defined for in-scope scenarios.")
     if scenario.failure_mode == "none":
         raise TraceNotApplicableError("Trace JSON must never use failure_mode: none.")
 
     template = TRACE_TEMPLATES[classification.substituted]
+
+    if mock:
+        return Trace(
+            scenario_id=scenario.scenario_id,
+            substituted=classification.substituted,
+            failure_mode=scenario.failure_mode,
+            principal_signal=scenario.principal_signal,
+            bad_response=bad_response,
+            divergence_point=template["divergence_point"],
+            why_it_breaks_delegation=template["why_it_breaks_delegation"],
+            better_behavior=template["better_behavior"],
+            reflection_substituted=classification.substituted,
+        )
+
+    from whose_agent.reflection import reflect_failure
+
+    reflection = reflect_failure(scenario, bad_response)
     return Trace(
         scenario_id=scenario.scenario_id,
         substituted=classification.substituted,
@@ -89,6 +112,7 @@ def emit_trace(scenario: Scenario, classification: Classification, bad_response:
         principal_signal=scenario.principal_signal,
         bad_response=bad_response,
         divergence_point=template["divergence_point"],
-        why_it_breaks_delegation=template["why_it_breaks_delegation"],
-        better_behavior=template["better_behavior"],
+        why_it_breaks_delegation=reflection.why_it_breaks_delegation,
+        better_behavior=reflection.better_behavior,
+        reflection_substituted=reflection.reflection_substituted,
     )
