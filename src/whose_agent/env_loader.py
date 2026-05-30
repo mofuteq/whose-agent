@@ -6,7 +6,13 @@ from pathlib import Path
 from dotenv import dotenv_values
 
 
-ENV_KEYS = {"OPENROUTER_API_KEY", "WHOSE_AGENT_MODEL"}
+ENV_KEYS = {
+    "OPENROUTER_API_KEY",
+    "WHOSE_AGENT_MODEL",
+    "LANGFUSE_PUBLIC_KEY",
+    "LANGFUSE_SECRET_KEY",
+    "LANGFUSE_HOST",
+}
 
 
 def load_env_file(path: Path = Path(".env"), *, override: bool = False) -> dict[str, str]:

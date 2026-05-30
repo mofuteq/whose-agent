@@ -120,6 +120,22 @@ uv run python -m whose_agent.cli run-prompt \
   --mock
 ```
 
+## Optional Langfuse observability
+
+`whose-agent` can emit coarse-grained observability events to Langfuse when configured.
+
+Set:
+
+```bash
+LANGFUSE_PUBLIC_KEY=
+LANGFUSE_SECRET_KEY=
+LANGFUSE_HOST=
+```
+
+If Langfuse credentials are not configured, observability is a no-op and the CLI behaves normally.
+
+Langfuse is used only for artifact-safe metadata such as scenario IDs, substituted axes, failure modes, boundary flags, and transition outcomes. It does not change benchmark execution.
+
 ## Out of scope for the current version
 
 - tool execution
@@ -127,4 +143,3 @@ uv run python -m whose_agent.cli run-prompt \
 - ask_user / authority restoration interrupt
 - State Loop
 - LangGraph loops
-- Langfuse observability
