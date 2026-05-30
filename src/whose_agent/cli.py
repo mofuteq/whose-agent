@@ -16,7 +16,7 @@ from whose_agent.env_loader import load_env_file
 from whose_agent.flow_emitter import emit_prompt_flow
 from whose_agent.llm_classifier import PromptClassifierError, classify_prompt_with_usage
 from whose_agent.llm_result import LLMCallResult
-from whose_agent.models import Classification, Trace
+from whose_agent.models import Classification, Scenario, Trace
 from whose_agent.prompt_run import build_prompt_run, mock_classify_prompt
 from whose_agent.reflection import ReflectionError
 from whose_agent.run_directory import create_run_directory
@@ -34,6 +34,23 @@ def write_model_json(path: Path, model: BaseModel) -> None:
 
 def write_text(path: Path, text: str) -> None:
     path.write_text(text.rstrip() + "\n", encoding="utf-8")
+
+
+def sanitized_prompt_input(prompt: str) -> dict[str, Any]:
+    return {
+        "principal_prompt_length": len(prompt),
+        "principal_prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
+    }
+
+
+def sanitized_scenario_input(scenario: Scenario, **extra: Any) -> dict[str, Any]:
+    return {
+        "scenario_id": scenario.scenario_id,
+        "failure_mode": scenario.failure_mode,
+        "expected_substituted": scenario.expected_substituted,
+        **sanitized_prompt_input(scenario.principal_prompt),
+        **extra,
+    }
 
 
 def update_span_with_llm_call(
@@ -86,6 +103,7 @@ def run_command(args: argparse.Namespace) -> int:
                 "scenario_id": scenario.scenario_id,
                 "expected_substituted": scenario.expected_substituted,
             },
+            input=sanitized_scenario_input(scenario),
         ) as span:
             classification: Classification = classify_scenario(scenario)
             span.update(
@@ -98,16 +116,19 @@ def run_command(args: argparse.Namespace) -> int:
         classification_count += 1
 
         if classification.classification == "out_of_scope":
+            artifact_names = [f"{scenario.scenario_id}.classification.json"]
             with tracer.span(
                 name="write_artifacts",
                 metadata={
                     "scenario_id": scenario.scenario_id,
-                    "artifact_names": [f"{scenario.scenario_id}.classification.json"],
+                    "artifact_names": artifact_names,
                 },
-            ):
+                input={"scenario_id": scenario.scenario_id, "artifact_names": artifact_names},
+            ) as span:
                 write_model_json(
                     run_dir / f"{scenario.scenario_id}.classification.json", classification
                 )
+                span.update(output={"artifact_count": len(artifact_names)})
             continue
 
         bad_response_observation = tracer.span if args.mock else tracer.generation
@@ -118,6 +139,12 @@ def run_command(args: argparse.Namespace) -> int:
                 "substituted": classification.substituted,
                 "mock": args.mock,
             },
+            input=sanitized_scenario_input(
+                scenario,
+                classification=classification.classification,
+                substituted=classification.substituted,
+                mock=args.mock,
+            ),
         ) as span:
             bad_response_call = generate_bad_response_with_usage(
                 scenario,
@@ -135,6 +162,12 @@ def run_command(args: argparse.Namespace) -> int:
         with emit_trace_observation(
             name="emit_trace",
             metadata={"scenario_id": scenario.scenario_id, "mock": args.mock},
+            input=sanitized_scenario_input(
+                scenario,
+                substituted=classification.substituted,
+                bad_response_length=len(bad_response),
+                mock=args.mock,
+            ),
         ) as span:
             trace_result = emit_trace_with_usage(
                 scenario,
@@ -157,6 +190,12 @@ def run_command(args: argparse.Namespace) -> int:
         with emit_state_trace_observation(
             name="emit_state_trace",
             metadata={"scenario_id": scenario.scenario_id, "mock": args.mock},
+            input=sanitized_scenario_input(
+                scenario,
+                substituted=classification.substituted,
+                bad_response_length=len(bad_response),
+                mock=args.mock,
+            ),
         ) as span:
             state_trace_result = emit_state_trace_with_usage(
                 scenario, classification, bad_response, mock=args.mock
@@ -183,13 +222,15 @@ def run_command(args: argparse.Namespace) -> int:
         with tracer.span(
             name="write_artifacts",
             metadata={"scenario_id": scenario.scenario_id, "artifact_names": artifact_names},
-        ):
+            input={"scenario_id": scenario.scenario_id, "artifact_names": artifact_names},
+        ) as span:
             write_model_json(
                 run_dir / f"{scenario.scenario_id}.classification.json", classification
             )
             write_text(run_dir / f"{scenario.scenario_id}.response.md", bad_response)
             write_model_json(run_dir / f"{scenario.scenario_id}.trace.json", trace)
             write_model_json(run_dir / f"{scenario.scenario_id}.state_trace.json", state_trace)
+            span.update(output={"artifact_count": len(artifact_names)})
 
         response_count += 1
         trace_count += 1
@@ -235,6 +276,11 @@ def run_prompt_command(args: argparse.Namespace) -> int:
             "principal_prompt_length": len(prompt),
             "principal_prompt_sha256": prompt_sha256,
         },
+        input={
+            "principal_prompt_length": len(prompt),
+            "principal_prompt_sha256": prompt_sha256,
+            "mock": args.mock,
+        },
     ) as span:
         prompt_classification_call: LLMCallResult[Any] | None = None
         if args.mock:
@@ -256,9 +302,19 @@ def run_prompt_command(args: argparse.Namespace) -> int:
     with tracer.span(
         name="emit_prompt_flow",
         metadata={"scenario_id": prompt_run.scenario_id},
+        input={
+            "scenario_id": prompt_run.scenario_id,
+            "classification": prompt_classification.classification,
+            "substituted": prompt_classification.substituted,
+        },
     ) as span:
         flow = emit_prompt_flow(prompt_run)
-        span.update(output={"classification": prompt_classification.classification})
+        span.update(
+            output={
+                "classification": prompt_classification.classification,
+                "flow_length": len(flow),
+            }
+        )
 
     artifact_names = [
         f"{prompt_run.scenario_id}.classification.json",
@@ -267,12 +323,14 @@ def run_prompt_command(args: argparse.Namespace) -> int:
     with tracer.span(
         name="write_artifacts",
         metadata={"scenario_id": prompt_run.scenario_id, "artifact_names": artifact_names},
-    ):
+        input={"scenario_id": prompt_run.scenario_id, "artifact_names": artifact_names},
+    ) as span:
         write_model_json(
             run_dir / f"{prompt_run.scenario_id}.classification.json",
             prompt_run.classification,
         )
         write_text(run_dir / f"{prompt_run.scenario_id}.flow.mmd", flow)
+        span.update(output={"artifact_count": len(artifact_names)})
 
     print(f"Wrote outputs to {run_dir}")
     print(

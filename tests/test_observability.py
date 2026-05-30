@@ -349,6 +349,45 @@ def test_tracer_receives_boundary_flags_in_state_trace_span(tmp_path: Path) -> N
         assert "next_action" in s.output
 
 
+def test_run_command_tracer_spans_have_sanitized_input_and_output(tmp_path: Path) -> None:
+    from whose_agent.cli import run_command
+
+    tracer = SpyTracer()
+    with patch("whose_agent.cli.create_observability_tracer", return_value=tracer):
+        run_command(_make_run_args(tmp_path))
+
+    assert tracer.spans
+    for span in tracer.spans:
+        assert span.input is not None, span.name
+        assert span.output is not None, span.name
+        _assert_no_large_strings(span.input)
+        _assert_no_large_strings(span.output)
+
+    classify_span = next(s for s in tracer.spans if s.name == "classify_scenario")
+    assert "principal_prompt_length" in classify_span.input
+    assert "principal_prompt_sha256" in classify_span.input
+    assert len(classify_span.input["principal_prompt_sha256"]) == 64
+
+
+def test_run_prompt_tracer_spans_have_sanitized_input_and_output(tmp_path: Path) -> None:
+    from whose_agent.cli import run_prompt_command
+
+    tracer = SpyTracer()
+    with patch("whose_agent.cli.create_observability_tracer", return_value=tracer):
+        run_prompt_command(_make_prompt_args(tmp_path))
+
+    assert tracer.spans
+    for span in tracer.spans:
+        assert span.input is not None, span.name
+        assert span.output is not None, span.name
+        _assert_no_large_strings(span.input)
+        _assert_no_large_strings(span.output)
+
+    classify_span = next(s for s in tracer.spans if s.name == "classify_prompt")
+    assert classify_span.input["principal_prompt_length"] == len("Implement a CLI in Rust.")
+    assert len(classify_span.input["principal_prompt_sha256"]) == 64
+
+
 # ---------------------------------------------------------------------------
 # Test 7: tracer does not receive full bad_response text
 # ---------------------------------------------------------------------------
@@ -371,10 +410,22 @@ def test_tracer_does_not_receive_full_bad_response(tmp_path: Path) -> None:
 
     # No span should carry the raw bad_response text anywhere
     for s in tracer.spans:
-        for v in (s.output or {}).values():
-            if isinstance(v, str):
-                # Bad responses in mock mode are hundreds of chars; metadata values should be short
-                assert len(v) < 200, f"Suspiciously long string in span '{s.name}' output: {v[:80]!r}..."
+        _assert_no_large_strings(s.input)
+        _assert_no_large_strings(s.output)
+
+
+def _assert_no_large_strings(value: Any) -> None:
+    if isinstance(value, dict):
+        for item in value.values():
+            _assert_no_large_strings(item)
+        return
+    if isinstance(value, list):
+        for item in value:
+            _assert_no_large_strings(item)
+        return
+    if isinstance(value, str):
+        # Bad responses in mock mode are hundreds of chars; trace values should be short.
+        assert len(value) < 200, f"Suspiciously long string in traced value: {value[:80]!r}..."
 
 
 # ---------------------------------------------------------------------------
