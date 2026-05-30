@@ -38,7 +38,7 @@ def emit_prompt_flow(prompt_run: PromptRun) -> str:
                 "Classify substituted",
                 f"substituted: {prompt_run.classification.substituted}",
                 "Out of scope",
-                "Classification JSON only",
+                "Classification JSON and Flow",
             ]
         )
 

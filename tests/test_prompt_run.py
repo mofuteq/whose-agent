@@ -153,7 +153,7 @@ def test_in_scope_prompt_flow_contains_execution_path() -> None:
     assert "Trace JSON" not in flow
 
 
-def test_out_of_scope_prompt_flow_contains_classification_only_path() -> None:
+def test_out_of_scope_prompt_flow_contains_artifact_path() -> None:
     prompt = "Explain the difference between Deployment and StatefulSet."
     prompt_run = build_prompt_run(prompt, mock_classify_prompt(prompt))
 
@@ -163,7 +163,8 @@ def test_out_of_scope_prompt_flow_contains_classification_only_path() -> None:
     assert "Classify substituted" in flow
     assert "substituted: none" in flow
     assert "Out of scope" in flow
-    assert "Classification JSON only" in flow
+    assert "Classification JSON and Flow" in flow
+    assert "Classification JSON only" not in flow
     assert "Generate bad response" not in flow
     assert "Emit deterministic trace" not in flow
     assert "Trace JSON" not in flow
