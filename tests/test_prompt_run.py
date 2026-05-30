@@ -76,6 +76,7 @@ def test_prompt_run_builds_deterministic_synthetic_scenario() -> None:
         prompt_run.scenario.generation_instruction
         == GENERATION_INSTRUCTION_BY_SUBSTITUTED["instruction"]
     )
+    assert prompt_run.scenario.trace_template is None
 
 
 def test_none_prompt_run_writes_classification_json_and_flow_only(tmp_path: Path) -> None:
