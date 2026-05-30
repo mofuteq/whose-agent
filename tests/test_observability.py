@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from tests.helpers import single_run_dir
-from whose_agent.observability.langfuse import (
+from whose_agent.tracing import (
     LangfuseTracer,
     NoopSpan,
     NoopTracer,
