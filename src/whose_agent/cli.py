@@ -5,22 +5,24 @@ import hashlib
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel
 
-from whose_agent.bad_response import BadResponseError, generate_bad_response
-from whose_agent.boundary_state.trace import BoundaryStateTrace, emit_state_trace
+from whose_agent.bad_response import BadResponseError, generate_bad_response_with_usage
+from whose_agent.boundary_state.trace import BoundaryStateTrace, emit_state_trace_with_usage
 from whose_agent.classifier import classify_scenario
 from whose_agent.env_loader import load_env_file
 from whose_agent.flow_emitter import emit_prompt_flow
-from whose_agent.llm_classifier import PromptClassifierError, classify_prompt
+from whose_agent.llm_classifier import PromptClassifierError, classify_prompt_with_usage
+from whose_agent.llm_result import LLMCallResult
 from whose_agent.models import Classification, Trace
-from whose_agent.observability import create_observability_tracer
 from whose_agent.prompt_run import build_prompt_run, mock_classify_prompt
 from whose_agent.reflection import ReflectionError
 from whose_agent.run_directory import create_run_directory
 from whose_agent.scenario_loader import load_scenarios
-from whose_agent.trace_emitter import emit_trace
+from whose_agent.trace_emitter import emit_trace_with_usage
+from whose_agent.tracing import create_observability_tracer
 
 
 def write_model_json(path: Path, model: BaseModel) -> None:
@@ -32,6 +34,24 @@ def write_model_json(path: Path, model: BaseModel) -> None:
 
 def write_text(path: Path, text: str) -> None:
     path.write_text(text.rstrip() + "\n", encoding="utf-8")
+
+
+def update_span_with_llm_call(
+    span: Any,
+    *,
+    output: dict[str, Any],
+    llm_call: LLMCallResult[Any] | None = None,
+) -> None:
+    update_kwargs: dict[str, Any] = {"output": output}
+    if llm_call is not None:
+        if llm_call.usage_details:
+            output["llm_usage"] = llm_call.usage_details
+            update_kwargs["usage_details"] = llm_call.usage_details
+        if llm_call.model_name:
+            update_kwargs["model"] = llm_call.model_name
+        if llm_call.model_settings:
+            update_kwargs["model_parameters"] = llm_call.model_settings
+    span.update(**update_kwargs)
 
 
 def run_command(args: argparse.Namespace) -> int:
@@ -90,7 +110,8 @@ def run_command(args: argparse.Namespace) -> int:
                 )
             continue
 
-        with tracer.span(
+        bad_response_observation = tracer.span if args.mock else tracer.generation
+        with bad_response_observation(
             name="generate_bad_response",
             metadata={
                 "scenario_id": scenario.scenario_id,
@@ -98,37 +119,59 @@ def run_command(args: argparse.Namespace) -> int:
                 "mock": args.mock,
             },
         ) as span:
-            bad_response = generate_bad_response(scenario, classification, mock=args.mock)
-            span.update(output={"bad_response_length": len(bad_response)})
+            bad_response_call = generate_bad_response_with_usage(
+                scenario,
+                classification,
+                mock=args.mock,
+            )
+            bad_response = bad_response_call.output
+            update_span_with_llm_call(
+                span,
+                output={"bad_response_length": len(bad_response)},
+                llm_call=bad_response_call,
+            )
 
-        with tracer.span(
+        emit_trace_observation = tracer.span if args.mock else tracer.generation
+        with emit_trace_observation(
             name="emit_trace",
             metadata={"scenario_id": scenario.scenario_id, "mock": args.mock},
         ) as span:
-            trace: Trace = emit_trace(scenario, classification, bad_response, mock=args.mock)
-            span.update(
+            trace_result = emit_trace_with_usage(
+                scenario,
+                classification,
+                bad_response,
+                mock=args.mock,
+            )
+            trace: Trace = trace_result.trace
+            update_span_with_llm_call(
+                span,
                 output={
                     "substituted": trace.substituted,
                     "failure_mode": trace.failure_mode,
                     "reflection_substituted": trace.reflection_substituted,
-                }
+                },
+                llm_call=trace_result.reflection_call,
             )
 
-        with tracer.span(
+        emit_state_trace_observation = tracer.span if args.mock else tracer.generation
+        with emit_state_trace_observation(
             name="emit_state_trace",
             metadata={"scenario_id": scenario.scenario_id, "mock": args.mock},
         ) as span:
-            state_trace: BoundaryStateTrace = emit_state_trace(
+            state_trace_result = emit_state_trace_with_usage(
                 scenario, classification, bad_response, mock=args.mock
             )
+            state_trace: BoundaryStateTrace = state_trace_result.state_trace
             if state_trace.transitions:
                 final = state_trace.transitions[-1].state
-                span.update(
+                update_span_with_llm_call(
+                    span,
                     output={
                         "reflection_matches_expected": final.reflection_matches_expected,
                         "boundary_flags": list(final.boundary_flags),
                         "next_action": final.next_action,
-                    }
+                    },
+                    llm_call=state_trace_result.reflection_call,
                 )
 
         artifact_names = [
@@ -185,21 +228,27 @@ def run_prompt_command(args: argparse.Namespace) -> int:
         session_id=session_id,
     )
 
-    with tracer.span(
+    classify_prompt_observation = tracer.span if args.mock else tracer.generation
+    with classify_prompt_observation(
         name="classify_prompt",
         metadata={
             "principal_prompt_length": len(prompt),
             "principal_prompt_sha256": prompt_sha256,
         },
     ) as span:
-        prompt_classification = (
-            mock_classify_prompt(prompt) if args.mock else classify_prompt(prompt)
-        )
-        span.update(
+        prompt_classification_call: LLMCallResult[Any] | None = None
+        if args.mock:
+            prompt_classification = mock_classify_prompt(prompt)
+        else:
+            prompt_classification_call = classify_prompt_with_usage(prompt)
+            prompt_classification = prompt_classification_call.output
+        update_span_with_llm_call(
+            span,
             output={
                 "classification": prompt_classification.classification,
                 "substituted": prompt_classification.substituted,
-            }
+            },
+            llm_call=prompt_classification_call,
         )
 
     prompt_run = build_prompt_run(prompt, prompt_classification)

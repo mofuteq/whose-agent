@@ -1,10 +1,20 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
+from whose_agent.llm_result import LLMCallResult
 from whose_agent.models import Classification, Scenario, Trace
+from whose_agent.models import Reflection
 
 
 class TraceNotApplicableError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class TraceEmissionResult:
+    trace: Trace
+    reflection_call: LLMCallResult[Reflection] | None = None
 
 
 TRACE_TEMPLATES = {
@@ -82,6 +92,21 @@ def emit_trace(
     *,
     mock: bool = False,
 ) -> Trace:
+    return emit_trace_with_usage(
+        scenario,
+        classification,
+        bad_response,
+        mock=mock,
+    ).trace
+
+
+def emit_trace_with_usage(
+    scenario: Scenario,
+    classification: Classification,
+    bad_response: str,
+    *,
+    mock: bool = False,
+) -> TraceEmissionResult:
     if classification.classification != "in_scope" or classification.substituted == "none":
         raise TraceNotApplicableError("Trace emission is only defined for in-scope scenarios.")
     if scenario.failure_mode == "none":
@@ -90,29 +115,35 @@ def emit_trace(
     template = TRACE_TEMPLATES[classification.substituted]
 
     if mock:
-        return Trace(
+        return TraceEmissionResult(
+            trace=Trace(
+                scenario_id=scenario.scenario_id,
+                substituted=classification.substituted,
+                failure_mode=scenario.failure_mode,
+                principal_signal=scenario.principal_signal,
+                bad_response=bad_response,
+                divergence_point=template["divergence_point"],
+                why_it_breaks_delegation=template["why_it_breaks_delegation"],
+                better_behavior=template["better_behavior"],
+                reflection_substituted=classification.substituted,
+            )
+        )
+
+    from whose_agent.reflection import reflect_failure_with_usage
+
+    reflection_call = reflect_failure_with_usage(scenario, bad_response)
+    reflection = reflection_call.output
+    return TraceEmissionResult(
+        trace=Trace(
             scenario_id=scenario.scenario_id,
             substituted=classification.substituted,
             failure_mode=scenario.failure_mode,
             principal_signal=scenario.principal_signal,
             bad_response=bad_response,
             divergence_point=template["divergence_point"],
-            why_it_breaks_delegation=template["why_it_breaks_delegation"],
-            better_behavior=template["better_behavior"],
-            reflection_substituted=classification.substituted,
-        )
-
-    from whose_agent.reflection import reflect_failure
-
-    reflection = reflect_failure(scenario, bad_response)
-    return Trace(
-        scenario_id=scenario.scenario_id,
-        substituted=classification.substituted,
-        failure_mode=scenario.failure_mode,
-        principal_signal=scenario.principal_signal,
-        bad_response=bad_response,
-        divergence_point=template["divergence_point"],
-        why_it_breaks_delegation=reflection.why_it_breaks_delegation,
-        better_behavior=reflection.better_behavior,
-        reflection_substituted=reflection.reflection_substituted,
+            why_it_breaks_delegation=reflection.why_it_breaks_delegation,
+            better_behavior=reflection.better_behavior,
+            reflection_substituted=reflection.reflection_substituted,
+        ),
+        reflection_call=reflection_call,
     )

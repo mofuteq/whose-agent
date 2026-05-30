@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import cast
 
 from pydantic import BaseModel, ConfigDict
@@ -12,6 +13,7 @@ from whose_agent.boundary_state.transitions import (
     initialize_boundary_state,
     update_boundary_state,
 )
+from whose_agent.llm_result import LLMCallResult
 from whose_agent.models import Classification, Reflection, Scenario, TraceSubstituted
 
 
@@ -27,6 +29,12 @@ class BoundaryStateTrace(BaseModel):
 
     scenario_id: str
     transitions: list[BoundaryStateTransition]
+
+
+@dataclass(frozen=True)
+class BoundaryStateTraceEmissionResult:
+    state_trace: BoundaryStateTrace
+    reflection_call: LLMCallResult[Reflection] | None = None
 
 
 def _mock_reflection(classification: Classification) -> Reflection:
@@ -47,6 +55,21 @@ def emit_state_trace(
     *,
     mock: bool = False,
 ) -> BoundaryStateTrace:
+    return emit_state_trace_with_usage(
+        scenario,
+        classification,
+        bad_response,
+        mock=mock,
+    ).state_trace
+
+
+def emit_state_trace_with_usage(
+    scenario: Scenario,
+    classification: Classification,
+    bad_response: str,
+    *,
+    mock: bool = False,
+) -> BoundaryStateTraceEmissionResult:
     transitions: list[BoundaryStateTransition] = []
 
     state = initialize_boundary_state(scenario, classification)
@@ -57,10 +80,12 @@ def emit_state_trace(
 
     if mock:
         reflection = _mock_reflection(classification)
+        reflection_call = None
     else:
-        from whose_agent.reflection import reflect_failure
+        from whose_agent.reflection import reflect_failure_with_usage
 
-        reflection = reflect_failure(scenario, bad_response)
+        reflection_call = reflect_failure_with_usage(scenario, bad_response)
+        reflection = reflection_call.output
 
     state = apply_reflection(state, reflection)
     transitions.append(BoundaryStateTransition(step="apply_reflection", state=state))
@@ -71,4 +96,7 @@ def emit_state_trace(
     state = finalize_boundary_state(state)
     transitions.append(BoundaryStateTransition(step="finalize_boundary_state", state=state))
 
-    return BoundaryStateTrace(scenario_id=scenario.scenario_id, transitions=transitions)
+    return BoundaryStateTraceEmissionResult(
+        state_trace=BoundaryStateTrace(scenario_id=scenario.scenario_id, transitions=transitions),
+        reflection_call=reflection_call,
+    )

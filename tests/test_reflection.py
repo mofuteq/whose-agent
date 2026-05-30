@@ -14,6 +14,7 @@ from whose_agent.reflection import (
     ReflectionError,
     build_reflection_prompt,
     reflect_failure,
+    reflect_failure_with_usage,
 )
 from whose_agent.scenario_loader import load_scenario, load_scenarios
 from whose_agent.thesis import WHOSE_AGENT_THESIS
@@ -136,6 +137,41 @@ def test_reflect_failure_normalizes_text_fields(monkeypatch) -> None:
 
     assert result.why_it_breaks_delegation == ["Rust constraint ignored."]
     assert result.better_behavior == ["Use Rust."]
+
+
+def test_reflect_failure_records_token_usage(monkeypatch) -> None:
+    scenario = load_scenario(ROOT / "scenarios" / "instruction_rust_cli.yaml")
+    bad_response = mock_bad_response(classify_scenario(scenario))
+
+    from whose_agent.models import Reflection
+
+    class FakeAgent:
+        def __init__(self, model_name: str, *, output_type: type) -> None:
+            pass
+
+        def run_sync(self, prompt: str, *, model_settings: dict):
+            return SimpleNamespace(
+                output=Reflection(
+                    reflection_substituted="instruction",
+                    why_it_breaks_delegation=["The agent changed the language."],
+                    better_behavior=["Implement in Rust."],
+                ),
+                usage=SimpleNamespace(input_tokens=17, output_tokens=9, total_tokens=26),
+            )
+
+    import pydantic_ai
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("WHOSE_AGENT_MODEL", "openrouter:test/model")
+    monkeypatch.setattr(pydantic_ai, "Agent", FakeAgent)
+
+    result = reflect_failure_with_usage(scenario, bad_response)
+
+    assert result.output.reflection_substituted == "instruction"
+    assert result.model_name == "openrouter:test/model"
+    assert result.model_settings == REFLECTION_MODEL_SETTINGS
+    assert result.model_settings is not REFLECTION_MODEL_SETTINGS
+    assert result.usage_details == {"input": 17, "output": 9, "total": 26}
 
 
 def test_emit_trace_mock_does_not_call_reflection(monkeypatch) -> None:

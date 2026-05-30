@@ -33,6 +33,9 @@ class SpySpan:
         self.metadata = metadata or {}
         self.input = kwargs.get("input")
         self.output = kwargs.get("output")
+        self.model = kwargs.get("model")
+        self.model_parameters = kwargs.get("model_parameters")
+        self.usage_details = kwargs.get("usage_details")
 
     def __enter__(self) -> "SpySpan":
         return self
@@ -43,6 +46,12 @@ class SpySpan:
     def update(self, **kwargs: Any) -> None:
         if "output" in kwargs:
             self.output = kwargs["output"]
+        if "model" in kwargs:
+            self.model = kwargs["model"]
+        if "model_parameters" in kwargs:
+            self.model_parameters = kwargs["model_parameters"]
+        if "usage_details" in kwargs:
+            self.usage_details = kwargs["usage_details"]
 
 
 class SpyTracer:
@@ -72,6 +81,15 @@ class SpyTracer:
         s = SpySpan(name, metadata, kwargs)
         self.spans.append(s)
         return s
+
+    def generation(
+        self,
+        *,
+        name: str,
+        metadata: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> SpySpan:
+        return self.span(name=name, metadata=metadata, **kwargs)
 
     def flush(self) -> None:
         self.flush_count += 1
@@ -470,6 +488,42 @@ def test_langfuse_tracer_supports_v4_observation_api(monkeypatch: pytest.MonkeyP
     assert child.updates == [{"output": {"classification": "in_scope"}}]
     assert child.ended is True
     assert fake_client.flushed is True
+
+
+def test_langfuse_tracer_supports_v4_generation_usage(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
+
+    fake_client = FakeLangfuseV4Client()
+    with patch("langfuse.Langfuse", return_value=fake_client):
+        tracer = create_observability_tracer()
+
+    assert isinstance(tracer, LangfuseTracer)
+    tracer.start_run(name="run", metadata={"command": "run"}, session_id="20260530T120000Z")
+    with tracer.generation(
+        name="generate_bad_response",
+        metadata={"scenario_id": "s1"},
+        model="openrouter:test/model",
+        model_parameters={"temperature": 0.2},
+        usage_details={"input": 11, "output": 7, "total": 18},
+    ) as span:
+        span.update(
+            output={"bad_response_length": 42},
+            usage_details={"input": 11, "output": 7, "total": 18},
+        )
+    tracer.flush()
+
+    child = fake_client.observations[0].children[0]
+    assert child.kwargs["as_type"] == "generation"
+    assert child.kwargs["model"] == "openrouter:test/model"
+    assert child.kwargs["model_parameters"] == {"temperature": 0.2}
+    assert child.kwargs["usage_details"] == {"input": 11, "output": 7, "total": 18}
+    assert child.updates == [
+        {
+            "output": {"bad_response_length": 42},
+            "usage_details": {"input": 11, "output": 7, "total": 18},
+        }
+    ]
 
 
 def test_run_command_uses_run_dir_name_as_session_id(tmp_path: Path) -> None:

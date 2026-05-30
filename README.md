@@ -163,7 +163,7 @@ LANGFUSE_BASE_URL=
 
 If Langfuse credentials are not configured, observability is a no-op and the CLI behaves normally.
 
-Langfuse is used only for artifact-safe metadata such as scenario IDs, substituted axes, failure modes, boundary flags, and transition outcomes. It does not change benchmark execution.
+Langfuse is used only for artifact-safe metadata such as scenario IDs, substituted axes, failure modes, boundary flags, transition outcomes, model settings, and token usage. It does not change benchmark execution.
 
 ## Out of scope for the current version
 
