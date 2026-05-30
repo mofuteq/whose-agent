@@ -25,7 +25,7 @@ from whose_agent.trace_emitter import emit_trace
 
 def write_model_json(path: Path, model: BaseModel) -> None:
     path.write_text(
-        json.dumps(model.model_dump(), indent=2, ensure_ascii=True) + "\n",
+        json.dumps(model.model_dump(), indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
 
