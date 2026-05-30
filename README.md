@@ -29,7 +29,7 @@ This is not a State Loop.
 fixed scenario
   -> classification
   -> bad response generation
-  -> thesis-based reflection
+  -> hybrid trace analysis: hand-written divergence_point templates plus thesis-based reflection for delegation analysis
   -> trace.json
   -> linear boundary state transition trace
 ```
@@ -53,7 +53,7 @@ Classification artifact. Records the substituted axis, classification kind, prin
 Generated bad response for in-scope scenarios. Exhibits the expected substitution.
 
 **`.trace.json`**
-Benchmark trace artifact. Contains: substituted axis, failure mode, bad response, divergence point, `why_it_breaks_delegation`, `better_behavior`, and `reflection_substituted` — all grounded in the fixed thesis.
+Benchmark trace artifact. Contains: substituted axis, failure mode, bad response, `divergence_point` (from hand-written templates), `why_it_breaks_delegation`, `better_behavior`, and `reflection_substituted` (from thesis-based reflection).
 
 **`.state_trace.json`**
 Linear boundary state transition artifact. Records each transition step with the full `BoundaryState` snapshot:
@@ -68,6 +68,18 @@ finalize_boundary_state
 
 **`.flow.mmd`**
 Mermaid flow artifact for the `run-prompt` path. Shows the pipeline path, not hidden reasoning.
+
+## Trace analysis layer
+
+The fixed scenario trace uses a hybrid analysis layer.
+In mock mode, trace analysis is fully deterministic and template-based. The trace fields are populated from hand-written `TRACE_TEMPLATES`.
+In non-mock mode, the trace still uses hand-written templates for `divergence_point`, but uses thesis-based reflection for:
+- `why_it_breaks_delegation`
+- `better_behavior`
+- `reflection_substituted`
+
+This means `divergence_point` remains a scenario-grounded template field, while the delegation analysis and better-behavior recommendation are generated against the fixed thesis, the principal signal, and the generated bad response.
+The hand-written thesis is fixed. It is not generated or rewritten by the model.
 
 ## Usage
 
@@ -102,8 +114,8 @@ uv run python -m whose_agent.cli run --scenarios scenarios --outputs outputs --m
 `--mock` is offline and deterministic. It does not require OpenRouter credentials.
 It preserves deterministic bad response and reflection behavior for reproducible CI.
 
-In non-mock runs, bad response generation and thesis-based reflection use OpenRouter through Pydantic AI.
-In mock runs, all outputs remain deterministic.
+In non-mock runs, bad response generation and thesis-based reflection for delegation analysis use OpenRouter through Pydantic AI.
+In mock runs, all outputs remain deterministic and template-based.
 
 Each CLI invocation writes generated files into a timestamped run directory under
 the requested output root.
