@@ -11,12 +11,13 @@ from pydantic import BaseModel
 
 from whose_agent.bad_response import BadResponseError, generate_bad_response_with_usage
 from whose_agent.boundary_state.trace import BoundaryStateTrace, emit_state_trace_with_usage
+from whose_agent.checker import CheckerError, check_with_usage
 from whose_agent.classifier import classify_scenario
 from whose_agent.env_loader import load_env_file
 from whose_agent.flow_emitter import emit_prompt_flow
 from whose_agent.llm_classifier import PromptClassifierError, classify_prompt_with_usage
 from whose_agent.llm_result import LLMCallResult
-from whose_agent.models import Classification, Scenario, Trace
+from whose_agent.models import CheckerObservation, Classification, Scenario, Trace
 from whose_agent.prompt_run import build_prompt_run, mock_classify_prompt
 from whose_agent.reflection import ReflectionError
 from whose_agent.run_directory import create_run_directory
@@ -95,6 +96,7 @@ def run_command(args: argparse.Namespace) -> int:
     response_count = 0
     trace_count = 0
     state_trace_count = 0
+    checker_count = 0
 
     for scenario in scenarios:
         with tracer.span(
@@ -213,12 +215,52 @@ def run_command(args: argparse.Namespace) -> int:
                     llm_call=state_trace_result.reflection_call,
                 )
 
+        checker_observation: CheckerObservation | None = None
+        if scenario.selected_skill_id is not None:
+            check_observation = tracer.span if args.mock else tracer.generation
+            with check_observation(
+                name="check_artifact",
+                metadata={
+                    "scenario_id": scenario.scenario_id,
+                    "skill_id": scenario.selected_skill_id,
+                    "mock": args.mock,
+                },
+                input=sanitized_scenario_input(
+                    scenario,
+                    selected_skill_id=scenario.selected_skill_id,
+                    bad_response_length=len(bad_response),
+                    bad_response_sha256=hashlib.sha256(bad_response.encode()).hexdigest(),
+                    mock=args.mock,
+                ),
+            ) as span:
+                checker_result = check_with_usage(
+                    scenario,
+                    bad_response,
+                    mock=args.mock,
+                )
+                checker_observation = checker_result.observation
+                update_span_with_llm_call(
+                    span,
+                    output={
+                        "checker_ran": True,
+                        "skill_id": checker_observation.skill_id,
+                        "checker_observed_bypass": checker_observation.checker_observed_bypass,
+                        "confidence": checker_observation.confidence,
+                        "evidence_count": len(checker_observation.evidence),
+                        "substituted": checker_observation.substituted,
+                        "failure_mode": checker_observation.failure_mode,
+                    },
+                    llm_call=checker_result.checker_call,
+                )
+
         artifact_names = [
             f"{scenario.scenario_id}.classification.json",
             f"{scenario.scenario_id}.response.md",
             f"{scenario.scenario_id}.trace.json",
             f"{scenario.scenario_id}.state_trace.json",
         ]
+        if checker_observation is not None:
+            artifact_names.append(f"{scenario.scenario_id}.checker.json")
         with tracer.span(
             name="write_artifacts",
             metadata={"scenario_id": scenario.scenario_id, "artifact_names": artifact_names},
@@ -230,19 +272,28 @@ def run_command(args: argparse.Namespace) -> int:
             write_text(run_dir / f"{scenario.scenario_id}.response.md", bad_response)
             write_model_json(run_dir / f"{scenario.scenario_id}.trace.json", trace)
             write_model_json(run_dir / f"{scenario.scenario_id}.state_trace.json", state_trace)
+            if checker_observation is not None:
+                write_model_json(
+                    run_dir / f"{scenario.scenario_id}.checker.json",
+                    checker_observation,
+                )
             span.update(output={"artifact_count": len(artifact_names)})
 
         response_count += 1
         trace_count += 1
         state_trace_count += 1
+        if checker_observation is not None:
+            checker_count += 1
 
+    checker_file_label = "checker file" if checker_count == 1 else "checker files"
     print(f"Wrote outputs to {run_dir}")
     print(
         "Wrote "
         f"{classification_count} classification files, "
         f"{response_count} response files, "
-        f"{trace_count} trace files, and "
-        f"{state_trace_count} state trace files."
+        f"{trace_count} trace files, "
+        f"{state_trace_count} state trace files, and "
+        f"{checker_count} {checker_file_label}."
     )
     tracer.flush()
     return 0
@@ -370,7 +421,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return args.func(args)
-    except (BadResponseError, PromptClassifierError, ReflectionError) as exc:
+    except (BadResponseError, CheckerError, PromptClassifierError, ReflectionError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 

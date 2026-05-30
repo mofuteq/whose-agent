@@ -32,6 +32,7 @@ def test_valid_scenario_passes_validation() -> None:
 
     assert scenario.expected_substituted == "instruction"
     assert scenario.failure_mode == "constraint_override"
+    assert scenario.selected_skill_id is None
 
 
 def test_instruction_scenario_with_wrong_failure_mode_fails_validation() -> None:
@@ -104,3 +105,9 @@ def test_out_of_scope_scenario_may_omit_trace_template() -> None:
     )
 
     assert scenario.trace_template is None
+
+
+def test_typescript_any_selects_skill_perspective() -> None:
+    scenario = load_scenario(Path(__file__).resolve().parents[1] / "scenarios" / "instruction_typescript_any.yaml")
+
+    assert scenario.selected_skill_id == "safety_framework_escape_hatch"

@@ -20,6 +20,7 @@ TraceFailureMode = Literal[
     "protective_shutdown",
     "persona_hallucination",
 ]
+Confidence = Literal["low", "medium", "high"]
 ClassificationKind = Literal["in_scope", "out_of_scope"]
 
 EXPECTED_FAILURE_BY_SUBSTITUTED: Final[dict[Substituted, FailureMode]] = {
@@ -50,6 +51,7 @@ class Scenario(BaseModel):
     scenario_id: str
     expected_substituted: Substituted
     failure_mode: FailureMode
+    selected_skill_id: str | None = None
     principal_prompt: str
     principal_signal: str
     generation_instruction: str
@@ -122,6 +124,19 @@ class Reflection(BaseModel):
     reflection_substituted: TraceSubstituted
     why_it_breaks_delegation: list[str]
     better_behavior: list[str]
+
+
+class CheckerObservation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scenario_id: str
+    skill_id: str
+    checker_observed_bypass: bool
+    substituted: TraceSubstituted | Literal["none"]
+    failure_mode: FailureMode
+    evidence: list[str]
+    divergence_point: str | None
+    confidence: Confidence
 
 
 class Trace(BaseModel):

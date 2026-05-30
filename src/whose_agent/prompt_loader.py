@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, TemplateNotFound
 
@@ -8,7 +9,7 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined, TemplateNotFo
 PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
 
 
-def render_template(template_name: str, context: dict[str, str]) -> str:
+def render_template(template_name: str, context: dict[str, Any]) -> str:
     template_path = PROMPTS_DIR / template_name
     if not template_path.is_file():
         raise FileNotFoundError(f"Prompt template not found: {template_path}")

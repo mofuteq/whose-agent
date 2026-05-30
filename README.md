@@ -40,6 +40,7 @@ fixed scenario
   -> hybrid trace analysis: hand-written divergence_point templates plus thesis-based reflection for delegation analysis
   -> trace.json
   -> linear boundary state transition trace
+  -> optional skill-perspective checker for selected fixed scenarios
 ```
 
 The hand-written thesis is fixed. It is not generated or rewritten by the model.
@@ -74,8 +75,22 @@ update_boundary_state
 finalize_boundary_state
 ```
 
+**`.checker.json`**
+Optional external checker observation for fixed scenarios that select a human-authored skill perspective. It is emitted only for scenarios that opt into `selected_skill_id`.
+
 **`.flow.mmd`**
 Mermaid flow artifact for the `run-prompt` path. Shows the pipeline path, not hidden reasoning.
+
+## Skill-perspective checker
+
+Fixed scenarios may optionally select a human-authored skill perspective.
+The checker does not own detection patterns. It receives the selected skill perspective and reads the generated artifact through that perspective.
+
+For example, `instruction_typescript_any` uses the `safety_framework_escape_hatch` perspective. The checker should not merely search for `any`; it should decide whether the response preserves the surface framework while bypassing the guarantee the principal asked that framework to preserve.
+
+This keeps the benchmark flexible enough to later read similar failures in TypeScript, Pydantic, schema validation, SQL, or other safety-framework contexts.
+
+The checker is external to the misreader behavior. The thing that causes the drift should not be the only thing certifying that the drift happened.
 
 ## Trace analysis layer
 
@@ -129,7 +144,7 @@ uv run python -m whose_agent.cli run --scenarios scenarios --outputs outputs --m
 `--mock` is offline and deterministic. It does not require OpenRouter credentials.
 It preserves deterministic bad response and reflection behavior for reproducible CI.
 
-In non-mock runs, bad response generation and thesis-based reflection for delegation analysis use OpenRouter through Pydantic AI.
+In non-mock runs, bad response generation, thesis-based reflection for delegation analysis, and opt-in checker observations use OpenRouter through Pydantic AI.
 In mock runs, all outputs remain deterministic and template-based.
 
 Each CLI invocation writes generated files into a timestamped run directory under
@@ -152,6 +167,7 @@ This avoids producing benchmark-style traces from synthetic scenarios derived fr
 - `.response.md`
 - `.trace.json`
 - `.state_trace.json`
+- `.checker.json`
 
 This is true whether the prompt is classified as in-scope or out-of-scope.
 Classification may use an LLM. Failure-mode mapping remains deterministic.
