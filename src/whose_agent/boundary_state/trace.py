@@ -37,14 +37,14 @@ class BoundaryStateTraceEmissionResult:
     reflection_call: LLMCallResult[Reflection] | None = None
 
 
-def _mock_reflection(classification: Classification) -> Reflection:
-    from whose_agent.trace_emitter import TRACE_TEMPLATES
-
-    template = TRACE_TEMPLATES[classification.substituted]
+def _mock_reflection(scenario: Scenario, classification: Classification) -> Reflection:
+    if scenario.trace_template is None:
+        raise RuntimeError("Mock boundary state reflection requires scenario.trace_template.")
+    template = scenario.trace_template
     return Reflection(
         reflection_substituted=cast(TraceSubstituted, classification.substituted),
-        why_it_breaks_delegation=list(template["why_it_breaks_delegation"]),
-        better_behavior=list(template["better_behavior"]),
+        why_it_breaks_delegation=list(template.why_it_breaks_delegation),
+        better_behavior=list(template.better_behavior),
     )
 
 
@@ -79,7 +79,7 @@ def emit_state_trace_with_usage(
     transitions.append(BoundaryStateTransition(step="apply_bad_response", state=state))
 
     if mock:
-        reflection = _mock_reflection(classification)
+        reflection = _mock_reflection(scenario, classification)
         reflection_call = None
     else:
         from whose_agent.reflection import reflect_failure_with_usage

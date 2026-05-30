@@ -12,7 +12,10 @@ def load_scenario(path: Path) -> Scenario:
         data = yaml.safe_load(file)
     if not isinstance(data, dict):
         raise ValueError(f"Scenario file {path} must contain a YAML mapping.")
-    return Scenario.model_validate(data)
+    scenario = Scenario.model_validate(data)
+    if scenario.expected_substituted != "none" and scenario.trace_template is None:
+        raise ValueError(f"Fixed scenario {path} must define trace_template.")
+    return scenario
 
 
 def load_scenarios(directory: Path) -> list[Scenario]:

@@ -72,13 +72,20 @@ Mermaid flow artifact for the `run-prompt` path. Shows the pipeline path, not hi
 ## Trace analysis layer
 
 The fixed scenario trace uses a hybrid analysis layer.
-In mock mode, trace analysis is fully deterministic and template-based. The trace fields are populated from hand-written `TRACE_TEMPLATES`.
-In non-mock mode, the trace still uses hand-written templates for `divergence_point`, but uses thesis-based reflection for:
+In mock mode, trace analysis is fully deterministic and populated from
+hand-written scenario trace templates.
+In non-mock mode, the trace still uses the scenario trace template for
+`divergence_point`, but uses thesis-based reflection for:
 - `why_it_breaks_delegation`
 - `better_behavior`
 - `reflection_substituted`
 
-This means `divergence_point` remains a scenario-grounded template field, while the delegation analysis and better-behavior recommendation are generated against the fixed thesis, the principal signal, and the generated bad response.
+The scenario trace template is part of the fixed benchmark scenario. It is not
+generated or rewritten by the model.
+This prepares the benchmark for multiple scenarios per substitution axis.
+In non-mock mode, the delegation analysis and better-behavior recommendation
+are generated against the fixed thesis, the principal signal, and the generated
+bad response.
 The hand-written thesis is fixed. It is not generated or rewritten by the model.
 
 ## Usage

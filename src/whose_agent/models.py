@@ -31,6 +31,19 @@ EXPECTED_FAILURE_BY_SUBSTITUTED: Final[dict[Substituted, FailureMode]] = {
 }
 
 
+class ScenarioTraceTemplate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    divergence_point: str
+    why_it_breaks_delegation: list[str]
+    better_behavior: list[str]
+
+    @field_validator("divergence_point")
+    @classmethod
+    def trim_yaml_block_terminal_newline(cls, value: str) -> str:
+        return value.rstrip("\n")
+
+
 class Scenario(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -40,6 +53,7 @@ class Scenario(BaseModel):
     principal_prompt: str
     principal_signal: str
     generation_instruction: str
+    trace_template: ScenarioTraceTemplate | None = None
 
     @field_validator("principal_prompt", "principal_signal", "generation_instruction")
     @classmethod

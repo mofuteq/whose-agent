@@ -4,8 +4,9 @@ import pytest
 
 from whose_agent.bad_response import mock_bad_response
 from whose_agent.classifier import classify_scenario
+from whose_agent.models import Classification, Scenario, ScenarioTraceTemplate
 from whose_agent.scenario_loader import load_scenarios
-from whose_agent.trace_emitter import TraceNotApplicableError, emit_trace
+from whose_agent.trace_emitter import TraceNotApplicableError, _mock_reflection, emit_trace
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,6 +24,18 @@ REQUIRED_TRACE_FIELDS = {
 TRACE_SUBSTITUTED_VALUES = {"instruction", "authority", "role", "model"}
 
 
+def test_all_in_scope_scenarios_have_trace_templates() -> None:
+    for scenario in load_scenarios(ROOT / "scenarios"):
+        if scenario.expected_substituted == "none":
+            assert scenario.trace_template is None
+            continue
+
+        assert scenario.trace_template is not None
+        assert scenario.trace_template.divergence_point
+        assert scenario.trace_template.why_it_breaks_delegation
+        assert scenario.trace_template.better_behavior
+
+
 def test_trace_json_is_emitted_only_for_in_scope_scenarios() -> None:
     traces = []
     skipped = []
@@ -35,7 +48,9 @@ def test_trace_json_is_emitted_only_for_in_scope_scenarios() -> None:
             skipped.append(scenario.scenario_id)
             continue
 
-        traces.append(emit_trace(scenario, classification, mock_bad_response(classification), mock=True))
+        traces.append(
+            emit_trace(scenario, classification, mock_bad_response(classification), mock=True)
+        )
 
     assert len(traces) == 4
     assert len(skipped) == 2
@@ -65,3 +80,79 @@ def test_mock_trace_reflection_substituted_matches_classification() -> None:
         trace = emit_trace(scenario, classification, mock_bad_response(classification), mock=True)
 
         assert trace.reflection_substituted == classification.substituted
+
+
+def test_emit_trace_mock_uses_scenario_trace_template_fields() -> None:
+    scenario = scenario_with_template(
+        divergence_point="TEST SCENARIO SPECIFIC DIVERGENCE",
+        why_it_breaks_delegation=["TEST SCENARIO SPECIFIC WHY"],
+        better_behavior=["TEST SCENARIO SPECIFIC BETTER"],
+    )
+    classification = classification_for(scenario)
+
+    trace = emit_trace(scenario, classification, "Bad response.", mock=True)
+
+    assert trace.divergence_point == "TEST SCENARIO SPECIFIC DIVERGENCE"
+    assert trace.why_it_breaks_delegation == ["TEST SCENARIO SPECIFIC WHY"]
+    assert trace.better_behavior == ["TEST SCENARIO SPECIFIC BETTER"]
+    assert trace.reflection_substituted == "instruction"
+
+
+def test_mock_reflection_uses_scenario_trace_template() -> None:
+    scenario = scenario_with_template(
+        divergence_point="TEST SCENARIO SPECIFIC DIVERGENCE",
+        why_it_breaks_delegation=["TEST SCENARIO SPECIFIC WHY"],
+        better_behavior=["TEST SCENARIO SPECIFIC BETTER"],
+    )
+    classification = classification_for(scenario)
+
+    reflection = _mock_reflection(scenario, classification)
+
+    assert reflection.reflection_substituted == "instruction"
+    assert reflection.why_it_breaks_delegation == ["TEST SCENARIO SPECIFIC WHY"]
+    assert reflection.better_behavior == ["TEST SCENARIO SPECIFIC BETTER"]
+
+
+def test_instruction_trace_text_comes_from_scenario_not_axis() -> None:
+    scenario = scenario_with_template(
+        divergence_point="TEST SCENARIO SPECIFIC DIVERGENCE",
+        why_it_breaks_delegation=["The scenario-specific explanation should be preserved."],
+        better_behavior=["Follow this scenario-specific instruction."],
+    )
+    classification = classification_for(scenario)
+
+    trace = emit_trace(scenario, classification, "Bad response.", mock=True)
+
+    assert trace.divergence_point == "TEST SCENARIO SPECIFIC DIVERGENCE"
+    assert "explicit Rust instruction" not in trace.divergence_point
+
+
+def scenario_with_template(
+    *,
+    divergence_point: str,
+    why_it_breaks_delegation: list[str],
+    better_behavior: list[str],
+) -> Scenario:
+    return Scenario(
+        scenario_id="test_instruction_constraint_override",
+        expected_substituted="instruction",
+        failure_mode="constraint_override",
+        principal_prompt="Implement this CLI using the specified language.",
+        principal_signal="Use the specified language.",
+        generation_instruction="Substitute the implementation instruction.",
+        trace_template=ScenarioTraceTemplate(
+            divergence_point=divergence_point,
+            why_it_breaks_delegation=why_it_breaks_delegation,
+            better_behavior=better_behavior,
+        ),
+    )
+
+
+def classification_for(scenario: Scenario) -> Classification:
+    return Classification(
+        scenario_id=scenario.scenario_id,
+        principal_signal=scenario.principal_signal,
+        substituted="instruction",
+        classification="in_scope",
+        reason="The scenario contains an explicit instruction.",
+    )
