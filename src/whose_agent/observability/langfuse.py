@@ -19,7 +19,13 @@ class NoopSpan:
 class NoopTracer:
     enabled: bool = False
 
-    def start_run(self, *, name: str, metadata: dict[str, Any]) -> None:
+    def start_run(
+        self,
+        *,
+        name: str,
+        metadata: dict[str, Any],
+        session_id: str | None = None,
+    ) -> None:
         return None
 
     def span(
@@ -62,8 +68,17 @@ class LangfuseTracer:
         self._client = Langfuse(**init_kwargs)
         self._trace: Any = None
 
-    def start_run(self, *, name: str, metadata: dict[str, Any]) -> None:
-        self._trace = self._client.trace(name=name, metadata=metadata)
+    def start_run(
+        self,
+        *,
+        name: str,
+        metadata: dict[str, Any],
+        session_id: str | None = None,
+    ) -> None:
+        trace_kwargs: dict[str, Any] = {"name": name, "metadata": metadata}
+        if session_id:
+            trace_kwargs["session_id"] = session_id
+        self._trace = self._client.trace(**trace_kwargs)
 
     def span(
         self,

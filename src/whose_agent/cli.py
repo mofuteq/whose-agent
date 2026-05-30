@@ -42,9 +42,16 @@ def run_command(args: argparse.Namespace) -> int:
     run_dir = create_run_directory(Path(args.outputs))
 
     scenarios = load_scenarios(scenarios_dir)
+    session_id = run_dir.name
     tracer.start_run(
         name="run",
-        metadata={"command": "run", "mock": args.mock, "scenario_count": len(scenarios)},
+        metadata={
+            "command": "run",
+            "mock": args.mock,
+            "scenario_count": len(scenarios),
+            "run_dir": run_dir.name,
+        },
+        session_id=session_id,
     )
 
     classification_count = 0
@@ -165,6 +172,7 @@ def run_prompt_command(args: argparse.Namespace) -> int:
     prompt = args.prompt
 
     prompt_sha256 = hashlib.sha256(prompt.encode()).hexdigest()
+    session_id = run_dir.name
     tracer.start_run(
         name="run-prompt",
         metadata={
@@ -172,7 +180,9 @@ def run_prompt_command(args: argparse.Namespace) -> int:
             "mock": args.mock,
             "prompt_hash": prompt_sha256[:16],
             "principal_prompt_length": len(prompt),
+            "run_dir": run_dir.name,
         },
+        session_id=session_id,
     )
 
     with tracer.span(

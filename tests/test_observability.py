@@ -53,8 +53,14 @@ class SpyTracer:
         self.spans: list[SpySpan] = []
         self.flush_count: int = 0
 
-    def start_run(self, *, name: str, metadata: dict[str, Any]) -> None:
-        self.runs.append({"name": name, "metadata": metadata})
+    def start_run(
+        self,
+        *,
+        name: str,
+        metadata: dict[str, Any],
+        session_id: str | None = None,
+    ) -> None:
+        self.runs.append({"name": name, "metadata": metadata, "session_id": session_id})
 
     def span(
         self,
@@ -356,6 +362,103 @@ def test_env_example_documents_optional_langfuse_variables() -> None:
             pytest.fail(f"LANGFUSE_PUBLIC_KEY should be commented in .env.example: {line!r}")
         if "LANGFUSE_SECRET_KEY" in line and not line.startswith("#"):
             pytest.fail(f"LANGFUSE_SECRET_KEY should be commented in .env.example: {line!r}")
+
+
+# ---------------------------------------------------------------------------
+# session_id tests
+# ---------------------------------------------------------------------------
+
+
+def test_noop_tracer_start_run_accepts_session_id() -> None:
+    tracer = NoopTracer()
+    tracer.start_run(name="run", metadata={"command": "run"}, session_id="20260530T120000Z")
+
+
+def test_langfuse_tracer_start_run_passes_session_id_to_trace(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
+
+    mock_client = MagicMock()
+    with patch("langfuse.Langfuse", return_value=mock_client):
+        tracer = create_observability_tracer()
+
+    assert isinstance(tracer, LangfuseTracer)
+    tracer.start_run(name="run", metadata={"command": "run"}, session_id="20260530T120000Z")
+    mock_client.trace.assert_called_once()
+    _, trace_kwargs = mock_client.trace.call_args
+    assert trace_kwargs["session_id"] == "20260530T120000Z"
+
+
+def test_langfuse_tracer_start_run_omits_session_id_when_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
+
+    mock_client = MagicMock()
+    with patch("langfuse.Langfuse", return_value=mock_client):
+        tracer = create_observability_tracer()
+
+    tracer.start_run(name="run", metadata={"command": "run"}, session_id=None)
+    _, trace_kwargs = mock_client.trace.call_args
+    assert "session_id" not in trace_kwargs
+
+
+def test_run_command_uses_run_dir_name_as_session_id(tmp_path: Path) -> None:
+    import re
+    from whose_agent.cli import run_command
+
+    tracer = SpyTracer()
+    with patch("whose_agent.cli.create_observability_tracer", return_value=tracer):
+        run_command(_make_run_args(tmp_path))
+
+    assert tracer.runs
+    run_record = tracer.runs[0]
+    session_id = run_record["session_id"]
+    assert session_id is not None
+    assert re.fullmatch(r"\d{8}T\d{6}Z(?:-\d{3})?", session_id), f"Unexpected session_id: {session_id!r}"
+    # Must not be an absolute path
+    assert not session_id.startswith("/")
+
+
+def test_run_command_metadata_includes_run_dir_name_not_path(tmp_path: Path) -> None:
+    from whose_agent.cli import run_command
+
+    tracer = SpyTracer()
+    with patch("whose_agent.cli.create_observability_tracer", return_value=tracer):
+        run_command(_make_run_args(tmp_path))
+
+    run_meta = tracer.runs[0]["metadata"]
+    assert "run_dir" in run_meta
+    run_dir_value = run_meta["run_dir"]
+    assert not run_dir_value.startswith("/"), "run_dir in metadata must be a name, not an absolute path"
+    assert run_dir_value == tracer.runs[0]["session_id"]
+
+
+def test_run_prompt_command_uses_run_dir_name_as_session_id(tmp_path: Path) -> None:
+    import re
+    from whose_agent.cli import run_prompt_command
+
+    tracer = SpyTracer()
+    with patch("whose_agent.cli.create_observability_tracer", return_value=tracer):
+        run_prompt_command(_make_prompt_args(tmp_path))
+
+    assert tracer.runs
+    run_record = tracer.runs[0]
+    session_id = run_record["session_id"]
+    assert session_id is not None
+    assert re.fullmatch(r"\d{8}T\d{6}Z(?:-\d{3})?", session_id), f"Unexpected session_id: {session_id!r}"
+    assert not session_id.startswith("/")
+
+
+def test_run_prompt_command_metadata_includes_run_dir_name_not_path(tmp_path: Path) -> None:
+    from whose_agent.cli import run_prompt_command
+
+    tracer = SpyTracer()
+    with patch("whose_agent.cli.create_observability_tracer", return_value=tracer):
+        run_prompt_command(_make_prompt_args(tmp_path))
+
+    run_meta = tracer.runs[0]["metadata"]
+    assert "run_dir" in run_meta
+    assert not run_meta["run_dir"].startswith("/")
 
 
 # ---------------------------------------------------------------------------
