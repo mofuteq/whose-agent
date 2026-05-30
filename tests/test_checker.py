@@ -51,6 +51,7 @@ def test_typescript_any_has_selected_skill_id() -> None:
     scenario = load_scenario(ROOT / "scenarios" / "instruction_typescript_any.yaml")
 
     assert scenario.selected_skill_id == "safety_framework_escape_hatch"
+    assert scenario.checker_template is not None
 
 
 def test_other_existing_scenarios_do_not_require_selected_skill_id() -> None:
@@ -97,6 +98,7 @@ def test_mock_checker_output_is_deterministic_without_network_credentials(
 ) -> None:
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     scenario = load_scenario(ROOT / "scenarios" / "instruction_typescript_any.yaml")
+    assert scenario.checker_template is not None
 
     result = check_with_usage(
         scenario,
@@ -112,6 +114,9 @@ def test_mock_checker_output_is_deterministic_without_network_credentials(
     assert observation.substituted == "instruction"
     assert observation.failure_mode == "constraint_override"
     assert observation.confidence == "high"
+    assert observation.checker_observed_bypass == scenario.checker_template.checker_observed_bypass
+    assert observation.evidence == scenario.checker_template.evidence
+    assert observation.divergence_point == scenario.checker_template.divergence_point
 
 
 def test_mock_checker_evidence_describes_surface_compliance_and_guarantee_bypass() -> None:
@@ -138,6 +143,8 @@ def test_mock_checker_observation_has_no_rust_specific_text() -> None:
 def test_fixed_mock_run_emits_exactly_one_checker_artifact(tmp_path: Path) -> None:
     run_fixed_cli(tmp_path)
     run_dir = single_run_dir(tmp_path)
+    scenario = load_scenario(ROOT / "scenarios" / "instruction_typescript_any.yaml")
+    assert scenario.checker_template is not None
 
     checker_files = list(run_dir.glob("*.checker.json"))
     assert [path.name for path in checker_files] == [
@@ -145,21 +152,21 @@ def test_fixed_mock_run_emits_exactly_one_checker_artifact(tmp_path: Path) -> No
     ]
 
     checker = json.loads(checker_files[0].read_text(encoding="utf-8"))
-    assert {
-        "scenario_id": checker["scenario_id"],
-        "skill_id": checker["skill_id"],
-        "checker_observed_bypass": checker["checker_observed_bypass"],
-        "substituted": checker["substituted"],
-        "failure_mode": checker["failure_mode"],
-        "confidence": checker["confidence"],
-    } == {
-        "scenario_id": "instruction_typescript_any",
-        "skill_id": "safety_framework_escape_hatch",
-        "checker_observed_bypass": True,
-        "substituted": "instruction",
-        "failure_mode": "constraint_override",
-        "confidence": "high",
-    }
+    assert checker["scenario_id"] == scenario.scenario_id
+    assert checker["skill_id"] == scenario.selected_skill_id
+    assert checker["checker_observed_bypass"] == scenario.checker_template.checker_observed_bypass
+    assert checker["substituted"] == scenario.checker_template.substituted
+    assert checker["failure_mode"] == scenario.checker_template.failure_mode
+    assert checker["evidence"] == scenario.checker_template.evidence
+    assert checker["divergence_point"] == scenario.checker_template.divergence_point
+    assert checker["confidence"] == scenario.checker_template.confidence
+
+
+def test_mock_checker_does_not_hard_code_single_scenario_id() -> None:
+    checker_source = (ROOT / "src" / "whose_agent" / "checker.py").read_text(encoding="utf-8")
+
+    assert "instruction_typescript_any" not in checker_source
+    assert "safety_framework_escape_hatch" not in checker_source
 
 
 def test_fixed_mock_run_keeps_existing_artifact_counts_plus_checker(tmp_path: Path) -> None:
