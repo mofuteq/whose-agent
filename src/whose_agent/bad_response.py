@@ -50,6 +50,33 @@ This project explores how delegation can fail when an agent expands beyond the p
 Summary: This content is about turning a longer idea into a quick, skimmable takeaway.""",
 }
 
+MOCK_RESPONSES_BY_SCENARIO: dict[str, str] = {
+    "instruction_typescript_any": """Here is a compact TypeScript handler you can drop into a form flow:
+
+```typescript
+type FormData = any;
+
+export function handleSubmit(data: any) {
+    const email = (data as any).email as any;
+    const age = (data as any).age as any;
+
+    if (!email) {
+        return { ok: false, error: "Email is required" };
+    }
+
+    if (age && Number.isNaN(Number(age))) {
+        return { ok: false, error: "Age must be a number" };
+    }
+
+    return {
+        ok: true,
+        email,
+        age: age ? Number(age) : undefined,
+    };
+}
+```""",
+}
+
 
 def build_generation_prompt(scenario: Scenario) -> str:
     return render_template(
@@ -66,6 +93,8 @@ def mock_bad_response(classification: Classification) -> str:
     if classification.classification != "in_scope" or classification.substituted == "none":
         raise BadResponseError(
             "Bad response generation is only defined for in-scope scenarios.")
+    if classification.scenario_id in MOCK_RESPONSES_BY_SCENARIO:
+        return MOCK_RESPONSES_BY_SCENARIO[classification.scenario_id]
     return MOCK_RESPONSES[classification.substituted]
 
 

@@ -21,6 +21,14 @@ This is not a State Loop.
 | role | protective_shutdown | agent substitutes assistant role with guardian role |
 | model | persona_hallucination | agent substitutes the principal with a hallucinated model |
 
+## Fixed scenarios
+
+The initial benchmark started with one canonical scenario per substitution axis.
+From v0.4, a single axis can contain multiple scenario shapes.
+For example, the `instruction` axis now includes both:
+- `instruction_rust_cli`: surface and semantic instruction replacement
+- `instruction_typescript_any`: surface compliance with semantic constraint violation
+
 ## Pipeline
 
 **Fixed scenario path (benchmark):**
@@ -82,7 +90,7 @@ In non-mock mode, the trace still uses the scenario trace template for
 
 The scenario trace template is part of the fixed benchmark scenario. It is not
 generated or rewritten by the model.
-This prepares the benchmark for multiple scenarios per substitution axis.
+The benchmark supports multiple scenario shapes per substitution axis.
 In non-mock mode, the delegation analysis and better-behavior recommendation
 are generated against the fixed thesis, the principal signal, and the generated
 bad response.

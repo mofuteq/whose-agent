@@ -45,19 +45,25 @@ jobs:
           classification_count="$(find "$run_dir" -maxdepth 1 -name '*.classification.json' | wc -l | tr -d ' ')"
           response_count="$(find "$run_dir" -maxdepth 1 -name '*.response.md' | wc -l | tr -d ' ')"
           trace_count="$(find "$run_dir" -maxdepth 1 -name '*.trace.json' | wc -l | tr -d ' ')"
+          state_trace_count="$(find "$run_dir" -maxdepth 1 -name '*.state_trace.json' | wc -l | tr -d ' ')"
 
-          if [[ "$classification_count" != "6" ]]; then
-            echo "Expected 6 classification files, got $classification_count"
+          if [[ "$classification_count" != "7" ]]; then
+            echo "Expected 7 classification files, got $classification_count"
             exit 1
           fi
 
-          if [[ "$response_count" != "4" ]]; then
-            echo "Expected 4 response files, got $response_count"
+          if [[ "$response_count" != "5" ]]; then
+            echo "Expected 5 response files, got $response_count"
             exit 1
           fi
 
-          if [[ "$trace_count" != "4" ]]; then
-            echo "Expected 4 trace files, got $trace_count"
+          if [[ "$trace_count" != "5" ]]; then
+            echo "Expected 5 trace files, got $trace_count"
+            exit 1
+          fi
+
+          if [[ "$state_trace_count" != "5" ]]; then
+            echo "Expected 5 state trace files, got $state_trace_count"
             exit 1
           fi
 
