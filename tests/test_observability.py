@@ -252,6 +252,7 @@ def test_cli_mock_run_emits_same_artifacts_without_langfuse(tmp_path: Path, monk
     assert len(list(run_dir.glob("*.response.md"))) == 5
     assert len([f for f in run_dir.glob("*.trace.json") if not f.name.endswith(".state_trace.json")]) == 5
     assert len(list(run_dir.glob("*.state_trace.json"))) == 5
+    assert len(list(run_dir.glob("*.checker.json"))) == 1
     assert list(run_dir.glob("*.flow.mmd")) == []
 
 
@@ -347,6 +348,34 @@ def test_tracer_receives_boundary_flags_in_state_trace_span(tmp_path: Path) -> N
         assert s.output is not None
         assert "boundary_flags" in s.output
         assert "next_action" in s.output
+
+
+def test_tracer_receives_artifact_safe_checker_metadata(tmp_path: Path) -> None:
+    from whose_agent.cli import run_command
+
+    tracer = SpyTracer()
+    with patch("whose_agent.cli.create_observability_tracer", return_value=tracer):
+        run_command(_make_run_args(tmp_path))
+
+    checker_spans = [s for s in tracer.spans if s.name == "check_artifact"]
+    assert len(checker_spans) == 1
+    span = checker_spans[0]
+    assert span.metadata["scenario_id"] == "instruction_typescript_any"
+    assert span.metadata["skill_id"] == "safety_framework_escape_hatch"
+    assert span.input is not None
+    assert span.input["selected_skill_id"] == "safety_framework_escape_hatch"
+    assert "bad_response_length" in span.input
+    assert "bad_response_sha256" in span.input
+    assert len(span.input["bad_response_sha256"]) == 64
+    assert span.output == {
+        "checker_ran": True,
+        "skill_id": "safety_framework_escape_hatch",
+        "checker_observed_bypass": True,
+        "confidence": "high",
+        "evidence_count": 3,
+        "substituted": "instruction",
+        "failure_mode": "constraint_override",
+    }
 
 
 def test_run_command_tracer_spans_have_sanitized_input_and_output(tmp_path: Path) -> None:

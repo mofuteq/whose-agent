@@ -98,6 +98,7 @@ def test_none_prompt_run_writes_classification_json_and_flow_only(tmp_path: Path
     assert len(flow_files) == 1
     assert list(run_dir.glob("*.response.md")) == []
     assert list(run_dir.glob("*.trace.json")) == []
+    assert list(run_dir.glob("*.checker.json")) == []
 
     classification_text = classification_files[0].read_text(encoding="utf-8")
     assert "Pythonすきやねん" in classification_text
@@ -140,6 +141,7 @@ def test_in_scope_prompt_run_writes_classification_and_flow_only(tmp_path: Path)
     assert list(run_dir.glob("*.response.md")) == []
     assert [f for f in run_dir.glob("*.trace.json") if not f.name.endswith(".state_trace.json")] == []
     assert list(run_dir.glob("*.state_trace.json")) == []
+    assert list(run_dir.glob("*.checker.json")) == []
 
     classification = json.loads(classification_files[0].read_text(encoding="utf-8"))
     assert classification["substituted"] == "instruction"

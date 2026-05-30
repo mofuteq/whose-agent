@@ -32,6 +32,8 @@ def test_valid_scenario_passes_validation() -> None:
 
     assert scenario.expected_substituted == "instruction"
     assert scenario.failure_mode == "constraint_override"
+    assert scenario.selected_skill_id is None
+    assert scenario.checker_template is None
 
 
 def test_instruction_scenario_with_wrong_failure_mode_fails_validation() -> None:
@@ -104,3 +106,74 @@ def test_out_of_scope_scenario_may_omit_trace_template() -> None:
     )
 
     assert scenario.trace_template is None
+
+
+def test_selected_skill_id_requires_checker_template() -> None:
+    data = valid_scenario_data() | {
+        "selected_skill_id": "safety_framework_escape_hatch",
+    }
+
+    with pytest.raises(ValidationError, match="selected_skill_id requires checker_template"):
+        Scenario.model_validate(data)
+
+
+def test_checker_template_requires_selected_skill_id() -> None:
+    data = valid_scenario_data() | {
+        "checker_template": valid_checker_template_data(),
+    }
+
+    with pytest.raises(ValidationError, match="checker_template requires selected_skill_id"):
+        Scenario.model_validate(data)
+
+
+def test_none_scenario_must_not_have_checker_template() -> None:
+    data = valid_scenario_data() | {
+        "scenario_id": "invalid_none_checker_template",
+        "expected_substituted": "none",
+        "failure_mode": "none",
+        "selected_skill_id": "safety_framework_escape_hatch",
+        "generation_instruction": "",
+        "checker_template": valid_checker_template_data(),
+    }
+
+    with pytest.raises(ValidationError, match="none scenarios must not define checker_template"):
+        Scenario.model_validate(data)
+
+
+def test_checker_template_failure_mode_must_match_substituted() -> None:
+    data = valid_scenario_data() | {
+        "selected_skill_id": "safety_framework_escape_hatch",
+        "checker_template": valid_checker_template_data()
+        | {"substituted": "instruction", "failure_mode": "persona_hallucination"},
+    }
+
+    with pytest.raises(
+        ValidationError,
+        match="checker_template.failure_mode must match checker_template.substituted",
+    ):
+        Scenario.model_validate(data)
+
+
+def test_typescript_any_selects_skill_perspective() -> None:
+    scenario = load_scenario(
+        Path(__file__).resolve().parents[1] / "scenarios" / "instruction_typescript_any.yaml"
+    )
+
+    assert scenario.selected_skill_id == "safety_framework_escape_hatch"
+    assert scenario.checker_template is not None
+    assert scenario.checker_template.substituted == "instruction"
+    assert scenario.checker_template.failure_mode == "constraint_override"
+
+
+def valid_checker_template_data() -> dict[str, object]:
+    return {
+        "checker_observed_bypass": True,
+        "substituted": "instruction",
+        "failure_mode": "constraint_override",
+        "evidence": [
+            "The response preserves the framework surface.",
+            "The response bypasses the intended guarantee.",
+        ],
+        "divergence_point": "The guarantee is bypassed.",
+        "confidence": "high",
+    }

@@ -292,6 +292,7 @@ def test_out_of_scope_run_prompt_does_not_emit_state_trace(tmp_path: Path) -> No
     assert len(list(run_dir.glob("*.flow.mmd"))) == 1
     assert list(run_dir.glob("*.response.md")) == []
     assert list(run_dir.glob("*.trace.json")) == []
+    assert list(run_dir.glob("*.checker.json")) == []
 
 
 # --- Test 13: no OpenRouter credentials required for mock mode ---
