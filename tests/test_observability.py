@@ -77,6 +77,44 @@ class SpyTracer:
         self.flush_count += 1
 
 
+class FakeLangfuseV4Span:
+    def __init__(self, kwargs: dict[str, Any]) -> None:
+        self.kwargs = kwargs
+        self.children: list[FakeLangfuseV4Span] = []
+        self.updates: list[dict[str, Any]] = []
+        self.ended = False
+
+    def start_observation(self, **kwargs: Any) -> "FakeLangfuseV4Span":
+        child = FakeLangfuseV4Span(kwargs)
+        self.children.append(child)
+        return child
+
+    def update(self, **kwargs: Any) -> None:
+        self.updates.append(kwargs)
+
+    def end(self) -> None:
+        self.ended = True
+
+
+class FakeLangfuseV4Client:
+    def __init__(self) -> None:
+        self.trace_id_seeds: list[str] = []
+        self.observations: list[FakeLangfuseV4Span] = []
+        self.flushed = False
+
+    def create_trace_id(self, *, seed: str | None = None) -> str:
+        self.trace_id_seeds.append(seed or "")
+        return "1" * 32
+
+    def start_observation(self, **kwargs: Any) -> FakeLangfuseV4Span:
+        span = FakeLangfuseV4Span(kwargs)
+        self.observations.append(span)
+        return span
+
+    def flush(self) -> None:
+        self.flushed = True
+
+
 def _make_run_args(outputs: Path) -> argparse.Namespace:
     return argparse.Namespace(
         scenarios=str(ROOT / "scenarios"),
@@ -105,6 +143,8 @@ def _run_fixed_cli_subprocess(outputs: Path, extra_env: dict[str, str] | None = 
         "scenarios",
         "--outputs",
         str(outputs),
+        "--env-file",
+        "/nonexistent/.env",
         "--mock",
     ]
     env = os.environ.copy()
@@ -205,7 +245,7 @@ def test_cli_mock_run_emits_same_artifacts_without_langfuse(tmp_path: Path, monk
 def test_create_tracer_with_langfuse_credentials_enables_tracer(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test-fake")
     monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test-fake")
-    monkeypatch.delenv("LANGFUSE_HOST", raising=False)
+    monkeypatch.delenv("LANGFUSE_BASE_URL", raising=False)
 
     mock_client = MagicMock()
     with patch("langfuse.Langfuse", return_value=mock_client):
@@ -215,17 +255,17 @@ def test_create_tracer_with_langfuse_credentials_enables_tracer(monkeypatch: pyt
     assert tracer.enabled is True
 
 
-def test_langfuse_tracer_passes_host_when_set(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_langfuse_tracer_passes_base_url_when_set(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
     monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
-    monkeypatch.setenv("LANGFUSE_HOST", "https://my.langfuse.example")
+    monkeypatch.setenv("LANGFUSE_BASE_URL", "https://my.langfuse.example")
 
     mock_client = MagicMock()
     with patch("langfuse.Langfuse", return_value=mock_client) as mock_cls:
         create_observability_tracer()
 
     _, kwargs = mock_cls.call_args
-    assert kwargs.get("host") == "https://my.langfuse.example"
+    assert kwargs.get("base_url") == "https://my.langfuse.example"
 
 
 # ---------------------------------------------------------------------------
@@ -355,7 +395,8 @@ def test_env_example_documents_optional_langfuse_variables() -> None:
     content = (ROOT / ".env.example").read_text()
     assert "LANGFUSE_PUBLIC_KEY" in content
     assert "LANGFUSE_SECRET_KEY" in content
-    assert "LANGFUSE_HOST" in content
+    assert "LANGFUSE_BASE_URL" in content
+    assert "LANGFUSE_HOST" not in content
     # Must be commented out (optional, not required)
     for line in content.splitlines():
         if "LANGFUSE_PUBLIC_KEY" in line and not line.startswith("#"):
@@ -400,6 +441,35 @@ def test_langfuse_tracer_start_run_omits_session_id_when_none(monkeypatch: pytes
     tracer.start_run(name="run", metadata={"command": "run"}, session_id=None)
     _, trace_kwargs = mock_client.trace.call_args
     assert "session_id" not in trace_kwargs
+
+
+def test_langfuse_tracer_supports_v4_observation_api(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
+
+    fake_client = FakeLangfuseV4Client()
+    with patch("langfuse.Langfuse", return_value=fake_client):
+        tracer = create_observability_tracer()
+
+    assert isinstance(tracer, LangfuseTracer)
+    tracer.start_run(name="run", metadata={"command": "run"}, session_id="20260530T120000Z")
+    with tracer.span(name="classify_scenario", metadata={"scenario_id": "s1"}) as span:
+        span.update(output={"classification": "in_scope"})
+    tracer.flush()
+
+    assert fake_client.trace_id_seeds == ["20260530T120000Z"]
+    root = fake_client.observations[0]
+    assert root.kwargs["name"] == "run"
+    assert root.kwargs["metadata"] == {"command": "run"}
+    assert root.kwargs["trace_context"] == {"trace_id": "1" * 32}
+    assert root.ended is True
+
+    child = root.children[0]
+    assert child.kwargs["name"] == "classify_scenario"
+    assert child.kwargs["metadata"] == {"scenario_id": "s1"}
+    assert child.updates == [{"output": {"classification": "in_scope"}}]
+    assert child.ended is True
+    assert fake_client.flushed is True
 
 
 def test_run_command_uses_run_dir_name_as_session_id(tmp_path: Path) -> None:

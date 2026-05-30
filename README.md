@@ -158,7 +158,7 @@ Set:
 ```bash
 LANGFUSE_PUBLIC_KEY=
 LANGFUSE_SECRET_KEY=
-LANGFUSE_HOST=
+LANGFUSE_BASE_URL=
 ```
 
 If Langfuse credentials are not configured, observability is a no-op and the CLI behaves normally.
