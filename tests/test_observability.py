@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from tests.helpers import single_run_dir
-from whose_agent.observability.langfuse import (
+from whose_agent.tracing import (
     LangfuseTracer,
     NoopSpan,
     NoopTracer,
@@ -33,6 +33,9 @@ class SpySpan:
         self.metadata = metadata or {}
         self.input = kwargs.get("input")
         self.output = kwargs.get("output")
+        self.model = kwargs.get("model")
+        self.model_parameters = kwargs.get("model_parameters")
+        self.usage_details = kwargs.get("usage_details")
 
     def __enter__(self) -> "SpySpan":
         return self
@@ -43,6 +46,12 @@ class SpySpan:
     def update(self, **kwargs: Any) -> None:
         if "output" in kwargs:
             self.output = kwargs["output"]
+        if "model" in kwargs:
+            self.model = kwargs["model"]
+        if "model_parameters" in kwargs:
+            self.model_parameters = kwargs["model_parameters"]
+        if "usage_details" in kwargs:
+            self.usage_details = kwargs["usage_details"]
 
 
 class SpyTracer:
@@ -73,8 +82,55 @@ class SpyTracer:
         self.spans.append(s)
         return s
 
+    def generation(
+        self,
+        *,
+        name: str,
+        metadata: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> SpySpan:
+        return self.span(name=name, metadata=metadata, **kwargs)
+
     def flush(self) -> None:
         self.flush_count += 1
+
+
+class FakeLangfuseV4Span:
+    def __init__(self, kwargs: dict[str, Any]) -> None:
+        self.kwargs = kwargs
+        self.children: list[FakeLangfuseV4Span] = []
+        self.updates: list[dict[str, Any]] = []
+        self.ended = False
+
+    def start_observation(self, **kwargs: Any) -> "FakeLangfuseV4Span":
+        child = FakeLangfuseV4Span(kwargs)
+        self.children.append(child)
+        return child
+
+    def update(self, **kwargs: Any) -> None:
+        self.updates.append(kwargs)
+
+    def end(self) -> None:
+        self.ended = True
+
+
+class FakeLangfuseV4Client:
+    def __init__(self) -> None:
+        self.trace_id_seeds: list[str] = []
+        self.observations: list[FakeLangfuseV4Span] = []
+        self.flushed = False
+
+    def create_trace_id(self, *, seed: str | None = None) -> str:
+        self.trace_id_seeds.append(seed or "")
+        return "1" * 32
+
+    def start_observation(self, **kwargs: Any) -> FakeLangfuseV4Span:
+        span = FakeLangfuseV4Span(kwargs)
+        self.observations.append(span)
+        return span
+
+    def flush(self) -> None:
+        self.flushed = True
 
 
 def _make_run_args(outputs: Path) -> argparse.Namespace:
@@ -105,6 +161,8 @@ def _run_fixed_cli_subprocess(outputs: Path, extra_env: dict[str, str] | None = 
         "scenarios",
         "--outputs",
         str(outputs),
+        "--env-file",
+        "/nonexistent/.env",
         "--mock",
     ]
     env = os.environ.copy()
@@ -205,7 +263,7 @@ def test_cli_mock_run_emits_same_artifacts_without_langfuse(tmp_path: Path, monk
 def test_create_tracer_with_langfuse_credentials_enables_tracer(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test-fake")
     monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test-fake")
-    monkeypatch.delenv("LANGFUSE_HOST", raising=False)
+    monkeypatch.delenv("LANGFUSE_BASE_URL", raising=False)
 
     mock_client = MagicMock()
     with patch("langfuse.Langfuse", return_value=mock_client):
@@ -215,17 +273,17 @@ def test_create_tracer_with_langfuse_credentials_enables_tracer(monkeypatch: pyt
     assert tracer.enabled is True
 
 
-def test_langfuse_tracer_passes_host_when_set(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_langfuse_tracer_passes_base_url_when_set(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
     monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
-    monkeypatch.setenv("LANGFUSE_HOST", "https://my.langfuse.example")
+    monkeypatch.setenv("LANGFUSE_BASE_URL", "https://my.langfuse.example")
 
     mock_client = MagicMock()
     with patch("langfuse.Langfuse", return_value=mock_client) as mock_cls:
         create_observability_tracer()
 
     _, kwargs = mock_cls.call_args
-    assert kwargs.get("host") == "https://my.langfuse.example"
+    assert kwargs.get("base_url") == "https://my.langfuse.example"
 
 
 # ---------------------------------------------------------------------------
@@ -291,6 +349,45 @@ def test_tracer_receives_boundary_flags_in_state_trace_span(tmp_path: Path) -> N
         assert "next_action" in s.output
 
 
+def test_run_command_tracer_spans_have_sanitized_input_and_output(tmp_path: Path) -> None:
+    from whose_agent.cli import run_command
+
+    tracer = SpyTracer()
+    with patch("whose_agent.cli.create_observability_tracer", return_value=tracer):
+        run_command(_make_run_args(tmp_path))
+
+    assert tracer.spans
+    for span in tracer.spans:
+        assert span.input is not None, span.name
+        assert span.output is not None, span.name
+        _assert_no_large_strings(span.input)
+        _assert_no_large_strings(span.output)
+
+    classify_span = next(s for s in tracer.spans if s.name == "classify_scenario")
+    assert "principal_prompt_length" in classify_span.input
+    assert "principal_prompt_sha256" in classify_span.input
+    assert len(classify_span.input["principal_prompt_sha256"]) == 64
+
+
+def test_run_prompt_tracer_spans_have_sanitized_input_and_output(tmp_path: Path) -> None:
+    from whose_agent.cli import run_prompt_command
+
+    tracer = SpyTracer()
+    with patch("whose_agent.cli.create_observability_tracer", return_value=tracer):
+        run_prompt_command(_make_prompt_args(tmp_path))
+
+    assert tracer.spans
+    for span in tracer.spans:
+        assert span.input is not None, span.name
+        assert span.output is not None, span.name
+        _assert_no_large_strings(span.input)
+        _assert_no_large_strings(span.output)
+
+    classify_span = next(s for s in tracer.spans if s.name == "classify_prompt")
+    assert classify_span.input["principal_prompt_length"] == len("Implement a CLI in Rust.")
+    assert len(classify_span.input["principal_prompt_sha256"]) == 64
+
+
 # ---------------------------------------------------------------------------
 # Test 7: tracer does not receive full bad_response text
 # ---------------------------------------------------------------------------
@@ -313,10 +410,22 @@ def test_tracer_does_not_receive_full_bad_response(tmp_path: Path) -> None:
 
     # No span should carry the raw bad_response text anywhere
     for s in tracer.spans:
-        for v in (s.output or {}).values():
-            if isinstance(v, str):
-                # Bad responses in mock mode are hundreds of chars; metadata values should be short
-                assert len(v) < 200, f"Suspiciously long string in span '{s.name}' output: {v[:80]!r}..."
+        _assert_no_large_strings(s.input)
+        _assert_no_large_strings(s.output)
+
+
+def _assert_no_large_strings(value: Any) -> None:
+    if isinstance(value, dict):
+        for item in value.values():
+            _assert_no_large_strings(item)
+        return
+    if isinstance(value, list):
+        for item in value:
+            _assert_no_large_strings(item)
+        return
+    if isinstance(value, str):
+        # Bad responses in mock mode are hundreds of chars; trace values should be short.
+        assert len(value) < 200, f"Suspiciously long string in traced value: {value[:80]!r}..."
 
 
 # ---------------------------------------------------------------------------
@@ -355,7 +464,8 @@ def test_env_example_documents_optional_langfuse_variables() -> None:
     content = (ROOT / ".env.example").read_text()
     assert "LANGFUSE_PUBLIC_KEY" in content
     assert "LANGFUSE_SECRET_KEY" in content
-    assert "LANGFUSE_HOST" in content
+    assert "LANGFUSE_BASE_URL" in content
+    assert "LANGFUSE_HOST" not in content
     # Must be commented out (optional, not required)
     for line in content.splitlines():
         if "LANGFUSE_PUBLIC_KEY" in line and not line.startswith("#"):
@@ -400,6 +510,71 @@ def test_langfuse_tracer_start_run_omits_session_id_when_none(monkeypatch: pytes
     tracer.start_run(name="run", metadata={"command": "run"}, session_id=None)
     _, trace_kwargs = mock_client.trace.call_args
     assert "session_id" not in trace_kwargs
+
+
+def test_langfuse_tracer_supports_v4_observation_api(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
+
+    fake_client = FakeLangfuseV4Client()
+    with patch("langfuse.Langfuse", return_value=fake_client):
+        tracer = create_observability_tracer()
+
+    assert isinstance(tracer, LangfuseTracer)
+    tracer.start_run(name="run", metadata={"command": "run"}, session_id="20260530T120000Z")
+    with tracer.span(name="classify_scenario", metadata={"scenario_id": "s1"}) as span:
+        span.update(output={"classification": "in_scope"})
+    tracer.flush()
+
+    assert fake_client.trace_id_seeds == ["20260530T120000Z"]
+    root = fake_client.observations[0]
+    assert root.kwargs["name"] == "run"
+    assert root.kwargs["metadata"] == {"command": "run"}
+    assert root.kwargs["trace_context"] == {"trace_id": "1" * 32}
+    assert root.ended is True
+
+    child = root.children[0]
+    assert child.kwargs["name"] == "classify_scenario"
+    assert child.kwargs["metadata"] == {"scenario_id": "s1"}
+    assert child.updates == [{"output": {"classification": "in_scope"}}]
+    assert child.ended is True
+    assert fake_client.flushed is True
+
+
+def test_langfuse_tracer_supports_v4_generation_usage(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
+
+    fake_client = FakeLangfuseV4Client()
+    with patch("langfuse.Langfuse", return_value=fake_client):
+        tracer = create_observability_tracer()
+
+    assert isinstance(tracer, LangfuseTracer)
+    tracer.start_run(name="run", metadata={"command": "run"}, session_id="20260530T120000Z")
+    with tracer.generation(
+        name="generate_bad_response",
+        metadata={"scenario_id": "s1"},
+        model="openrouter:test/model",
+        model_parameters={"temperature": 0.2},
+        usage_details={"input": 11, "output": 7, "total": 18},
+    ) as span:
+        span.update(
+            output={"bad_response_length": 42},
+            usage_details={"input": 11, "output": 7, "total": 18},
+        )
+    tracer.flush()
+
+    child = fake_client.observations[0].children[0]
+    assert child.kwargs["as_type"] == "generation"
+    assert child.kwargs["model"] == "openrouter:test/model"
+    assert child.kwargs["model_parameters"] == {"temperature": 0.2}
+    assert child.kwargs["usage_details"] == {"input": 11, "output": 7, "total": 18}
+    assert child.updates == [
+        {
+            "output": {"bad_response_length": 42},
+            "usage_details": {"input": 11, "output": 7, "total": 18},
+        }
+    ]
 
 
 def test_run_command_uses_run_dir_name_as_session_id(tmp_path: Path) -> None:

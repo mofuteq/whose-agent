@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 
 from whose_agent.models import Classification, Scenario, TraceSubstituted
+from whose_agent.llm_result import LLMCallResult, extract_output, extract_usage_details
 from whose_agent.prompt_loader import render_template
 from whose_agent.text_normalization import normalize_llm_text
 
@@ -84,12 +85,21 @@ def generate_bad_response(
     *,
     mock: bool = False,
 ) -> str:
+    return generate_bad_response_with_usage(scenario, classification, mock=mock).output
+
+
+def generate_bad_response_with_usage(
+    scenario: Scenario,
+    classification: Classification,
+    *,
+    mock: bool = False,
+) -> LLMCallResult[str]:
     if classification.classification != "in_scope":
         raise BadResponseError(
             "Bad response generation is only defined for in-scope scenarios.")
 
     if mock:
-        return mock_bad_response(classification)
+        return LLMCallResult(output=mock_bad_response(classification))
 
     if not os.environ.get("OPENROUTER_API_KEY"):
         raise BadResponseError(
@@ -97,13 +107,20 @@ def generate_bad_response(
 
     from pydantic_ai import Agent
 
-    agent = Agent(_model_name_from_environment())
+    model_name = _model_name_from_environment()
+    model_settings = BAD_RESPONSE_MODEL_SETTINGS.copy()
+    agent = Agent(model_name)
     result = agent.run_sync(
         build_generation_prompt(scenario),
-        model_settings=BAD_RESPONSE_MODEL_SETTINGS.copy(),
+        model_settings=model_settings,
     )
-    output = getattr(result, "output", getattr(result, "data", ""))
+    output = extract_output(result)
     response = normalize_llm_text(str(output))
     if not response:
         raise BadResponseError("OpenRouter returned an empty bad response.")
-    return response
+    return LLMCallResult(
+        output=response,
+        model_name=model_name,
+        model_settings=model_settings,
+        usage_details=extract_usage_details(result),
+    )

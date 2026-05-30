@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import os
-from typing import Any
 
 from whose_agent.bad_response import DEFAULT_MODEL
+from whose_agent.llm_result import LLMCallResult, extract_output, extract_usage_details
 from whose_agent.models import Reflection, Scenario
 from whose_agent.prompt_loader import render_template
 from whose_agent.text_normalization import normalize_llm_text
@@ -44,11 +44,11 @@ def _model_name_from_environment() -> str:
     return model_name
 
 
-def _extract_output(result: Any) -> Any:
-    return getattr(result, "output", getattr(result, "data", result))
-
-
 def reflect_failure(scenario: Scenario, bad_response: str) -> Reflection:
+    return reflect_failure_with_usage(scenario, bad_response).output
+
+
+def reflect_failure_with_usage(scenario: Scenario, bad_response: str) -> LLMCallResult[Reflection]:
     if not os.environ.get("OPENROUTER_API_KEY"):
         raise ReflectionError(
             "OPENROUTER_API_KEY is required for reflection unless --mock is used."
@@ -56,18 +56,25 @@ def reflect_failure(scenario: Scenario, bad_response: str) -> Reflection:
 
     from pydantic_ai import Agent
 
-    agent = Agent(_model_name_from_environment(), output_type=Reflection)
-    output = _extract_output(
-        agent.run_sync(
-            build_reflection_prompt(scenario, bad_response),
-            model_settings=REFLECTION_MODEL_SETTINGS.copy(),
-        )
+    model_name = _model_name_from_environment()
+    model_settings = REFLECTION_MODEL_SETTINGS.copy()
+    agent = Agent(model_name, output_type=Reflection)
+    result = agent.run_sync(
+        build_reflection_prompt(scenario, bad_response),
+        model_settings=model_settings,
     )
+    output = extract_output(result)
     reflection = Reflection.model_validate(output)
-    return Reflection(
+    normalized = Reflection(
         reflection_substituted=reflection.reflection_substituted,
         why_it_breaks_delegation=[
             normalize_llm_text(s) for s in reflection.why_it_breaks_delegation
         ],
         better_behavior=[normalize_llm_text(s) for s in reflection.better_behavior],
+    )
+    return LLMCallResult(
+        output=normalized,
+        model_name=model_name,
+        model_settings=model_settings,
+        usage_details=extract_usage_details(result),
     )

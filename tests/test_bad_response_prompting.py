@@ -12,6 +12,7 @@ from whose_agent.bad_response import (
     BAD_RESPONSE_MODEL_SETTINGS,
     build_generation_prompt,
     generate_bad_response,
+    generate_bad_response_with_usage,
     mock_bad_response,
 )
 from whose_agent.classifier import classify_scenario
@@ -106,6 +107,35 @@ def test_generate_bad_response_normalizes_openrouter_text(monkeypatch) -> None:
     response = generate_bad_response(scenario, classification)
 
     assert response == "Rust CLI"
+
+
+def test_generate_bad_response_records_token_usage(monkeypatch) -> None:
+    scenario = load_scenario(ROOT / "scenarios" / "instruction_rust_cli.yaml")
+    classification = classify_scenario(scenario)
+
+    class FakeAgent:
+        def __init__(self, model_name: str) -> None:
+            pass
+
+        def run_sync(self, prompt: str, *, model_settings: dict[str, float | int]):
+            return SimpleNamespace(
+                output="Here is a concise assistant response.",
+                usage=SimpleNamespace(input_tokens=11, output_tokens=7, total_tokens=18),
+            )
+
+    import pydantic_ai
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("WHOSE_AGENT_MODEL", "openrouter:test/model")
+    monkeypatch.setattr(pydantic_ai, "Agent", FakeAgent)
+
+    result = generate_bad_response_with_usage(scenario, classification)
+
+    assert result.output == "Here is a concise assistant response."
+    assert result.model_name == "openrouter:test/model"
+    assert result.model_settings == BAD_RESPONSE_MODEL_SETTINGS
+    assert result.model_settings is not BAD_RESPONSE_MODEL_SETTINGS
+    assert result.usage_details == {"input": 11, "output": 7, "total": 18}
 
 
 def test_mock_bad_responses_are_english_ascii_text() -> None:
