@@ -16,7 +16,7 @@ from whose_agent.flow_emitter import emit_prompt_flow
 from whose_agent.llm_classifier import PromptClassifierError, classify_prompt
 from whose_agent.models import Classification, Trace
 from whose_agent.observability import create_observability_tracer
-from whose_agent.prompt_run import build_prompt_run, mock_classify_prompt, to_scenario_classification
+from whose_agent.prompt_run import build_prompt_run, mock_classify_prompt
 from whose_agent.reflection import ReflectionError
 from whose_agent.run_directory import create_run_directory
 from whose_agent.scenario_loader import load_scenarios
@@ -211,112 +211,28 @@ def run_prompt_command(args: argparse.Namespace) -> int:
         flow = emit_prompt_flow(prompt_run)
         span.update(output={"classification": prompt_classification.classification})
 
-    response_count = 0
-    trace_count = 0
-    flow_count = 1
-    state_trace_count = 0
-
-    if prompt_run.scenario is not None:
-        classification = to_scenario_classification(
-            prompt_run.scenario,
+    artifact_names = [
+        f"{prompt_run.scenario_id}.classification.json",
+        f"{prompt_run.scenario_id}.flow.mmd",
+    ]
+    with tracer.span(
+        name="write_artifacts",
+        metadata={"scenario_id": prompt_run.scenario_id, "artifact_names": artifact_names},
+    ):
+        write_model_json(
+            run_dir / f"{prompt_run.scenario_id}.classification.json",
             prompt_run.classification,
         )
-
-        with tracer.span(
-            name="generate_bad_response",
-            metadata={
-                "scenario_id": prompt_run.scenario_id,
-                "substituted": classification.substituted,
-                "mock": args.mock,
-            },
-        ) as span:
-            bad_response = generate_bad_response(
-                prompt_run.scenario,
-                classification,
-                mock=args.mock,
-            )
-            span.update(output={"bad_response_length": len(bad_response)})
-
-        with tracer.span(
-            name="emit_trace",
-            metadata={"scenario_id": prompt_run.scenario_id, "mock": args.mock},
-        ) as span:
-            trace: Trace = emit_trace(
-                prompt_run.scenario, classification, bad_response, mock=args.mock
-            )
-            span.update(
-                output={
-                    "substituted": trace.substituted,
-                    "failure_mode": trace.failure_mode,
-                    "reflection_substituted": trace.reflection_substituted,
-                }
-            )
-
-        with tracer.span(
-            name="emit_state_trace",
-            metadata={"scenario_id": prompt_run.scenario_id, "mock": args.mock},
-        ) as span:
-            state_trace: BoundaryStateTrace = emit_state_trace(
-                prompt_run.scenario, classification, bad_response, mock=args.mock
-            )
-            if state_trace.transitions:
-                final = state_trace.transitions[-1].state
-                span.update(
-                    output={
-                        "reflection_matches_expected": final.reflection_matches_expected,
-                        "boundary_flags": list(final.boundary_flags),
-                        "next_action": final.next_action,
-                    }
-                )
-
-        artifact_names = [
-            f"{prompt_run.scenario_id}.classification.json",
-            f"{prompt_run.scenario_id}.response.md",
-            f"{prompt_run.scenario_id}.trace.json",
-            f"{prompt_run.scenario_id}.state_trace.json",
-            f"{prompt_run.scenario_id}.flow.mmd",
-        ]
-        with tracer.span(
-            name="write_artifacts",
-            metadata={"scenario_id": prompt_run.scenario_id, "artifact_names": artifact_names},
-        ):
-            write_model_json(
-                run_dir / f"{prompt_run.scenario_id}.classification.json",
-                prompt_run.classification,
-            )
-            write_text(run_dir / f"{prompt_run.scenario_id}.flow.mmd", flow)
-            write_text(run_dir / f"{prompt_run.scenario_id}.response.md", bad_response)
-            write_model_json(run_dir / f"{prompt_run.scenario_id}.trace.json", trace)
-            write_model_json(
-                run_dir / f"{prompt_run.scenario_id}.state_trace.json", state_trace
-            )
-
-        response_count = 1
-        trace_count = 1
-        state_trace_count = 1
-    else:
-        artifact_names = [
-            f"{prompt_run.scenario_id}.classification.json",
-            f"{prompt_run.scenario_id}.flow.mmd",
-        ]
-        with tracer.span(
-            name="write_artifacts",
-            metadata={"scenario_id": prompt_run.scenario_id, "artifact_names": artifact_names},
-        ):
-            write_model_json(
-                run_dir / f"{prompt_run.scenario_id}.classification.json",
-                prompt_run.classification,
-            )
-            write_text(run_dir / f"{prompt_run.scenario_id}.flow.mmd", flow)
+        write_text(run_dir / f"{prompt_run.scenario_id}.flow.mmd", flow)
 
     print(f"Wrote outputs to {run_dir}")
     print(
         "Wrote "
         "1 classification files, "
-        f"{response_count} response files, "
-        f"{trace_count} trace files, "
-        f"{flow_count} flow files, and "
-        f"{state_trace_count} state trace files."
+        "0 response files, "
+        "0 trace files, "
+        "1 flow files, and "
+        "0 state trace files."
     )
     tracer.flush()
     return 0
