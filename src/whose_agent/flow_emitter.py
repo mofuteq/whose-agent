@@ -50,8 +50,6 @@ def emit_prompt_flow(prompt_run: PromptRun) -> str:
             f"substituted: {scenario.expected_substituted}",
             f"failure_mode: {scenario.failure_mode}",
             "Build synthetic Scenario",
-            "Generate bad response",
-            "Emit deterministic trace",
-            "Trace JSON",
+            "Classification JSON and Flow",
         ]
     )

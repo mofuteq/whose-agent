@@ -93,13 +93,13 @@ jobs:
             exit 1
           fi
 
-          if [[ "$response_count" != "1" ]]; then
-            echo "Expected 1 prompt response file, got $response_count"
+          if [[ "$response_count" != "0" ]]; then
+            echo "Expected 0 prompt response files, got $response_count"
             exit 1
           fi
 
-          if [[ "$trace_count" != "1" ]]; then
-            echo "Expected 1 prompt trace file, got $trace_count"
+          if [[ "$trace_count" != "0" ]]; then
+            echo "Expected 0 prompt trace files, got $trace_count"
             exit 1
           fi
 

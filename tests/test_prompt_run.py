@@ -109,38 +109,31 @@ def test_none_prompt_run_writes_classification_json_and_flow_only(tmp_path: Path
     assert classification["classification"] == "out_of_scope"
 
 
-def test_in_scope_prompt_run_writes_classification_response_trace_and_flow(tmp_path: Path) -> None:
+def test_in_scope_prompt_run_writes_classification_and_flow_only(tmp_path: Path) -> None:
     completed = run_prompt_cli(
         "Implement a CLI in Rust that counts lines in a file.",
         tmp_path,
     )
 
     assert (
-        "Wrote 1 classification files, 1 response files, 1 trace files, "
-        "1 flow files, and 1 state trace files."
+        "Wrote 1 classification files, 0 response files, 0 trace files, "
+        "1 flow files, and 0 state trace files."
     ) in completed.stdout
     run_dir = single_run_dir(tmp_path)
     assert f"Wrote outputs to {run_dir}" in completed.stdout
 
     classification_files = list(run_dir.glob("*.classification.json"))
-    response_files = list(run_dir.glob("*.response.md"))
-    trace_files = [f for f in run_dir.glob("*.trace.json") if not f.name.endswith(".state_trace.json")]
     flow_files = list(run_dir.glob("*.flow.mmd"))
-    state_trace_files = list(run_dir.glob("*.state_trace.json"))
     assert len(classification_files) == 1
-    assert len(response_files) == 1
-    assert len(trace_files) == 1
     assert len(flow_files) == 1
-    assert len(state_trace_files) == 1
+    assert list(run_dir.glob("*.response.md")) == []
+    assert [f for f in run_dir.glob("*.trace.json") if not f.name.endswith(".state_trace.json")] == []
+    assert list(run_dir.glob("*.state_trace.json")) == []
 
     classification = json.loads(classification_files[0].read_text(encoding="utf-8"))
-    trace = json.loads(trace_files[0].read_text(encoding="utf-8"))
     assert classification["substituted"] == "instruction"
     assert classification["classification"] == "in_scope"
     assert "scenario_id" not in classification
-    assert trace["scenario_id"].startswith("prompt_")
-    assert trace["substituted"] == "instruction"
-    assert trace["failure_mode"] == "constraint_override"
 
 
 def test_in_scope_prompt_flow_contains_execution_path() -> None:
@@ -154,9 +147,10 @@ def test_in_scope_prompt_flow_contains_execution_path() -> None:
     assert "substituted: instruction" in flow
     assert "failure_mode: constraint_override" in flow
     assert "Build synthetic Scenario" in flow
-    assert "Generate bad response" in flow
-    assert "Emit deterministic trace" in flow
-    assert "Trace JSON" in flow
+    assert "Classification JSON and Flow" in flow
+    assert "Generate bad response" not in flow
+    assert "Emit deterministic trace" not in flow
+    assert "Trace JSON" not in flow
 
 
 def test_out_of_scope_prompt_flow_contains_classification_only_path() -> None:

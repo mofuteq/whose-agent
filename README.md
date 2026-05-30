@@ -23,8 +23,10 @@ This is not a State Loop.
 
 ## Pipeline
 
+**Fixed scenario path (benchmark):**
+
 ```
-fixed scenario / prompt
+fixed scenario
   -> classification
   -> bad response generation
   -> thesis-based reflection
@@ -33,6 +35,14 @@ fixed scenario / prompt
 ```
 
 The hand-written thesis is fixed. It is not generated or rewritten by the model.
+
+**`run-prompt` path (exploratory):**
+
+```
+arbitrary prompt
+  -> classification
+  -> flow diagram
+```
 
 ## Artifacts
 
@@ -100,18 +110,25 @@ the requested output root.
 
 ## Arbitrary prompt path
 
-Fixed scenarios remain the deterministic baseline.
+The fixed scenario path is the benchmark path.
+It emits generated bad responses, benchmark traces, and boundary state traces.
 
-For exploratory runs, `run-prompt` classifies an arbitrary principal prompt into the same
-substituted axis and, when in scope, produces a bad response, trace, and state trace.
+The `run-prompt` path is exploratory.
+It classifies an arbitrary prompt and emits a Mermaid flow, but it does not generate bad responses or trace artifacts.
+This avoids producing benchmark-style traces from synthetic scenarios derived from arbitrary prompts.
+
+`run-prompt` always emits exactly:
+- `.classification.json`
+- `.flow.mmd`
+
+`run-prompt` never emits:
+- `.response.md`
+- `.trace.json`
+- `.state_trace.json`
+
+This is true whether the prompt is classified as in-scope or out-of-scope.
 Classification may use an LLM. Failure-mode mapping remains deterministic.
-In non-mock runs, bad response generation and reflection may use OpenRouter.
-In mock runs, outputs remain deterministic.
-
-`run-prompt` also emits a `.flow.mmd` Mermaid artifact that summarizes the execution path.
-The flow shows the pipeline path, not hidden reasoning.
-
-Out-of-scope prompts produce only `.classification.json` and `.flow.mmd`.
+In mock mode, classification is local and deterministic.
 
 ```bash
 uv run python -m whose_agent.cli run-prompt \
