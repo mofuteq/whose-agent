@@ -52,7 +52,7 @@ def test_trace_json_is_emitted_only_for_in_scope_scenarios() -> None:
             emit_trace(scenario, classification, mock_bad_response(classification), mock=True)
         )
 
-    assert len(traces) == 4
+    assert len(traces) == 5
     assert len(skipped) == 2
 
 
@@ -125,6 +125,43 @@ def test_instruction_trace_text_comes_from_scenario_not_axis() -> None:
 
     assert trace.divergence_point == "TEST SCENARIO SPECIFIC DIVERGENCE"
     assert "explicit Rust instruction" not in trace.divergence_point
+
+
+def test_typescript_any_scenario_loads_with_trace_template() -> None:
+    scenario = load_scenarios(ROOT / "scenarios")
+    by_id = {item.scenario_id: item for item in scenario}
+
+    typescript_any = by_id["instruction_typescript_any"]
+
+    assert typescript_any.scenario_id == "instruction_typescript_any"
+    assert typescript_any.expected_substituted == "instruction"
+    assert typescript_any.failure_mode == "constraint_override"
+    assert typescript_any.trace_template is not None
+    divergence_point = typescript_any.trace_template.divergence_point.lower()
+    assert "typescript" in divergence_point or "any" in divergence_point
+
+
+def test_typescript_any_mock_trace_uses_own_template_without_rust_text() -> None:
+    scenario = load_scenarios(ROOT / "scenarios")
+    typescript_any = {
+        item.scenario_id: item for item in scenario
+    }["instruction_typescript_any"]
+    classification = classify_scenario(typescript_any)
+    assert typescript_any.trace_template is not None
+
+    trace = emit_trace(
+        typescript_any,
+        classification,
+        mock_bad_response(classification),
+        mock=True,
+    )
+
+    assert trace.scenario_id == "instruction_typescript_any"
+    assert trace.substituted == "instruction"
+    assert trace.failure_mode == "constraint_override"
+    assert trace.divergence_point == typescript_any.trace_template.divergence_point
+    assert "Rust" not in trace.divergence_point
+    assert "rust" not in trace.divergence_point
 
 
 def scenario_with_template(

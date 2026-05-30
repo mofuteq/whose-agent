@@ -249,7 +249,7 @@ def test_cli_mock_run_emits_state_trace_json(tmp_path: Path) -> None:
     run_dir = single_run_dir(tmp_path)
 
     state_trace_files = list(run_dir.glob("*.state_trace.json"))
-    assert len(state_trace_files) == 4
+    assert len(state_trace_files) == 5
 
 
 # --- Test 11: .state_trace.json contains expected transition step names ---
