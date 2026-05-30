@@ -79,7 +79,7 @@ def test_prompt_run_builds_deterministic_synthetic_scenario() -> None:
 
 def test_none_prompt_run_writes_classification_json_and_flow_only(tmp_path: Path) -> None:
     completed = run_prompt_cli(
-        "Explain the difference between Deployment and StatefulSet.",
+        "Pythonすきやねん",
         tmp_path,
     )
 
@@ -97,7 +97,15 @@ def test_none_prompt_run_writes_classification_json_and_flow_only(tmp_path: Path
     assert list(run_dir.glob("*.response.md")) == []
     assert list(run_dir.glob("*.trace.json")) == []
 
-    classification = json.loads(classification_files[0].read_text(encoding="utf-8"))
+    classification_text = classification_files[0].read_text(encoding="utf-8")
+    assert "Pythonすきやねん" in classification_text
+    assert "\\u3059" not in classification_text
+
+    flow = flow_files[0].read_text(encoding="utf-8")
+    assert "Classification JSON and Flow" in flow
+    assert "Classification JSON only" not in flow
+
+    classification = json.loads(classification_text)
     assert set(classification) == {
         "principal_prompt",
         "principal_signal",
@@ -105,6 +113,7 @@ def test_none_prompt_run_writes_classification_json_and_flow_only(tmp_path: Path
         "classification",
         "reason",
     }
+    assert classification["principal_prompt"] == "Pythonすきやねん"
     assert classification["substituted"] == "none"
     assert classification["classification"] == "out_of_scope"
 
@@ -153,7 +162,7 @@ def test_in_scope_prompt_flow_contains_execution_path() -> None:
     assert "Trace JSON" not in flow
 
 
-def test_out_of_scope_prompt_flow_contains_classification_only_path() -> None:
+def test_out_of_scope_prompt_flow_contains_artifact_path() -> None:
     prompt = "Explain the difference between Deployment and StatefulSet."
     prompt_run = build_prompt_run(prompt, mock_classify_prompt(prompt))
 
@@ -163,7 +172,8 @@ def test_out_of_scope_prompt_flow_contains_classification_only_path() -> None:
     assert "Classify substituted" in flow
     assert "substituted: none" in flow
     assert "Out of scope" in flow
-    assert "Classification JSON only" in flow
+    assert "Classification JSON and Flow" in flow
+    assert "Classification JSON only" not in flow
     assert "Generate bad response" not in flow
     assert "Emit deterministic trace" not in flow
     assert "Trace JSON" not in flow
