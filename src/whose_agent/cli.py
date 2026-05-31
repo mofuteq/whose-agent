@@ -102,16 +102,28 @@ def run_command(args: argparse.Namespace) -> int:
     checker_count = sum(
         1 for state in final_states if state.get("checker_observation") is not None
     )
+    checker_comparison_count = sum(
+        1
+        for state in final_states
+        if state.get("checker_comparison") is not None
+        and state["scenario"].checker_template is not None
+    )
 
     checker_file_label = "checker file" if checker_count == 1 else "checker files"
+    checker_comparison_file_label = (
+        "checker comparison file"
+        if checker_comparison_count == 1
+        else "checker comparison files"
+    )
     print(f"Wrote outputs to {run_dir}")
     print(
         "Wrote "
         f"{classification_count} classification files, "
         f"{response_count} response files, "
         f"{trace_count} trace files, "
-        f"{state_trace_count} state trace files, and "
-        f"{checker_count} {checker_file_label}."
+        f"{state_trace_count} state trace files, "
+        f"{checker_count} {checker_file_label}, and "
+        f"{checker_comparison_count} {checker_comparison_file_label}."
     )
     tracer.flush()
     return 0

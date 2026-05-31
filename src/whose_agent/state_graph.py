@@ -1,8 +1,7 @@
 """Run fixed scenario workflows on a LangGraph StateGraph.
 
 Schema definitions live in whose_agent.schemas; this module owns graph execution
-only. Skill-triggered drift and checker-template comparison are intentionally
-deferred.
+only. Skill triggering and checker comparison are recorded in LangGraph state.
 """
 
 from __future__ import annotations
@@ -17,7 +16,11 @@ from pydantic import BaseModel
 
 from whose_agent.bad_response import generate_bad_response_with_usage
 from whose_agent.boundary_state.trace import emit_state_trace_with_usage
-from whose_agent.checker import check_with_usage, load_skill_perspective
+from whose_agent.checker import (
+    check_with_usage,
+    compare_checker_observation,
+    load_skill_perspective,
+)
 from whose_agent.classifier import classify_scenario
 from whose_agent.llm_result import LLMCallResult
 from whose_agent.schemas import (
@@ -50,6 +53,7 @@ def initial_state_from_scenario(scenario: Scenario) -> WhoseAgentState:
         "trace": None,
         "state_trace": None,
         "checker_observation": None,
+        "checker_comparison": None,
         "step_kind": "plan",
         "step_index": 0,
         "next_action": "continue",
@@ -64,6 +68,8 @@ def initial_state_from_scenario(scenario: Scenario) -> WhoseAgentState:
         "checker_observed_bypass": False,
         "checker_id": None,
         "checker_confidence": None,
+        "checker_matches_expected": None,
+        "observation_outcome": None,
         "guarantee_bypass_observed": False,
         "guarantee_bypass_evidence": [],
         "substituted": scenario.expected_substituted,
@@ -141,18 +147,13 @@ def build_fixed_scenario_graph(
 
     def load_scenario(state: WhoseAgentState) -> WhoseAgentState:
         scenario = _scenario(state)
-        selected_skill_perspective = (
-            load_skill_perspective(scenario.selected_skill_id)
-            if scenario.selected_skill_id is not None
-            else None
-        )
         return {
             "principal": state.get("principal", "user"),
             "agent": state.get("agent", "assistant"),
             "principal_instruction": scenario.principal_prompt,
             "principal_signal": scenario.principal_signal,
             "selected_skill_id": scenario.selected_skill_id,
-            "selected_skill_perspective": selected_skill_perspective,
+            "selected_skill_perspective": None,
             "substituted": scenario.expected_substituted,
             "failure_mode": scenario.failure_mode,
             **_step_update(state, "plan"),
@@ -184,6 +185,39 @@ def build_fixed_scenario_graph(
             "substituted": classification.substituted,
             "next_action": next_action,
             **_step_update(state, "plan"),
+        }
+
+    def trigger_skill(state: WhoseAgentState) -> WhoseAgentState:
+        scenario = _scenario(state)
+        selected_skill_id = scenario.selected_skill_id
+        if selected_skill_id is None:
+            return {
+                "selected_skill_id": None,
+                "selected_skill_perspective": None,
+                "skill_triggered": False,
+                "misreader_skill_fired": False,
+                **_step_update(state, "plan", selected_skill_id=None),
+            }
+
+        selected_skill_perspective = load_skill_perspective(selected_skill_id)
+        trigger_evidence = [
+            "Scenario selected skill "
+            f"{selected_skill_id!r} after in-scope classification; "
+            "the deterministic fixed scenario treats the misreader skill as fired."
+        ]
+        return {
+            "selected_skill_id": selected_skill_id,
+            "selected_skill_perspective": selected_skill_perspective,
+            "skill_triggered": True,
+            "misreader_skill_fired": True,
+            "trigger_evidence": trigger_evidence,
+            **_step_update(
+                state,
+                "plan",
+                selected_skill_id=selected_skill_id,
+                misreader_skill_fired=True,
+                trigger_evidence=trigger_evidence,
+            ),
         }
 
     def generate_bad_response(state: WhoseAgentState) -> WhoseAgentState:
@@ -394,10 +428,71 @@ def build_fixed_scenario_graph(
             ),
         }
 
+    def compare_checker(state: WhoseAgentState) -> WhoseAgentState:
+        scenario = _scenario(state)
+        checker_observation = state.get("checker_observation")
+        comparison = compare_checker_observation(
+            scenario,
+            checker_observation,
+            misreader_skill_fired=bool(state.get("misreader_skill_fired", False)),
+        )
+        with tracer.span(
+            name="compare_checker",
+            metadata={
+                "scenario_id": scenario.scenario_id,
+                "has_checker_template": scenario.checker_template is not None,
+            },
+            input={
+                "scenario_id": scenario.scenario_id,
+                "misreader_skill_fired": bool(
+                    state.get("misreader_skill_fired", False)
+                ),
+                "checker_ran": bool(state.get("checker_ran", False)),
+                "checker_observed_bypass": bool(
+                    state.get("checker_observed_bypass", False)
+                ),
+            },
+        ) as span:
+            span.update(
+                output={
+                    "matches_expected": comparison.matches_expected,
+                    "observation_outcome": comparison.observation_outcome,
+                    "mismatch_count": len(comparison.mismatch_reasons),
+                }
+            )
+
+        return {
+            "checker_comparison": comparison,
+            "checker_matches_expected": comparison.matches_expected,
+            "observation_outcome": comparison.observation_outcome,
+            **_step_update(
+                state,
+                "check",
+                selected_skill_id=state.get("selected_skill_id"),
+                checker_ran=bool(state.get("checker_ran", False)),
+                checker_observed_bypass=bool(
+                    state.get("checker_observed_bypass", False)
+                ),
+                substituted=(
+                    checker_observation.substituted
+                    if checker_observation is not None
+                    else _trace_substituted(state)
+                ),
+                boundary_flags=state.get("boundary_flags", []),
+                divergence_point=(
+                    checker_observation.divergence_point
+                    if checker_observation is not None
+                    and checker_observation.divergence_point is not None
+                    else state.get("divergence_point")
+                ),
+            ),
+        }
+
     def write_artifacts(state: WhoseAgentState) -> WhoseAgentState:
         scenario = _scenario(state)
         classification = _classification(state)
         checker_observation = state.get("checker_observation")
+        checker_comparison = state.get("checker_comparison")
         if classification.classification == "out_of_scope":
             artifact_names = [f"{scenario.scenario_id}.classification.json"]
             with tracer.span(
@@ -430,6 +525,8 @@ def build_fixed_scenario_graph(
         ]
         if checker_observation is not None:
             artifact_names.append(f"{scenario.scenario_id}.checker.json")
+        if scenario.checker_template is not None and checker_comparison is not None:
+            artifact_names.append(f"{scenario.scenario_id}.checker_comparison.json")
         with tracer.span(
             name="write_artifacts",
             metadata={"scenario_id": scenario.scenario_id, "artifact_names": artifact_names},
@@ -448,6 +545,11 @@ def build_fixed_scenario_graph(
                     write_model_json(
                         run_dir / f"{scenario.scenario_id}.checker.json",
                         checker_observation,
+                    )
+                if scenario.checker_template is not None and checker_comparison is not None:
+                    write_model_json(
+                        run_dir / f"{scenario.scenario_id}.checker_comparison.json",
+                        checker_comparison,
                     )
             span.update(output={"artifact_count": len(artifact_names)})
 
@@ -481,10 +583,12 @@ def build_fixed_scenario_graph(
 
     graph.add_node("load_scenario", load_scenario)
     graph.add_node("classify", classify)
+    graph.add_node("trigger_skill", trigger_skill)
     graph.add_node("generate_bad_response", generate_bad_response)
     graph.add_node("analyze_trace", analyze_trace)
     graph.add_node("update_boundary_state", update_boundary_state)
     graph.add_node("maybe_check", maybe_check)
+    graph.add_node("compare_checker", compare_checker)
     graph.add_node("write_artifacts", write_artifacts)
     graph.add_node("finalize", finalize)
 
@@ -494,14 +598,16 @@ def build_fixed_scenario_graph(
         "classify",
         _route_after_classification,
         {
-            "in_scope": "generate_bad_response",
+            "in_scope": "trigger_skill",
             "out_of_scope": "write_artifacts",
         },
     )
+    graph.add_edge("trigger_skill", "generate_bad_response")
     graph.add_edge("generate_bad_response", "analyze_trace")
     graph.add_edge("analyze_trace", "update_boundary_state")
     graph.add_edge("update_boundary_state", "maybe_check")
-    graph.add_edge("maybe_check", "write_artifacts")
+    graph.add_edge("maybe_check", "compare_checker")
+    graph.add_edge("compare_checker", "write_artifacts")
     graph.add_edge("write_artifacts", "finalize")
     graph.add_edge("finalize", END)
     return graph
@@ -517,6 +623,8 @@ def _step_update(
     step_kind: StepKind,
     *,
     selected_skill_id: str | None = None,
+    misreader_skill_fired: bool | None = None,
+    trigger_evidence: list[str] | None = None,
     checker_ran: bool = False,
     checker_observed_bypass: bool = False,
     substituted: str | None = None,
@@ -524,16 +632,27 @@ def _step_update(
     divergence_point: str | None = None,
 ) -> WhoseAgentState:
     step_index = int(state.get("step_index", 0))
+    step_misreader_skill_fired = (
+        bool(state.get("misreader_skill_fired", False))
+        if misreader_skill_fired is None
+        else misreader_skill_fired
+    )
+    step_trigger_evidence = list(state.get("trigger_evidence", []))
+    if trigger_evidence is not None:
+        step_trigger_evidence.extend(trigger_evidence)
+    step_selected_skill_id = (
+        state.get("selected_skill_id") if selected_skill_id is None else selected_skill_id
+    )
     trace = StepTrace(
         step_index=step_index,
         step_kind=step_kind,
         principal=state.get("principal", "user"),
         agent=state.get("agent", "assistant"),
-        misreader_skill_fired=bool(state.get("misreader_skill_fired", False)),
-        selected_skill_id=selected_skill_id,
+        misreader_skill_fired=step_misreader_skill_fired,
+        selected_skill_id=step_selected_skill_id,
         checker_ran=checker_ran,
         checker_observed_bypass=checker_observed_bypass,
-        trigger_evidence=list(state.get("trigger_evidence", [])),
+        trigger_evidence=step_trigger_evidence,
         substituted=_step_substituted(substituted),
         boundary_flags=list(boundary_flags or []),
         divergence_point=divergence_point,

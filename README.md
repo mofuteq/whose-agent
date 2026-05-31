@@ -43,11 +43,13 @@ For example, the `instruction` axis now includes both:
 ```
 fixed scenario
   -> classification
+  -> deterministic skill trigger state update for selected scenarios
   -> bad response generation
   -> hybrid trace analysis: hand-written divergence_point templates plus thesis-based reflection for delegation analysis
   -> trace.json
   -> linear boundary state transition trace
   -> optional skill-perspective checker for selected fixed scenarios
+  -> checker-template comparison
 ```
 
 The hand-written thesis is fixed. It is not generated or rewritten by the model.
@@ -84,6 +86,9 @@ finalize_boundary_state
 
 **`.checker.json`**
 Optional external checker observation for fixed scenarios that select a human-authored skill perspective. It is emitted only for scenarios that opt into `selected_skill_id`.
+
+**`.checker_comparison.json`**
+Expected-vs-actual checker comparison for scenarios with `checker_template`. It records whether the checker observation matched the scenario expectation and whether the boundary observation succeeded, missed, or over-detected.
 
 **`.flow.mmd`**
 Mermaid flow artifact for the `run-prompt` path. Shows the pipeline path, not hidden reasoning.
@@ -175,6 +180,7 @@ This avoids producing benchmark-style traces from synthetic scenarios derived fr
 - `.trace.json`
 - `.state_trace.json`
 - `.checker.json`
+- `.checker_comparison.json`
 
 This is true whether the prompt is classified as in-scope or out-of-scope.
 Classification may use an LLM. Failure-mode mapping remains deterministic.

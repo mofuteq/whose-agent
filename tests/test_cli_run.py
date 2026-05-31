@@ -20,13 +20,14 @@ def test_fixed_scenario_run_writes_outputs_inside_one_run_directory(tmp_path: Pa
     assert f"Wrote outputs to {run_dir}" in completed.stdout
     assert (
         "Wrote 7 classification files, 5 response files, 5 trace files, "
-        "5 state trace files, and 1 checker file."
+        "5 state trace files, 1 checker file, and 1 checker comparison file."
     ) in completed.stdout
     assert len(list(run_dir.glob("*.classification.json"))) == 7
     assert len(list(run_dir.glob("*.response.md"))) == 5
     assert len([f for f in run_dir.glob("*.trace.json") if not f.name.endswith(".state_trace.json")]) == 5
     assert len(list(run_dir.glob("*.state_trace.json"))) == 5
     assert len(list(run_dir.glob("*.checker.json"))) == 1
+    assert len(list(run_dir.glob("*.checker_comparison.json"))) == 1
     assert list(run_dir.glob("*.flow.mmd")) == []
 
 
@@ -41,12 +42,14 @@ def test_typescript_any_mock_run_emits_scenario_artifacts(tmp_path: Path) -> Non
     trace_path = run_dir / "instruction_typescript_any.trace.json"
     state_trace_path = run_dir / "instruction_typescript_any.state_trace.json"
     checker_path = run_dir / "instruction_typescript_any.checker.json"
+    comparison_path = run_dir / "instruction_typescript_any.checker_comparison.json"
 
     assert classification_path.exists()
     assert response_path.exists()
     assert trace_path.exists()
     assert state_trace_path.exists()
     assert checker_path.exists()
+    assert comparison_path.exists()
 
     trace = json.loads(trace_path.read_text(encoding="utf-8"))
     assert trace["scenario_id"] == "instruction_typescript_any"
@@ -72,6 +75,12 @@ def test_typescript_any_mock_run_emits_scenario_artifacts(tmp_path: Path) -> Non
     assert "type-safety guarantee" in evidence_text
     assert "Rust" not in json.dumps(checker)
     assert "rust" not in json.dumps(checker)
+
+    comparison = json.loads(comparison_path.read_text(encoding="utf-8"))
+    assert comparison["scenario_id"] == "instruction_typescript_any"
+    assert comparison["matches_expected"] is True
+    assert comparison["mismatch_reasons"] == []
+    assert comparison["observation_outcome"] == "observation_succeeded"
 
 
 def run_fixed_cli(outputs: Path) -> subprocess.CompletedProcess[str]:

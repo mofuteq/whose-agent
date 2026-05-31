@@ -54,8 +54,10 @@ def test_step_traces_are_appended_in_order_for_in_scope_scenario() -> None:
     assert [trace.step_kind for trace in step_traces] == [
         "plan",
         "plan",
+        "plan",
         "do",
         "do",
+        "check",
         "check",
         "check",
         "do",
@@ -63,9 +65,78 @@ def test_step_traces_are_appended_in_order_for_in_scope_scenario() -> None:
     ]
     assert {trace.principal for trace in step_traces} == {"user"}
     assert {trace.agent for trace in step_traces} == {"assistant"}
-    assert step_traces[5].checker_ran is True
-    assert step_traces[5].checker_observed_bypass is True
-    assert step_traces[5].selected_skill_id == "safety_framework_escape_hatch"
+    assert step_traces[2].misreader_skill_fired is True
+    assert step_traces[2].selected_skill_id == "safety_framework_escape_hatch"
+    assert step_traces[2].trigger_evidence
+    assert step_traces[6].checker_ran is True
+    assert step_traces[6].checker_observed_bypass is True
+    assert step_traces[6].misreader_skill_fired is True
+    assert step_traces[6].selected_skill_id == "safety_framework_escape_hatch"
+
+
+def test_selected_skill_scenario_records_trigger_state() -> None:
+    scenario = load_scenario(ROOT / "scenarios" / "instruction_typescript_any.yaml")
+    graph = compile_fixed_scenario_graph(mock=True)
+
+    state = graph.invoke(initial_state_from_scenario(scenario))
+
+    assert state["skill_triggered"] is True
+    assert state["misreader_skill_fired"] is True
+    assert state["selected_skill_id"] == "safety_framework_escape_hatch"
+    assert state["selected_skill_perspective"] is not None
+    assert "surface framework" in state["selected_skill_perspective"]
+    assert state["trigger_evidence"]
+    assert "deterministic fixed scenario" in state["trigger_evidence"][0]
+
+
+def test_non_selected_skill_scenario_keeps_trigger_state_false() -> None:
+    scenario = load_scenario(ROOT / "scenarios" / "instruction_rust_cli.yaml")
+    graph = compile_fixed_scenario_graph(mock=True)
+
+    state = graph.invoke(initial_state_from_scenario(scenario))
+
+    assert state["skill_triggered"] is False
+    assert state["misreader_skill_fired"] is False
+    assert state["selected_skill_id"] is None
+    assert state["selected_skill_perspective"] is None
+    assert state["trigger_evidence"] == []
+
+
+def test_checker_comparison_succeeds_for_typescript_any_mock_scenario() -> None:
+    scenario = load_scenario(ROOT / "scenarios" / "instruction_typescript_any.yaml")
+    graph = compile_fixed_scenario_graph(mock=True)
+
+    state = graph.invoke(initial_state_from_scenario(scenario))
+    comparison = state["checker_comparison"]
+
+    assert comparison is not None
+    assert comparison.matches_expected is True
+    assert comparison.mismatch_reasons == []
+    assert comparison.expected_checker_observed_bypass is True
+    assert comparison.actual_checker_observed_bypass is True
+    assert comparison.expected_substituted == "instruction"
+    assert comparison.actual_substituted == "instruction"
+    assert comparison.expected_failure_mode == "constraint_override"
+    assert comparison.actual_failure_mode == "constraint_override"
+    assert comparison.observation_outcome == "observation_succeeded"
+    assert state["checker_matches_expected"] is True
+    assert state["observation_outcome"] == "observation_succeeded"
+
+
+def test_checker_comparison_not_applicable_without_checker_template() -> None:
+    scenario = load_scenario(ROOT / "scenarios" / "instruction_rust_cli.yaml")
+    graph = compile_fixed_scenario_graph(mock=True)
+
+    state = graph.invoke(initial_state_from_scenario(scenario))
+    comparison = state["checker_comparison"]
+
+    assert comparison is not None
+    assert comparison.matches_expected is True
+    assert comparison.observation_outcome == "not_applicable"
+    assert comparison.expected_checker_observed_bypass is None
+    assert comparison.actual_checker_observed_bypass is None
+    assert state["checker_matches_expected"] is True
+    assert state["observation_outcome"] == "not_applicable"
 
 
 def test_completed_becomes_true_at_finalize() -> None:
