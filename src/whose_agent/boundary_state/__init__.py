@@ -1,1 +1,1 @@
-"""Boundary state transition layer for whose-agent v0.2."""
+"""Boundary state artifact schema exports."""

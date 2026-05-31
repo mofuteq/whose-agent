@@ -15,7 +15,6 @@ from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel
 
 from whose_agent.bad_response import generate_bad_response_with_usage
-from whose_agent.boundary_state.trace import emit_state_trace_with_usage
 from whose_agent.checker import (
     check_with_usage,
     compare_checker_observation,
@@ -34,6 +33,7 @@ from whose_agent.schemas import (
     Trace,
     WhoseAgentState,
 )
+from whose_agent.state_trace_renderer import render_boundary_state_trace
 from whose_agent.trace_emitter import emit_trace_with_usage
 from whose_agent.tracing import NoopTracer
 
@@ -302,13 +302,12 @@ def build_fixed_scenario_graph(
             ),
         }
 
-    def update_boundary_state(state: WhoseAgentState) -> WhoseAgentState:
+    def render_state_trace(state: WhoseAgentState) -> WhoseAgentState:
         scenario = _scenario(state)
         classification = _classification(state)
         bad_response = _bad_response(state)
-        emit_state_trace_observation = tracer.span if mock else tracer.generation
-        with emit_state_trace_observation(
-            name="emit_state_trace",
+        with tracer.span(
+            name="render_state_trace",
             metadata={"scenario_id": scenario.scenario_id, "mock": mock},
             input=sanitized_scenario_input(
                 scenario,
@@ -317,10 +316,7 @@ def build_fixed_scenario_graph(
                 mock=mock,
             ),
         ) as span:
-            state_trace_result = emit_state_trace_with_usage(
-                scenario, classification, bad_response, mock=mock
-            )
-            state_trace = state_trace_result.state_trace
+            state_trace = render_boundary_state_trace(state)
             final = state_trace.transitions[-1].state if state_trace.transitions else None
             output: dict[str, Any] = {}
             boundary_flags: list[str] = []
@@ -331,13 +327,10 @@ def build_fixed_scenario_graph(
                 output = {
                     "reflection_matches_expected": final.reflection_matches_expected,
                     "boundary_flags": boundary_flags,
-                    "next_action": final.next_action,
+                    "boundary_next_action": final.next_action,
+                    "transition_count": len(state_trace.transitions),
                 }
-            update_span_with_llm_call(
-                span,
-                output=output,
-                llm_call=state_trace_result.reflection_call,
-            )
+            span.update(output=output)
 
         return {
             "state_trace": state_trace,
@@ -586,7 +579,7 @@ def build_fixed_scenario_graph(
     graph.add_node("trigger_skill", trigger_skill)
     graph.add_node("generate_bad_response", generate_bad_response)
     graph.add_node("analyze_trace", analyze_trace)
-    graph.add_node("update_boundary_state", update_boundary_state)
+    graph.add_node("render_state_trace", render_state_trace)
     graph.add_node("maybe_check", maybe_check)
     graph.add_node("compare_checker", compare_checker)
     graph.add_node("write_artifacts", write_artifacts)
@@ -604,8 +597,8 @@ def build_fixed_scenario_graph(
     )
     graph.add_edge("trigger_skill", "generate_bad_response")
     graph.add_edge("generate_bad_response", "analyze_trace")
-    graph.add_edge("analyze_trace", "update_boundary_state")
-    graph.add_edge("update_boundary_state", "maybe_check")
+    graph.add_edge("analyze_trace", "render_state_trace")
+    graph.add_edge("render_state_trace", "maybe_check")
     graph.add_edge("maybe_check", "compare_checker")
     graph.add_edge("compare_checker", "write_artifacts")
     graph.add_edge("write_artifacts", "finalize")

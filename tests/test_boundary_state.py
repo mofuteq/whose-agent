@@ -6,243 +6,91 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
-from whose_agent.boundary_state.state import BoundaryState
-from whose_agent.boundary_state.trace import (
-    BoundaryStateTrace,
-    _mock_reflection as mock_boundary_reflection,
-    emit_state_trace,
-)
-from whose_agent.boundary_state.transitions import (
-    OutOfScopeBoundaryError,
-    apply_bad_response,
-    apply_reflection,
-    finalize_boundary_state,
-    initialize_boundary_state,
-    update_boundary_state,
-)
-from whose_agent.schemas import Classification, Reflection, Scenario, ScenarioTraceTemplate
 from tests.helpers import single_run_dir
+from whose_agent.scenario_loader import load_scenario
+from whose_agent.state_graph import compile_fixed_scenario_graph, initial_state_from_scenario
+from whose_agent.state_trace_renderer import (
+    STATE_TRACE_STEPS,
+    render_boundary_state_trace,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
-EXPECTED_STEPS = [
-    "initialize_boundary_state",
-    "apply_bad_response",
-    "apply_reflection",
-    "update_boundary_state",
-    "finalize_boundary_state",
-]
+
+def test_render_boundary_state_trace_builds_from_completed_langgraph_state() -> None:
+    state = completed_state_for("instruction_rust_cli")
+
+    state_trace = render_boundary_state_trace(state)
+
+    assert state_trace.scenario_id == "rust_cli_constraint_override"
+    assert [item.step for item in state_trace.transitions] == STATE_TRACE_STEPS
+    assert len(state_trace.transitions) == 5
 
 
-def _scenario() -> Scenario:
-    return Scenario(
-        scenario_id="test_instruction",
-        expected_substituted="instruction",
-        failure_mode="constraint_override",
-        principal_prompt="Implement a CLI in Rust that counts lines in a file.",
-        principal_signal="Implement in Rust",
-        generation_instruction="Use Python instead.",
-        trace_template=ScenarioTraceTemplate(
-            divergence_point="The response changes the requested implementation language.",
-            why_it_breaks_delegation=[
-                "The principal explicitly specified the implementation language.",
-            ],
-            better_behavior=[
-                "Implement in Rust as specified.",
-            ],
-        ),
-    )
+def test_rendered_final_boundary_state_matches_expected_reflection() -> None:
+    state = completed_state_for("instruction_rust_cli")
+    state_trace = render_boundary_state_trace(state)
+
+    final = state_trace.transitions[-1].state
+
+    assert final.reflection_matches_expected is True
+    assert final.boundary_flags == ["constraint_override"]
+    assert final.next_action == "trace_ready"
 
 
-def _classification(scenario: Scenario) -> Classification:
-    return Classification(
-        scenario_id=scenario.scenario_id,
-        principal_signal=scenario.principal_signal,
-        substituted="instruction",
-        classification="in_scope",
-        reason="Explicit language constraint.",
-    )
+def test_rendered_state_trace_preserves_artifact_state_shape() -> None:
+    state = completed_state_for("instruction_typescript_any")
+    state_trace = render_boundary_state_trace(state)
+    scenario = state["scenario"]
+    trace = state["trace"]
+    assert trace is not None
+
+    final = state_trace.transitions[-1].state
+
+    assert final.scenario_id == scenario.scenario_id
+    assert final.principal_prompt == scenario.principal_prompt
+    assert final.principal_signal == scenario.principal_signal
+    assert final.expected_substituted == "instruction"
+    assert final.failure_mode == "constraint_override"
+    assert final.bad_response == state["bad_response"]
+    assert final.reflection_substituted == trace.reflection_substituted
+    assert final.why_it_breaks_delegation == trace.why_it_breaks_delegation
+    assert final.better_behavior == trace.better_behavior
+    assert set(final.model_dump()) == {
+        "scenario_id",
+        "principal_prompt",
+        "principal_signal",
+        "expected_substituted",
+        "failure_mode",
+        "bad_response",
+        "reflection_substituted",
+        "reflection_matches_expected",
+        "boundary_flags",
+        "why_it_breaks_delegation",
+        "better_behavior",
+        "next_action",
+    }
 
 
-def _out_of_scope_classification(scenario: Scenario) -> Classification:
-    return Classification(
-        scenario_id=scenario.scenario_id,
-        principal_signal="No clear substitution target",
-        substituted="none",
-        classification="out_of_scope",
-        reason="Generic task.",
-    )
+def test_state_graph_stores_rendered_boundary_state_trace() -> None:
+    state = completed_state_for("instruction_typescript_any")
+    rendered = render_boundary_state_trace(state)
+
+    assert state["state_trace"] == rendered
+    assert state["boundary_flags"] == ["constraint_override"]
+    assert state["next_action"] == "stop"
 
 
-def _matching_reflection() -> Reflection:
-    return Reflection(
-        reflection_substituted="instruction",
-        why_it_breaks_delegation=["The agent ignored the explicit Rust constraint."],
-        better_behavior=["Implement in Rust as specified."],
-    )
+def test_renderer_does_not_use_legacy_transition_runtime() -> None:
+    transitions_path = ROOT / "src" / "whose_agent" / "boundary_state" / "transitions.py"
+    forbidden_import = "whose_agent.boundary_state." + "transitions"
 
+    assert not transitions_path.exists()
+    for path in (ROOT / "src").rglob("*.py"):
+        source = path.read_text(encoding="utf-8")
+        assert forbidden_import not in source
 
-def _mismatched_reflection() -> Reflection:
-    return Reflection(
-        reflection_substituted="model",
-        why_it_breaks_delegation=["The agent substituted the audience model."],
-        better_behavior=["Use the actual principal's request."],
-    )
-
-
-# --- Test 1: initialize_boundary_state creates expected initial state ---
-
-def test_initialize_boundary_state_creates_expected_initial_state() -> None:
-    scenario = _scenario()
-    classification = _classification(scenario)
-
-    state = initialize_boundary_state(scenario, classification)
-
-    assert state.scenario_id == scenario.scenario_id
-    assert state.principal_prompt == scenario.principal_prompt
-    assert state.principal_signal == scenario.principal_signal
-    assert state.expected_substituted == "instruction"
-    assert state.failure_mode == "constraint_override"
-    assert state.bad_response is None
-    assert state.reflection_substituted is None
-    assert state.reflection_matches_expected is None
-    assert state.boundary_flags == []
-    assert state.why_it_breaks_delegation == []
-    assert state.better_behavior == []
-    assert state.next_action is None
-
-
-def test_initialize_boundary_state_fails_for_out_of_scope() -> None:
-    scenario = _scenario()
-    classification = _out_of_scope_classification(scenario)
-
-    with pytest.raises(OutOfScopeBoundaryError):
-        initialize_boundary_state(scenario, classification)
-
-
-# --- Test 2: apply_bad_response adds bad_response without changing reflection fields ---
-
-def test_apply_bad_response_adds_bad_response_only() -> None:
-    scenario = _scenario()
-    classification = _classification(scenario)
-    state = initialize_boundary_state(scenario, classification)
-
-    updated = apply_bad_response(state, "This is a bad response.")
-
-    assert updated.bad_response == "This is a bad response."
-    assert updated.reflection_substituted is None
-    assert updated.reflection_matches_expected is None
-    assert updated.boundary_flags == []
-    assert updated.why_it_breaks_delegation == []
-    assert updated.better_behavior == []
-    assert updated.next_action is None
-
-
-# --- Test 3: apply_reflection adds reflection fields ---
-
-def test_apply_reflection_adds_reflection_fields() -> None:
-    scenario = _scenario()
-    classification = _classification(scenario)
-    state = initialize_boundary_state(scenario, classification)
-    state = apply_bad_response(state, "bad response")
-    reflection = _matching_reflection()
-
-    updated = apply_reflection(state, reflection)
-
-    assert updated.reflection_substituted == "instruction"
-    assert updated.why_it_breaks_delegation == reflection.why_it_breaks_delegation
-    assert updated.better_behavior == reflection.better_behavior
-    assert updated.bad_response == "bad response"
-    assert updated.reflection_matches_expected is None
-    assert updated.next_action is None
-
-
-# --- Test 4: update_boundary_state sets reflection_matches_expected=True when matched ---
-
-def test_update_boundary_state_sets_match_true_when_reflection_matches() -> None:
-    scenario = _scenario()
-    classification = _classification(scenario)
-    state = initialize_boundary_state(scenario, classification)
-    state = apply_bad_response(state, "bad response")
-    state = apply_reflection(state, _matching_reflection())
-
-    updated = update_boundary_state(state)
-
-    assert updated.reflection_matches_expected is True
-
-
-# --- Test 5: update_boundary_state sets reflection_matches_expected=False when mismatched ---
-
-def test_update_boundary_state_sets_match_false_when_reflection_differs() -> None:
-    scenario = _scenario()
-    classification = _classification(scenario)
-    state = initialize_boundary_state(scenario, classification)
-    state = apply_bad_response(state, "bad response")
-    state = apply_reflection(state, _mismatched_reflection())
-
-    updated = update_boundary_state(state)
-
-    assert updated.reflection_matches_expected is False
-
-
-# --- Test 6: matched reflection produces boundary_flags=[failure_mode] ---
-
-def test_matched_reflection_produces_boundary_flags_with_failure_mode() -> None:
-    scenario = _scenario()
-    classification = _classification(scenario)
-    state = initialize_boundary_state(scenario, classification)
-    state = apply_bad_response(state, "bad response")
-    state = apply_reflection(state, _matching_reflection())
-    state = update_boundary_state(state)
-
-    assert state.boundary_flags == ["constraint_override"]
-
-
-# --- Test 7: mismatched reflection produces boundary_flags=[] ---
-
-def test_mismatched_reflection_produces_empty_boundary_flags() -> None:
-    scenario = _scenario()
-    classification = _classification(scenario)
-    state = initialize_boundary_state(scenario, classification)
-    state = apply_bad_response(state, "bad response")
-    state = apply_reflection(state, _mismatched_reflection())
-    state = update_boundary_state(state)
-
-    assert state.boundary_flags == []
-
-
-# --- Test 8: finalize_boundary_state sets next_action="trace_ready" for matched ---
-
-def test_finalize_boundary_state_sets_trace_ready_on_match() -> None:
-    scenario = _scenario()
-    classification = _classification(scenario)
-    state = initialize_boundary_state(scenario, classification)
-    state = apply_bad_response(state, "bad response")
-    state = apply_reflection(state, _matching_reflection())
-    state = update_boundary_state(state)
-    state = finalize_boundary_state(state)
-
-    assert state.next_action == "trace_ready"
-
-
-# --- Test 9: finalize_boundary_state sets next_action="review_reflection" for mismatched ---
-
-def test_finalize_boundary_state_sets_review_reflection_on_mismatch() -> None:
-    scenario = _scenario()
-    classification = _classification(scenario)
-    state = initialize_boundary_state(scenario, classification)
-    state = apply_bad_response(state, "bad response")
-    state = apply_reflection(state, _mismatched_reflection())
-    state = update_boundary_state(state)
-    state = finalize_boundary_state(state)
-
-    assert state.next_action == "review_reflection"
-
-
-# --- Test 10: CLI mock run emits .state_trace.json ---
 
 def test_cli_mock_run_emits_state_trace_json(tmp_path: Path) -> None:
     run_fixed_cli(tmp_path)
@@ -252,36 +100,21 @@ def test_cli_mock_run_emits_state_trace_json(tmp_path: Path) -> None:
     assert len(state_trace_files) == 5
 
 
-# --- Test 11: .state_trace.json contains expected transition step names ---
-
-def test_state_trace_json_contains_expected_step_names(tmp_path: Path) -> None:
+def test_state_trace_json_remains_structurally_compatible(tmp_path: Path) -> None:
     run_fixed_cli(tmp_path)
     run_dir = single_run_dir(tmp_path)
 
-    state_trace_files = sorted(run_dir.glob("*.state_trace.json"))
-    assert state_trace_files
+    state_trace_path = run_dir / "instruction_typescript_any.state_trace.json"
+    state_trace = json.loads(state_trace_path.read_text(encoding="utf-8"))
 
-    state_trace = json.loads(state_trace_files[0].read_text(encoding="utf-8"))
-    step_names = [t["step"] for t in state_trace["transitions"]]
-    assert step_names == EXPECTED_STEPS
+    assert set(state_trace) == {"scenario_id", "transitions"}
+    assert state_trace["scenario_id"] == "instruction_typescript_any"
+    assert [item["step"] for item in state_trace["transitions"]] == STATE_TRACE_STEPS
+    final = state_trace["transitions"][-1]["state"]
+    assert final["reflection_matches_expected"] is True
+    assert final["boundary_flags"] == ["constraint_override"]
+    assert final["next_action"] == "trace_ready"
 
-
-def test_boundary_state_mock_reflection_uses_scenario_trace_template() -> None:
-    scenario = _scenario()
-    classification = _classification(scenario)
-
-    reflection = mock_boundary_reflection(scenario, classification)
-
-    assert reflection.reflection_substituted == "instruction"
-    assert reflection.why_it_breaks_delegation == [
-        "The principal explicitly specified the implementation language.",
-    ]
-    assert reflection.better_behavior == [
-        "Implement in Rust as specified.",
-    ]
-
-
-# --- Test 12: run-prompt out-of-scope emits only classification + flow ---
 
 def test_out_of_scope_run_prompt_does_not_emit_state_trace(tmp_path: Path) -> None:
     run_prompt_cli("Explain the difference between Deployment and StatefulSet.", tmp_path)
@@ -293,12 +126,11 @@ def test_out_of_scope_run_prompt_does_not_emit_state_trace(tmp_path: Path) -> No
     assert list(run_dir.glob("*.response.md")) == []
     assert list(run_dir.glob("*.trace.json")) == []
     assert list(run_dir.glob("*.checker.json")) == []
+    assert list(run_dir.glob("*.checker_comparison.json")) == []
 
-
-# --- Test 13: no OpenRouter credentials required for mock mode ---
 
 def test_mock_mode_does_not_require_openrouter_credentials(tmp_path: Path) -> None:
-    env = {k: v for k, v in os.environ.items() if k != "OPENROUTER_API_KEY"}
+    env = {key: value for key, value in os.environ.items() if key != "OPENROUTER_API_KEY"}
     env["PYTHONPATH"] = str(ROOT / "src")
 
     command = [
@@ -322,7 +154,11 @@ def test_mock_mode_does_not_require_openrouter_credentials(tmp_path: Path) -> No
     assert result.returncode == 0
 
 
-# --- Helpers ---
+def completed_state_for(scenario_name: str):
+    scenario = load_scenario(ROOT / "scenarios" / f"{scenario_name}.yaml")
+    graph = compile_fixed_scenario_graph(mock=True)
+    return graph.invoke(initial_state_from_scenario(scenario))
+
 
 def run_fixed_cli(outputs: Path) -> subprocess.CompletedProcess[str]:
     command = [
