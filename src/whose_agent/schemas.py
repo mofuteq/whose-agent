@@ -298,6 +298,28 @@ class BoundaryStateTrace(BaseModel):
     transitions: list[BoundaryStateTransition]
 
 
+class LoopTrace(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scenario_id: str
+    principal: str
+    agent: str
+    max_iterations: int
+    final_loop_iteration: int
+    loop_completed: bool
+    loop_stop_reason: str | None
+    framework_specified: bool
+    selected_skill_id: str | None
+    generation_used_skill: bool
+    checker_ran: bool
+    checker_observed_bypass: bool
+    guarantee_bypass_observed: bool
+    checker_matches_expected: bool | None
+    observation_outcome: ObservationOutcome | None
+    step_traces: list[StepTrace]
+    checker_comparison: CheckerComparison | None
+
+
 class WhoseAgentState(TypedDict, total=False):
     principal: str
     agent: str
@@ -369,6 +391,7 @@ __all__ = [
     "EXPECTED_FAILURE_BY_SUBSTITUTED",
     "FAILURE_MODES",
     "FailureMode",
+    "LoopTrace",
     "NextAction",
     "ObservationOutcome",
     "Principal",
