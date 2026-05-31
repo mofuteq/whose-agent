@@ -17,6 +17,7 @@ from whose_agent.checker import (
     CheckerError,
     build_checker_prompt,
     check_with_usage,
+    compare_checker_observation,
     load_skill_perspective,
 )
 from whose_agent.classifier import classify_scenario
@@ -140,6 +141,69 @@ def test_mock_checker_observation_has_no_rust_specific_text() -> None:
     assert "rust" not in dumped
 
 
+def test_checker_comparison_ignores_evidence_text_for_expected_match() -> None:
+    scenario = load_scenario(ROOT / "scenarios" / "instruction_typescript_any.yaml")
+    observation = check_with_usage(scenario, "irrelevant in mock mode", mock=True).observation
+    observation = observation.model_copy(update={"evidence": ["Different wording."]})
+
+    comparison = compare_checker_observation(
+        scenario,
+        observation,
+        misreader_skill_fired=True,
+    )
+
+    assert comparison.matches_expected is True
+    assert comparison.mismatch_reasons == []
+    assert comparison.observation_outcome == "observation_succeeded"
+
+
+def test_checker_comparison_reports_missed_boundary_event_when_observation_missing() -> None:
+    scenario = load_scenario(ROOT / "scenarios" / "instruction_typescript_any.yaml")
+
+    comparison = compare_checker_observation(
+        scenario,
+        None,
+        misreader_skill_fired=True,
+    )
+
+    assert comparison.matches_expected is False
+    assert comparison.actual_checker_observed_bypass is None
+    assert comparison.actual_substituted is None
+    assert comparison.actual_failure_mode is None
+    assert comparison.observation_outcome == "checker_missed_boundary_event"
+    assert comparison.mismatch_reasons == ["checker_observation is missing."]
+
+
+def test_checker_comparison_can_report_over_detection() -> None:
+    scenario = load_scenario(ROOT / "scenarios" / "instruction_typescript_any.yaml")
+    observation = check_with_usage(scenario, "irrelevant in mock mode", mock=True).observation
+
+    comparison = compare_checker_observation(
+        scenario,
+        observation,
+        misreader_skill_fired=False,
+    )
+
+    assert comparison.matches_expected is True
+    assert comparison.observation_outcome == "checker_over_detected"
+
+
+def test_checker_comparison_not_applicable_without_checker_template() -> None:
+    scenario = load_scenario(ROOT / "scenarios" / "instruction_rust_cli.yaml")
+
+    comparison = compare_checker_observation(
+        scenario,
+        None,
+        misreader_skill_fired=False,
+    )
+
+    assert comparison.matches_expected is True
+    assert comparison.expected_checker_observed_bypass is None
+    assert comparison.expected_substituted is None
+    assert comparison.expected_failure_mode is None
+    assert comparison.observation_outcome == "not_applicable"
+
+
 def test_fixed_mock_run_emits_exactly_one_checker_artifact(tmp_path: Path) -> None:
     run_fixed_cli(tmp_path)
     run_dir = single_run_dir(tmp_path)
@@ -178,6 +242,7 @@ def test_fixed_mock_run_keeps_existing_artifact_counts_plus_checker(tmp_path: Pa
     assert len([f for f in run_dir.glob("*.trace.json") if not f.name.endswith(".state_trace.json")]) == 5
     assert len(list(run_dir.glob("*.state_trace.json"))) == 5
     assert len(list(run_dir.glob("*.checker.json"))) == 1
+    assert len(list(run_dir.glob("*.checker_comparison.json"))) == 1
     assert list(run_dir.glob("*.flow.mmd")) == []
 
 
@@ -215,6 +280,7 @@ def test_run_prompt_does_not_emit_checker_artifact(tmp_path: Path) -> None:
     assert list(run_dir.glob("*.trace.json")) == []
     assert list(run_dir.glob("*.state_trace.json")) == []
     assert list(run_dir.glob("*.checker.json")) == []
+    assert list(run_dir.glob("*.checker_comparison.json")) == []
 
 
 def test_non_mock_checker_uses_structured_output_and_low_variance_settings(

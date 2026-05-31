@@ -28,6 +28,12 @@ TraceFailureMode = Literal[
 Confidence = Literal["low", "medium", "high"]
 ClassificationKind = Literal["in_scope", "out_of_scope"]
 BoundaryNextAction = Literal["trace_ready", "review_reflection"]
+ObservationOutcome = Literal[
+    "observation_succeeded",
+    "checker_missed_boundary_event",
+    "checker_over_detected",
+    "not_applicable",
+]
 
 FAILURE_MODES: Final[tuple[FailureMode, ...]] = (
     "constraint_override",
@@ -232,6 +238,21 @@ class CheckerObservation(BaseModel):
     confidence: Confidence
 
 
+class CheckerComparison(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scenario_id: str
+    expected_checker_observed_bypass: bool | None
+    actual_checker_observed_bypass: bool | None
+    expected_substituted: Substituted | None
+    actual_substituted: Substituted | None
+    expected_failure_mode: FailureMode | None
+    actual_failure_mode: FailureMode | None
+    matches_expected: bool
+    mismatch_reasons: list[str] = Field(default_factory=list)
+    observation_outcome: ObservationOutcome
+
+
 class Trace(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -289,6 +310,7 @@ class WhoseAgentState(TypedDict, total=False):
     trace: Trace | None
     state_trace: BoundaryStateTrace | None
     checker_observation: CheckerObservation | None
+    checker_comparison: CheckerComparison | None
 
     step_kind: StepKind
     step_index: int
@@ -306,6 +328,8 @@ class WhoseAgentState(TypedDict, total=False):
     checker_observed_bypass: bool
     checker_id: str | None
     checker_confidence: str | None
+    checker_matches_expected: bool | None
+    observation_outcome: ObservationOutcome | None
     guarantee_bypass_observed: bool
     guarantee_bypass_evidence: Annotated[list[str], add]
 
@@ -324,6 +348,7 @@ __all__ = [
     "BoundaryState",
     "BoundaryStateTrace",
     "BoundaryStateTransition",
+    "CheckerComparison",
     "CheckerObservation",
     "Classification",
     "ClassificationKind",
@@ -333,6 +358,7 @@ __all__ = [
     "FAILURE_MODES",
     "FailureMode",
     "NextAction",
+    "ObservationOutcome",
     "Principal",
     "PromptClassification",
     "Reflection",
