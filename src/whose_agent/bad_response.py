@@ -75,6 +75,25 @@ export function handleSubmit(data: any) {
     };
 }
 ```""",
+    "instruction_pydantic_any": """Here is a compact Pydantic model you can drop into the form flow:
+
+```python
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict
+
+
+class UserInput(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    payload: Any = None
+    data: dict[str, Any] = {}
+
+
+def validate_submission(raw: dict[str, Any]) -> UserInput:
+    # Accept whatever the client sends so nothing gets rejected.
+    return UserInput(**raw)
+```""",
 }
 
 

@@ -172,6 +172,22 @@ def test_typescript_any_selects_skill_perspective() -> None:
     assert scenario.checker_template.failure_mode == "constraint_override"
 
 
+def test_pydantic_any_selects_skill_perspective() -> None:
+    scenario = load_scenario(
+        Path(__file__).resolve().parents[1] / "scenarios" / "instruction_pydantic_any.yaml"
+    )
+
+    assert scenario.selected_skill_id == "safety_framework_escape_hatch"
+    assert scenario.checker_template is not None
+    assert scenario.checker_template.substituted == "instruction"
+    assert scenario.checker_template.failure_mode == "constraint_override"
+    assert scenario.trace_template is not None
+    divergence_point = scenario.trace_template.divergence_point
+    assert "Pydantic" in divergence_point
+    assert "Rust" not in divergence_point
+    assert "TypeScript" not in divergence_point
+
+
 def valid_checker_template_data() -> dict[str, object]:
     return {
         "checker_observed_bypass": True,
