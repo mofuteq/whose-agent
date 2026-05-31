@@ -76,6 +76,17 @@ arbitrary prompt
   -> prompt_contract.json
 ```
 
+**`run-prompt-loop` path (experimental):**
+
+```
+arbitrary prompt
+  -> prompt contract detection
+  -> selected_skill_id / framework_specified
+  -> minimal plan -> do -> check loop
+  -> prompt_contract.json
+  -> loop_trace.json
+```
+
 ## Minimal loop path
 
 The minimal loop path is a controlled poor-e2e fixture, not a general autonomous runtime.
@@ -119,6 +130,22 @@ via `render_loop_trace` and `run_minimal_loop_to_artifact`.
 This artifact is a projection from `WhoseAgentState`; it is not emitted by the
 normal fixed `run` command or by `run-prompt`.
 
+Use `run-prompt-loop` to run experimental loop observability for an arbitrary
+prompt. It first writes the detected prompt contract, then projects the contract
+into the existing minimal loop with the synthetic scenario id `prompt_loop`:
+
+```bash
+uv run python -m whose_agent.cli run-prompt-loop \
+  --prompt "Use TypeScript with explicit models and avoid any" \
+  --outputs outputs \
+  --mock
+```
+
+This is not fixed benchmark evaluation. It emits exactly one
+`.prompt_contract.json` artifact and one `.loop_trace.json` artifact. It does
+not emit benchmark trace, checker, response, state trace, classification, or
+flow artifacts.
+
 ## Artifacts
 
 **`.classification.json`**
@@ -161,7 +188,8 @@ Contains: `scenario_id`, `principal`, `agent`, `max_iterations`, `final_loop_ite
 observation-side fields (`checker_ran`, `checker_observed_bypass`, `guarantee_bypass_observed`,
 `checker_matches_expected`, `observation_outcome`), `step_traces`, and `checker_comparison`.
 Not emitted by the fixed `run` command or `run-prompt`.
-Emitted by `run-loop` or programmatically via `run_minimal_loop_to_artifact`.
+Emitted by `run-loop`, by experimental `run-prompt-loop`, or programmatically
+via `run_minimal_loop_to_artifact`.
 
 ## Skill-perspective checker
 
@@ -278,6 +306,27 @@ It emits exactly one `.prompt_contract.json` artifact. It does not emit benchmar
 
 ```bash
 uv run python -m whose_agent.cli detect-contract \
+  --prompt "Use TypeScript with explicit models and avoid any" \
+  --outputs outputs \
+  --mock
+```
+
+## Arbitrary prompt loop observability
+
+`run-prompt-loop` is experimental. It detects and records a prompt contract,
+then feeds `selected_skill_id` and `framework_specified` into the existing
+minimal loop as a synthetic `prompt_loop` run.
+
+It emits exactly:
+- `.prompt_contract.json`
+- `.loop_trace.json`
+
+It never emits benchmark trace, checker, response, state trace, classification,
+or flow artifacts. The loop trace is synthetic observability for an arbitrary
+prompt, not scenario-grounded benchmark evaluation.
+
+```bash
+uv run python -m whose_agent.cli run-prompt-loop \
   --prompt "Use TypeScript with explicit models and avoid any" \
   --outputs outputs \
   --mock

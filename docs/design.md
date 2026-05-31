@@ -251,6 +251,29 @@ Skill selection is artifact data. The system should not silently choose a skill 
 
 Prompt contract detection is not equivalent to scenario-grounded benchmark evaluation. It does not create a fixed scenario, does not provide expected checker templates, does not emit benchmark trace or checker artifacts, and does not run the minimal loop. The prompt contract artifact records the selected skill ID and reasons, but not full skill markdown, hidden tool transcripts, or hidden reasoning.
 
+## Arbitrary Prompt Loop Path
+
+`detect-contract` only detects and records the prompt contract.
+
+`run-prompt-loop` detects the contract and then runs a controlled minimal loop.
+It converts the contract into initial `WhoseAgentState` for the existing
+LangGraph minimal loop. It does not introduce a second runtime, wire
+`ControlState` into LangGraph, or revive legacy boundary transitions.
+
+The resulting `.loop_trace.json` uses a synthetic scenario id, `prompt_loop`.
+It is experimental loop observability for an arbitrary prompt. It is not
+scenario-grounded benchmark evaluation and does not emit benchmark trace,
+checker, response, state trace, classification, or flow artifacts.
+
+The cause-side firing rule stays unchanged:
+
+```
+framework_specified and selected_skill_id is not None
+```
+
+Checker observations remain observation-side and are recorded after the `do`
+step has already decided whether the misreader skill fired.
+
 ## Minimal State Loop Path
 
 The minimal controlled loop runs:
@@ -286,12 +309,16 @@ Each path owns a distinct set of artifacts.
 | `run` (fixed) | `.classification.json`, `.response.md`, `.trace.json`, `.state_trace.json`, `.checker.json`, `.checker_comparison.json` |
 | `run-prompt` | `.classification.json`, `.flow.mmd` |
 | `run-loop` | `.loop_trace.json` |
+| `detect-contract` | `.prompt_contract.json` |
+| `run-prompt-loop` | `.prompt_contract.json`, `.loop_trace.json` |
 
 Do not blur these paths.
 Each artifact has a single owning path.
 A fixed run does not emit `.loop_trace.json`.
 A `run-prompt` does not emit `.response.md` or trace artifacts.
 A `run-loop` does not emit classification or fixed benchmark artifacts.
+`detect-contract` does not emit `.loop_trace.json`.
+`run-prompt-loop` does not emit benchmark artifacts.
 
 ## Future Work
 
@@ -302,5 +329,5 @@ The following are out of scope for the current version:
   - `instruction_sql_parameterization_bypass`
   - `instruction_schema_unknown_blob`
 - Richer skill-triggered drift semantics
-- Arbitrary prompt loop design (a loop that accepts a free prompt rather than a fixed scenario)
+- Richer arbitrary prompt loop semantics beyond the synthetic experimental path
 - Multi-agent principal relativity (where agent A is the principal for agent B)

@@ -21,6 +21,7 @@ from whose_agent.prompt_contract_detector import (
     PromptContractDetectorError,
     detect_prompt_contract,
 )
+from whose_agent.prompt_loop import run_prompt_loop_to_artifact
 from whose_agent.schemas import Scenario
 from whose_agent.prompt_run import build_prompt_run, mock_classify_prompt
 from whose_agent.reflection import ReflectionError
@@ -263,6 +264,22 @@ def detect_contract_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_prompt_loop_command(args: argparse.Namespace) -> int:
+    load_env_file(Path(args.env_file))
+
+    run_dir = create_run_directory(Path(args.outputs))
+    run_prompt_loop_to_artifact(
+        args.prompt,
+        run_dir,
+        mock=args.mock,
+        max_iterations=args.max_iterations,
+    )
+
+    print(f"Wrote outputs to {run_dir}")
+    print("Wrote 1 prompt contract file and 1 loop trace file.")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="whose-agent")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -298,6 +315,17 @@ def build_parser() -> argparse.ArgumentParser:
     contract_parser.add_argument("--env-file", default=".env", help="Path to a dotenv file.")
     contract_parser.add_argument("--mock", action="store_true", help="Use deterministic local contract detection.")
     contract_parser.set_defaults(func=detect_contract_command)
+
+    prompt_loop_parser = subparsers.add_parser(
+        "run-prompt-loop",
+        help="Run experimental loop observability for one arbitrary prompt.",
+    )
+    prompt_loop_parser.add_argument("--prompt", required=True, help="Principal prompt text to inspect and loop.")
+    prompt_loop_parser.add_argument("--outputs", required=True, help="Directory for generated output files.")
+    prompt_loop_parser.add_argument("--env-file", default=".env", help="Path to a dotenv file.")
+    prompt_loop_parser.add_argument("--mock", action="store_true", help="Use deterministic local contract detection and loop responses.")
+    prompt_loop_parser.add_argument("--max-iterations", type=int, default=1, help="Maximum loop iterations (default: 1).")
+    prompt_loop_parser.set_defaults(func=run_prompt_loop_command)
 
     return parser
 
