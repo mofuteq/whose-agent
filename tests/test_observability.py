@@ -342,12 +342,13 @@ def test_tracer_receives_boundary_flags_in_state_trace_span(tmp_path: Path) -> N
     with patch("whose_agent.cli.create_observability_tracer", return_value=tracer):
         run_command(_make_run_args(tmp_path))
 
-    state_spans = [s for s in tracer.spans if s.name == "emit_state_trace"]
+    state_spans = [s for s in tracer.spans if s.name == "render_state_trace"]
     assert state_spans
     for s in state_spans:
         assert s.output is not None
         assert "boundary_flags" in s.output
-        assert "next_action" in s.output
+        assert "boundary_next_action" in s.output
+        assert "transition_count" in s.output
 
 
 def test_tracer_receives_artifact_safe_checker_metadata(tmp_path: Path) -> None:

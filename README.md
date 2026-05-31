@@ -47,7 +47,7 @@ fixed scenario
   -> bad response generation
   -> hybrid trace analysis: hand-written divergence_point templates plus thesis-based reflection for delegation analysis
   -> trace.json
-  -> linear boundary state transition trace
+  -> state_trace.json rendered from LangGraph state
   -> optional skill-perspective checker for selected fixed scenarios
   -> checker-template comparison
 ```
@@ -74,14 +74,14 @@ Generated bad response for in-scope scenarios. Exhibits the expected substitutio
 Benchmark trace artifact. Contains: substituted axis, failure mode, bad response, `divergence_point` (from hand-written templates), `why_it_breaks_delegation`, `better_behavior`, and `reflection_substituted` (from thesis-based reflection).
 
 **`.state_trace.json`**
-Linear boundary state transition artifact. Records each transition step with the full `BoundaryState` snapshot:
+Boundary state trace artifact rendered from LangGraph state. Records each projected step with the full `BoundaryState` snapshot:
 
 ```
-initialize_boundary_state
-apply_bad_response
-apply_reflection
-update_boundary_state
-finalize_boundary_state
+initialized
+bad_response_applied
+reflection_applied
+boundary_updated
+finalized
 ```
 
 **`.checker.json`**
