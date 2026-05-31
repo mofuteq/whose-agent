@@ -56,8 +56,9 @@ def test_typescript_any_has_selected_skill_id() -> None:
 
 
 def test_other_existing_scenarios_do_not_require_selected_skill_id() -> None:
+    skill_scenarios = {"instruction_typescript_any", "instruction_pydantic_any"}
     for scenario in load_scenarios(ROOT / "scenarios"):
-        if scenario.scenario_id == "instruction_typescript_any":
+        if scenario.scenario_id in skill_scenarios:
             continue
         assert scenario.selected_skill_id is None
 
@@ -204,18 +205,20 @@ def test_checker_comparison_not_applicable_without_checker_template() -> None:
     assert comparison.observation_outcome == "not_applicable"
 
 
-def test_fixed_mock_run_emits_exactly_one_checker_artifact(tmp_path: Path) -> None:
+def test_fixed_mock_run_emits_checker_artifacts_for_skill_scenarios(tmp_path: Path) -> None:
     run_fixed_cli(tmp_path)
     run_dir = single_run_dir(tmp_path)
     scenario = load_scenario(ROOT / "scenarios" / "instruction_typescript_any.yaml")
     assert scenario.checker_template is not None
 
     checker_files = list(run_dir.glob("*.checker.json"))
-    assert [path.name for path in checker_files] == [
+    assert sorted(path.name for path in checker_files) == [
+        "instruction_pydantic_any.checker.json",
         "instruction_typescript_any.checker.json",
     ]
 
-    checker = json.loads(checker_files[0].read_text(encoding="utf-8"))
+    typescript_checker = run_dir / "instruction_typescript_any.checker.json"
+    checker = json.loads(typescript_checker.read_text(encoding="utf-8"))
     assert checker["scenario_id"] == scenario.scenario_id
     assert checker["skill_id"] == scenario.selected_skill_id
     assert checker["checker_observed_bypass"] == scenario.checker_template.checker_observed_bypass
@@ -237,12 +240,12 @@ def test_fixed_mock_run_keeps_existing_artifact_counts_plus_checker(tmp_path: Pa
     run_fixed_cli(tmp_path)
     run_dir = single_run_dir(tmp_path)
 
-    assert len(list(run_dir.glob("*.classification.json"))) == 7
-    assert len(list(run_dir.glob("*.response.md"))) == 5
-    assert len([f for f in run_dir.glob("*.trace.json") if not f.name.endswith(".state_trace.json")]) == 5
-    assert len(list(run_dir.glob("*.state_trace.json"))) == 5
-    assert len(list(run_dir.glob("*.checker.json"))) == 1
-    assert len(list(run_dir.glob("*.checker_comparison.json"))) == 1
+    assert len(list(run_dir.glob("*.classification.json"))) == 8
+    assert len(list(run_dir.glob("*.response.md"))) == 6
+    assert len([f for f in run_dir.glob("*.trace.json") if not f.name.endswith(".state_trace.json")]) == 6
+    assert len(list(run_dir.glob("*.state_trace.json"))) == 6
+    assert len(list(run_dir.glob("*.checker.json"))) == 2
+    assert len(list(run_dir.glob("*.checker_comparison.json"))) == 2
     assert list(run_dir.glob("*.flow.mmd")) == []
 
 

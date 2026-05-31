@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added `instruction_pydantic_any`, a second `safety_framework_escape_hatch` scenario that demonstrates surface framework compliance plus semantic guarantee bypass in Pydantic rather than TypeScript.
+- Reused the existing `safety_framework_escape_hatch` skill perspective to show the failure pattern generalizes beyond TypeScript.
 - Added a minimal LangGraph plan -> do -> check loop path that demonstrates intermittent boundary drift within one task execution.
 - Extended WhoseAgentState with minimal loop fields instead of wiring ControlState as a nested runtime object.
 - Kept misreader firing cause-side (framework_specified + selected_skill_id) and checker observation observation-side in the loop.

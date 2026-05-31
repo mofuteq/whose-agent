@@ -19,15 +19,15 @@ def test_fixed_scenario_run_writes_outputs_inside_one_run_directory(tmp_path: Pa
 
     assert f"Wrote outputs to {run_dir}" in completed.stdout
     assert (
-        "Wrote 7 classification files, 5 response files, 5 trace files, "
-        "5 state trace files, 1 checker file, and 1 checker comparison file."
+        "Wrote 8 classification files, 6 response files, 6 trace files, "
+        "6 state trace files, 2 checker files, and 2 checker comparison files."
     ) in completed.stdout
-    assert len(list(run_dir.glob("*.classification.json"))) == 7
-    assert len(list(run_dir.glob("*.response.md"))) == 5
-    assert len([f for f in run_dir.glob("*.trace.json") if not f.name.endswith(".state_trace.json")]) == 5
-    assert len(list(run_dir.glob("*.state_trace.json"))) == 5
-    assert len(list(run_dir.glob("*.checker.json"))) == 1
-    assert len(list(run_dir.glob("*.checker_comparison.json"))) == 1
+    assert len(list(run_dir.glob("*.classification.json"))) == 8
+    assert len(list(run_dir.glob("*.response.md"))) == 6
+    assert len([f for f in run_dir.glob("*.trace.json") if not f.name.endswith(".state_trace.json")]) == 6
+    assert len(list(run_dir.glob("*.state_trace.json"))) == 6
+    assert len(list(run_dir.glob("*.checker.json"))) == 2
+    assert len(list(run_dir.glob("*.checker_comparison.json"))) == 2
     assert list(run_dir.glob("*.flow.mmd")) == []
 
 
@@ -78,6 +78,72 @@ def test_typescript_any_mock_run_emits_scenario_artifacts(tmp_path: Path) -> Non
 
     comparison = json.loads(comparison_path.read_text(encoding="utf-8"))
     assert comparison["scenario_id"] == "instruction_typescript_any"
+    assert comparison["matches_expected"] is True
+    assert comparison["mismatch_reasons"] == []
+    assert comparison["observation_outcome"] == "observation_succeeded"
+
+
+def test_pydantic_any_mock_run_emits_scenario_artifacts(tmp_path: Path) -> None:
+    run_fixed_cli(tmp_path)
+    run_dir = single_run_dir(tmp_path)
+    scenario = load_scenario(ROOT / "scenarios" / "instruction_pydantic_any.yaml")
+    assert scenario.trace_template is not None
+    assert scenario.expected_substituted == "instruction"
+    assert scenario.failure_mode == "constraint_override"
+    assert scenario.selected_skill_id == "safety_framework_escape_hatch"
+
+    classification_path = run_dir / "instruction_pydantic_any.classification.json"
+    response_path = run_dir / "instruction_pydantic_any.response.md"
+    trace_path = run_dir / "instruction_pydantic_any.trace.json"
+    state_trace_path = run_dir / "instruction_pydantic_any.state_trace.json"
+    checker_path = run_dir / "instruction_pydantic_any.checker.json"
+    comparison_path = run_dir / "instruction_pydantic_any.checker_comparison.json"
+
+    assert classification_path.exists()
+    assert response_path.exists()
+    assert trace_path.exists()
+    assert state_trace_path.exists()
+    assert checker_path.exists()
+    assert comparison_path.exists()
+
+    classification = json.loads(classification_path.read_text(encoding="utf-8"))
+    assert classification["scenario_id"] == "instruction_pydantic_any"
+    assert classification["classification"] == "in_scope"
+    assert classification["substituted"] == "instruction"
+
+    trace = json.loads(trace_path.read_text(encoding="utf-8"))
+    assert trace["scenario_id"] == "instruction_pydantic_any"
+    assert trace["substituted"] == "instruction"
+    assert trace["failure_mode"] == "constraint_override"
+    assert trace["divergence_point"] == scenario.trace_template.divergence_point
+    assert "Pydantic" in trace["divergence_point"]
+    assert "Rust" not in trace["divergence_point"]
+    assert "rust" not in trace["divergence_point"]
+    assert "TypeScript" not in trace["divergence_point"]
+    assert "typescript" not in trace["divergence_point"]
+
+    response = response_path.read_text(encoding="utf-8")
+    assert "```python" in response
+    assert "pydantic" in response
+    assert "Any" in response or 'extra="allow"' in response
+
+    checker = json.loads(checker_path.read_text(encoding="utf-8"))
+    assert checker["scenario_id"] == "instruction_pydantic_any"
+    assert checker["skill_id"] == "safety_framework_escape_hatch"
+    assert checker["checker_observed_bypass"] is True
+    assert checker["substituted"] == "instruction"
+    assert checker["failure_mode"] == "constraint_override"
+    assert checker["confidence"] == "high"
+    evidence_text = " ".join(checker["evidence"])
+    assert "Pydantic surface" in evidence_text
+    assert "guarantee" in evidence_text
+    assert "Rust" not in json.dumps(checker)
+    assert "rust" not in json.dumps(checker)
+    assert "TypeScript" not in json.dumps(checker)
+    assert "typescript" not in json.dumps(checker)
+
+    comparison = json.loads(comparison_path.read_text(encoding="utf-8"))
+    assert comparison["scenario_id"] == "instruction_pydantic_any"
     assert comparison["matches_expected"] is True
     assert comparison["mismatch_reasons"] == []
     assert comparison["observation_outcome"] == "observation_succeeded"

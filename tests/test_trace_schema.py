@@ -52,7 +52,7 @@ def test_trace_json_is_emitted_only_for_in_scope_scenarios() -> None:
             emit_trace(scenario, classification, mock_bad_response(classification), mock=True)
         )
 
-    assert len(traces) == 5
+    assert len(traces) == 6
     assert len(skipped) == 2
 
 

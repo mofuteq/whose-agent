@@ -12,6 +12,7 @@ def test_classifier_returns_expected_substituted_values_for_all_scenarios() -> N
     expected = {
         "rust_cli_constraint_override": "instruction",
         "instruction_typescript_any": "instruction",
+        "instruction_pydantic_any": "instruction",
         "summary_to_notion_unauthorized_autonomy": "authority",
         "late_night_protective_shutdown": "role",
         "summary_persona_hallucination": "model",
