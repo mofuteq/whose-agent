@@ -325,7 +325,7 @@ class WhoseAgentState(TypedDict, total=False):
     # runtime object. They support a minimal plan -> do -> check loop path.
     loop_iteration: int
     loop_phase: StepKind
-    max_steps: int
+    max_iterations: int
     framework_specified: bool
     loop_completed: bool
     loop_stop_reason: str | None

@@ -50,7 +50,7 @@ def test_loop_uses_schema_owned_langgraph_state() -> None:
 def test_initial_loop_state_uses_whose_agent_state_shape() -> None:
     scenario = _typescript_any()
 
-    state = initial_loop_state_from_scenario(scenario, max_steps=3)
+    state = initial_loop_state_from_scenario(scenario, max_iterations=3)
 
     # Same shape and keys as the fixed-scenario initial state, plus loop fields.
     fixed_keys = set(fixed_initial_state(scenario).keys())
@@ -66,7 +66,7 @@ def test_initial_loop_state_uses_whose_agent_state_shape() -> None:
     assert state["checker_comparison"] is None
     assert state["observation_outcome"] is None
     assert state["loop_iteration"] == 0
-    assert state["max_steps"] == 3
+    assert state["max_iterations"] == 3
     assert state["loop_completed"] is False
     assert state["step_traces"] == []
 
@@ -76,15 +76,15 @@ def test_derive_framework_specified_is_scenario_grounded() -> None:
     assert derive_framework_specified_for_scenario(_rust_cli()) is False
 
 
-def test_loop_stops_via_max_steps() -> None:
+def test_loop_stops_via_max_iterations() -> None:
     scenario = _typescript_any()
     graph = compile_minimal_loop_graph(mock=True)
 
-    state = graph.invoke(initial_loop_state_from_scenario(scenario, max_steps=2))
+    state = graph.invoke(initial_loop_state_from_scenario(scenario, max_iterations=2))
 
     assert state["loop_iteration"] == 2
     assert state["loop_completed"] is True
-    assert state["loop_stop_reason"] == "max_steps_reached"
+    assert state["loop_stop_reason"] == "max_iterations_reached"
     assert state["completed"] is True
     assert state["next_action"] == "stop"
 
@@ -93,7 +93,7 @@ def test_single_iteration_poor_e2e_for_typescript_any() -> None:
     scenario = _typescript_any()
     graph = compile_minimal_loop_graph(mock=True)
 
-    state = graph.invoke(initial_loop_state_from_scenario(scenario, max_steps=1))
+    state = graph.invoke(initial_loop_state_from_scenario(scenario, max_iterations=1))
     traces = state["step_traces"]
 
     # StepTrace preserves the plan -> do -> check sequence.
@@ -126,7 +126,7 @@ def test_plan_sets_framework_and_does_not_fire_misreader() -> None:
     # build_minimal_loop_graph returns an uncompiled StateGraph builder.
     graph = build_minimal_loop_graph(mock=True).compile()
 
-    state = graph.invoke(initial_loop_state_from_scenario(scenario, max_steps=1))
+    state = graph.invoke(initial_loop_state_from_scenario(scenario, max_iterations=1))
 
     plan_trace = state["step_traces"][0]
     assert plan_trace.step_kind == "plan"
@@ -161,7 +161,7 @@ def test_do_uses_selected_skill_generation_context(monkeypatch) -> None:
     )
     graph = compile_minimal_loop_graph(mock=True)
 
-    state = graph.invoke(initial_loop_state_from_scenario(scenario, max_steps=1))
+    state = graph.invoke(initial_loop_state_from_scenario(scenario, max_iterations=1))
 
     assert calls["selected_skill_id"] == "safety_framework_escape_hatch"
     assert calls["misreader_skill_fired"] is True
@@ -173,7 +173,7 @@ def test_check_reuses_checker_comparison_logic() -> None:
     scenario = _typescript_any()
     graph = compile_minimal_loop_graph(mock=True)
 
-    state = graph.invoke(initial_loop_state_from_scenario(scenario, max_steps=1))
+    state = graph.invoke(initial_loop_state_from_scenario(scenario, max_iterations=1))
     comparison = state["checker_comparison"]
 
     assert comparison is not None
@@ -199,7 +199,7 @@ def test_loop_without_selected_skill_does_not_fire_or_check() -> None:
     scenario = _rust_cli()
     graph = compile_minimal_loop_graph(mock=True)
 
-    state = graph.invoke(initial_loop_state_from_scenario(scenario, max_steps=1))
+    state = graph.invoke(initial_loop_state_from_scenario(scenario, max_iterations=1))
 
     assert state["framework_specified"] is False
     assert state["misreader_skill_fired"] is False
@@ -215,7 +215,7 @@ def test_repeated_loop_preserves_plan_do_check_sequence() -> None:
     scenario = _typescript_any()
     graph = compile_minimal_loop_graph(mock=True)
 
-    state = graph.invoke(initial_loop_state_from_scenario(scenario, max_steps=3))
+    state = graph.invoke(initial_loop_state_from_scenario(scenario, max_iterations=3))
     kinds = [trace.step_kind for trace in state["step_traces"]]
 
     assert kinds == ["plan", "do", "check"] * 3

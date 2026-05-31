@@ -58,7 +58,7 @@ def derive_framework_specified_for_scenario(scenario: Scenario) -> bool:
 def initial_loop_state_from_scenario(
     scenario: Scenario,
     *,
-    max_steps: int = 3,
+    max_iterations: int = 3,
 ) -> WhoseAgentState:
     """Initialize a WhoseAgentState for the minimal loop.
 
@@ -104,7 +104,7 @@ def initial_loop_state_from_scenario(
         "framework_specified": False,
         "loop_iteration": 0,
         "loop_phase": "plan",
-        "max_steps": max_steps,
+        "max_iterations": max_iterations,
         "loop_completed": False,
         "loop_stop_reason": None,
         "step_traces": [],
@@ -240,9 +240,9 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
         )
 
         loop_iteration = int(state.get("loop_iteration", 0)) + 1
-        max_steps = int(state.get("max_steps", 3))
-        loop_completed = loop_iteration >= max_steps
-        loop_stop_reason = "max_steps_reached" if loop_completed else None
+        max_iterations = int(state.get("max_iterations", 3))
+        loop_completed = loop_iteration >= max_iterations
+        loop_stop_reason = "max_iterations_reached" if loop_completed else None
 
         return {
             "checker_observation": checker_observation,
@@ -293,8 +293,8 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
 
 def _route_after_check(state: WhoseAgentState) -> str:
     loop_iteration = int(state.get("loop_iteration", 0))
-    max_steps = int(state.get("max_steps", 3))
-    if bool(state.get("loop_completed", False)) or loop_iteration >= max_steps:
+    max_iterations = int(state.get("max_iterations", 3))
+    if bool(state.get("loop_completed", False)) or loop_iteration >= max_iterations:
         return "end"
     return "plan"
 
