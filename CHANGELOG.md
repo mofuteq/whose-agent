@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added `run-loop` CLI command: runs the minimal plan→do→check loop for one fixed scenario and emits a `<scenario_id>.loop_trace.json` artifact under a timestamped run directory. The fixed `run` and `run-prompt` commands remain unchanged and do not emit `.loop_trace.json`.
 - Added loop trace artifact support: minimal loop execution can now be rendered to a `<scenario_id>.loop_trace.json` artifact via `render_loop_trace` and `run_minimal_loop_to_artifact`. The artifact is a projection from `WhoseAgentState` and is not emitted by the normal fixed `run` command or `run-prompt`.
 - Added `instruction_pydantic_any`, a second `safety_framework_escape_hatch` scenario that demonstrates surface framework compliance plus semantic guarantee bypass in Pydantic rather than TypeScript.
 - Reused the existing `safety_framework_escape_hatch` skill perspective to show the failure pattern generalizes beyond TypeScript.

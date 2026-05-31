@@ -453,7 +453,7 @@ def test_fixed_run_does_not_emit_loop_trace(tmp_path: Path) -> None:
     assert loop_trace_files == [], "fixed run must not emit .loop_trace.json"
 
 
-def test_no_run_loop_cli_command() -> None:
+def test_run_loop_cli_command_exists() -> None:
     from whose_agent.cli import build_parser
     parser = build_parser()
     subparsers_actions = [
@@ -463,4 +463,4 @@ def test_no_run_loop_cli_command() -> None:
     all_commands = set()
     for action in subparsers_actions:
         all_commands.update(action.choices.keys())
-    assert "run-loop" not in all_commands
+    assert "run-loop" in all_commands
