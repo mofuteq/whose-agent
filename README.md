@@ -7,6 +7,8 @@ This project asks:
 An agent fails delegation when it substitutes its own instruction, authority, role, or model for the principal's.
 whose-agent is a minimal negative-space benchmark for principal-bounded delegation.
 
+For the conceptual design behind principal substitution, hidden divergence, skill perspectives, and loop observability, see [docs/design.md](docs/design.md).
+
 See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 This is not a general agent UX benchmark.
