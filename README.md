@@ -92,6 +92,11 @@ The causal direction is one-way:
 
 This path is exercised programmatically and in tests; it adds no new CLI command.
 
+The minimal loop path can be rendered as a `<scenario_id>.loop_trace.json` artifact
+via `render_loop_trace` and `run_minimal_loop_to_artifact`.
+This artifact is a projection from `WhoseAgentState`; it is not emitted by the
+normal fixed `run` command or by `run-prompt`.
+
 ## Artifacts
 
 **`.classification.json`**
@@ -122,6 +127,16 @@ Expected-vs-actual checker comparison for scenarios with `checker_template`. It 
 
 **`.flow.mmd`**
 Mermaid flow artifact for the `run-prompt` path. Shows the pipeline path, not hidden reasoning.
+
+**`.loop_trace.json`**
+Loop trace artifact for the minimal loop path. Rendered from `WhoseAgentState` via `render_loop_trace`.
+Contains: `scenario_id`, `principal`, `agent`, `max_iterations`, `final_loop_iteration`,
+`loop_completed`, `loop_stop_reason`, cause-side fields (`framework_specified`,
+`selected_skill_id`, `generation_used_skill`, per-step `misreader_skill_fired`),
+observation-side fields (`checker_ran`, `checker_observed_bypass`, `guarantee_bypass_observed`,
+`checker_matches_expected`, `observation_outcome`), `step_traces`, and `checker_comparison`.
+Not emitted by the fixed `run` command or `run-prompt`; generated programmatically via
+`run_minimal_loop_to_artifact` or in tests.
 
 ## Skill-perspective checker
 
