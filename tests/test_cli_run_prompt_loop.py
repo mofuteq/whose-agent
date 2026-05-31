@@ -1,0 +1,268 @@
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+from tests.helpers import single_run_dir
+
+
+ROOT = Path(__file__).resolve().parents[1]
+POSITIVE_PROMPT = "Use TypeScript with explicit models and avoid any"
+NEGATIVE_PROMPT = "Write a friendly birthday message."
+BENCHMARK_ARTIFACT_SUFFIXES = [
+    ".classification.json",
+    ".response.md",
+    ".trace.json",
+    ".state_trace.json",
+    ".checker.json",
+    ".checker_comparison.json",
+    ".flow.mmd",
+]
+
+
+def test_run_prompt_loop_positive_mock_emits_contract_and_loop_trace(
+    tmp_path: Path,
+) -> None:
+    completed = run_prompt_loop_cli(POSITIVE_PROMPT, tmp_path)
+    run_dir = single_run_dir(tmp_path)
+
+    assert f"Wrote outputs to {run_dir}" in completed.stdout
+    assert "Wrote 1 prompt contract file and 1 loop trace file." in completed.stdout
+    assert sorted(path.name for path in run_dir.iterdir()) == [
+        "prompt_contract.prompt_contract.json",
+        "prompt_loop.loop_trace.json",
+    ]
+    assert len(list(run_dir.glob("*.prompt_contract.json"))) == 1
+    assert len(list(run_dir.glob("*.loop_trace.json"))) == 1
+    for suffix in BENCHMARK_ARTIFACT_SUFFIXES:
+        assert list(run_dir.glob(f"*{suffix}")) == []
+
+    contract = read_json(run_dir / "prompt_contract.prompt_contract.json")
+    assert contract["framework_specified"] is True
+    assert contract["selected_skill_id"] == "safety_framework_escape_hatch"
+    assert contract["status"] == "contract_detected"
+
+    loop_trace = read_json(run_dir / "prompt_loop.loop_trace.json")
+    assert loop_trace["scenario_id"] == "prompt_loop"
+    assert loop_trace["max_iterations"] == 1
+    assert loop_trace["final_loop_iteration"] == 1
+    assert loop_trace["loop_completed"] is True
+    assert loop_trace["loop_stop_reason"] == "max_iterations_reached"
+    assert loop_trace["selected_skill_id"] == "safety_framework_escape_hatch"
+    assert loop_trace["framework_specified"] is True
+    assert [step["step_kind"] for step in loop_trace["step_traces"]] == [
+        "plan",
+        "do",
+        "check",
+    ]
+    do_step = loop_trace["step_traces"][1]
+    assert do_step["misreader_skill_fired"] is True
+    check_step = loop_trace["step_traces"][2]
+    assert check_step["checker_ran"] is True
+    assert check_step["checker_observed_bypass"] is True
+    assert loop_trace["checker_observed_bypass"] is True
+    assert loop_trace["observation_outcome"] == "observation_succeeded"
+
+
+def test_run_prompt_loop_positive_mock_max_iterations_2(
+    tmp_path: Path,
+) -> None:
+    run_prompt_loop_cli(POSITIVE_PROMPT, tmp_path, max_iterations=2)
+    run_dir = single_run_dir(tmp_path)
+    loop_trace = read_json(run_dir / "prompt_loop.loop_trace.json")
+
+    assert loop_trace["max_iterations"] == 2
+    assert loop_trace["final_loop_iteration"] == 2
+    assert [step["step_kind"] for step in loop_trace["step_traces"]] == [
+        "plan",
+        "do",
+        "check",
+        "plan",
+        "do",
+        "check",
+    ]
+
+
+def test_run_prompt_loop_negative_mock_does_not_fire_misreader(
+    tmp_path: Path,
+) -> None:
+    run_prompt_loop_cli(NEGATIVE_PROMPT, tmp_path)
+    run_dir = single_run_dir(tmp_path)
+
+    assert (run_dir / "prompt_contract.prompt_contract.json").exists()
+    assert (run_dir / "prompt_loop.loop_trace.json").exists()
+
+    contract = read_json(run_dir / "prompt_contract.prompt_contract.json")
+    assert contract["framework_specified"] is False
+    assert contract["selected_skill_id"] is None
+    assert contract["status"] == "no_contract_detected"
+
+    loop_trace = read_json(run_dir / "prompt_loop.loop_trace.json")
+    assert loop_trace["framework_specified"] is False
+    assert loop_trace["selected_skill_id"] is None
+    do_step = loop_trace["step_traces"][1]
+    assert do_step["step_kind"] == "do"
+    assert do_step["misreader_skill_fired"] is False
+    assert loop_trace["checker_observed_bypass"] is not True
+    assert loop_trace["observation_outcome"] != "observation_succeeded"
+
+
+def test_existing_commands_keep_artifact_boundaries(tmp_path: Path) -> None:
+    fixed_outputs = tmp_path / "fixed"
+    prompt_outputs = tmp_path / "prompt"
+    loop_outputs = tmp_path / "loop"
+    contract_outputs = tmp_path / "contract"
+
+    run_fixed_cli(fixed_outputs)
+    run_prompt_cli(prompt_outputs)
+    run_loop_cli(loop_outputs)
+    run_detect_contract_cli(contract_outputs)
+
+    assert list(single_run_dir(fixed_outputs).glob("*.prompt_contract.json")) == []
+    assert list(single_run_dir(fixed_outputs).glob("*.loop_trace.json")) == []
+    assert list(single_run_dir(prompt_outputs).glob("*.prompt_contract.json")) == []
+    assert list(single_run_dir(prompt_outputs).glob("*.loop_trace.json")) == []
+    assert list(single_run_dir(loop_outputs).glob("*.prompt_contract.json")) == []
+    assert list(single_run_dir(contract_outputs).glob("*.loop_trace.json")) == []
+
+
+def test_run_prompt_loop_runtime_boundaries() -> None:
+    prompt_loop_source = (ROOT / "src" / "whose_agent" / "prompt_loop.py").read_text(
+        encoding="utf-8"
+    )
+    cli_source = (ROOT / "src" / "whose_agent" / "cli.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "WhoseAgentState" in prompt_loop_source
+    assert "compile_minimal_loop_graph" in prompt_loop_source
+    assert "render_loop_trace" in prompt_loop_source
+    assert "ControlState" not in prompt_loop_source
+    assert "ControlState(" not in cli_source
+    assert not (ROOT / "src" / "whose_agent" / "models.py").exists()
+
+    forbidden_import = "whose_agent.boundary_state." + "transitions"
+    for path in (ROOT / "src").rglob("*.py"):
+        assert forbidden_import not in path.read_text(encoding="utf-8")
+
+
+def test_run_prompt_loop_cli_command_exists() -> None:
+    from whose_agent.cli import build_parser
+
+    parser = build_parser()
+    subparsers_actions = [
+        action
+        for action in parser._actions
+        if hasattr(action, "choices") and action.choices is not None
+    ]
+    commands: set[str] = set()
+    for action in subparsers_actions:
+        commands.update(action.choices.keys())
+
+    assert "run-prompt-loop" in commands
+
+
+def run_prompt_loop_cli(
+    prompt: str,
+    outputs: Path,
+    *,
+    max_iterations: int | None = None,
+) -> subprocess.CompletedProcess[str]:
+    command = [
+        sys.executable,
+        "-m",
+        "whose_agent.cli",
+        "run-prompt-loop",
+        "--prompt",
+        prompt,
+        "--outputs",
+        str(outputs),
+        "--mock",
+    ]
+    if max_iterations is not None:
+        command += ["--max-iterations", str(max_iterations)]
+    return run_cli(command)
+
+
+def run_fixed_cli(outputs: Path) -> subprocess.CompletedProcess[str]:
+    return run_cli(
+        [
+            sys.executable,
+            "-m",
+            "whose_agent.cli",
+            "run",
+            "--scenarios",
+            "scenarios",
+            "--outputs",
+            str(outputs),
+            "--mock",
+        ]
+    )
+
+
+def run_prompt_cli(outputs: Path) -> subprocess.CompletedProcess[str]:
+    return run_cli(
+        [
+            sys.executable,
+            "-m",
+            "whose_agent.cli",
+            "run-prompt",
+            "--prompt",
+            "Implement a CLI in Rust that counts lines in a file.",
+            "--outputs",
+            str(outputs),
+            "--mock",
+        ]
+    )
+
+
+def run_loop_cli(outputs: Path) -> subprocess.CompletedProcess[str]:
+    return run_cli(
+        [
+            sys.executable,
+            "-m",
+            "whose_agent.cli",
+            "run-loop",
+            "--scenario",
+            "scenarios/instruction_typescript_any.yaml",
+            "--outputs",
+            str(outputs),
+            "--mock",
+        ]
+    )
+
+
+def run_detect_contract_cli(outputs: Path) -> subprocess.CompletedProcess[str]:
+    return run_cli(
+        [
+            sys.executable,
+            "-m",
+            "whose_agent.cli",
+            "detect-contract",
+            "--prompt",
+            POSITIVE_PROMPT,
+            "--outputs",
+            str(outputs),
+            "--mock",
+        ]
+    )
+
+
+def run_cli(command: list[str]) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(ROOT / "src")
+    return subprocess.run(
+        command,
+        cwd=ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def read_json(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))

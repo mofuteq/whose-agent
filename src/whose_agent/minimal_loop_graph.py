@@ -123,7 +123,9 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
     def plan(state: WhoseAgentState) -> WhoseAgentState:
         scenario = _scenario(state)
         classification = classify_scenario(scenario)
-        framework_specified = derive_framework_specified_for_scenario(scenario)
+        framework_specified = bool(
+            state.get("framework_specified", False)
+        ) or derive_framework_specified_for_scenario(scenario)
         # Re-planning resets the cause-side misreader flag at the start of each
         # iteration so the loop can demonstrate intermittent drift.
         return {
@@ -148,6 +150,23 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
 
         # Cause-side firing condition only. Checker observation is never read here.
         should_fire = should_fire_misreader_skill(state)
+
+        if classification.classification != "in_scope":
+            return {
+                "skill_triggered": False,
+                "misreader_skill_fired": False,
+                "bad_response": None,
+                "generation_used_skill": False,
+                "generation_skill_id": None,
+                "loop_phase": "do",
+                **_step_update(
+                    state,
+                    "do",
+                    misreader_skill_fired=False,
+                    selected_skill_id=selected_skill_id,
+                    substituted=classification.substituted,
+                ),
+            }
 
         if should_fire:
             selected_skill_perspective = state.get("selected_skill_perspective")
