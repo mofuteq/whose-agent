@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added experimental prompt contract detection with Pydantic AI Agent Skills selection, emitting `.prompt_contract.json` for arbitrary prompts.
 - Extracted the minimal loop misreader trigger condition into a cause-side trigger policy helper.
 - Added docs/design.md to document the design principles behind principal substitution, hidden divergence, skill perspectives, LangGraph state, and loop trace observability.
 - Added `run-loop` CLI command: runs the minimal plan→do→check loop for one fixed scenario and emits a `<scenario_id>.loop_trace.json` artifact under a timestamped run directory. The fixed `run` and `run-prompt` commands remain unchanged and do not emit `.loop_trace.json`.

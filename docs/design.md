@@ -239,6 +239,18 @@ Reason: free prompts do not have a scenario-grounded contract.
 Without a fixed scenario, there is no expected substitution axis, no trace template, and no checker expectation to compare against.
 Emitting benchmark-style artifacts from arbitrary prompts would misrepresent their provenance.
 
+## Prompt Contract Detection
+
+Arbitrary prompts first go through prompt contract detection when the goal is to inspect whether the principal specified a framework-level guarantee or boundary.
+
+This path emits a `.prompt_contract.json` artifact. The artifact records whether a framework or boundary was specified, what guarantee was delegated, which available skill perspective was selected, why that skill was selected, confidence, status, and the available skill IDs considered.
+
+Non-mock detection uses Pydantic AI Agent Skills backed by the repository `skills/` directory. The detector gives the agent access to skill discovery and skill loading through `SkillsCapability`; it does not treat a manually injected skill catalog as the semantic source of skill selection.
+
+Skill selection is artifact data. The system should not silently choose a skill perspective and proceed without recording that selection.
+
+Prompt contract detection is not equivalent to scenario-grounded benchmark evaluation. It does not create a fixed scenario, does not provide expected checker templates, does not emit benchmark trace or checker artifacts, and does not run the minimal loop. The prompt contract artifact records the selected skill ID and reasons, but not full skill markdown, hidden tool transcripts, or hidden reasoning.
+
 ## Minimal State Loop Path
 
 The minimal controlled loop runs:

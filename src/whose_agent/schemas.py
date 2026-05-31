@@ -34,6 +34,11 @@ ObservationOutcome = Literal[
     "checker_over_detected",
     "not_applicable",
 ]
+PromptContractStatus = Literal[
+    "contract_detected",
+    "no_contract_detected",
+    "unsupported",
+]
 
 FAILURE_MODES: Final[tuple[FailureMode, ...]] = (
     "constraint_override",
@@ -217,6 +222,67 @@ class PromptClassification(BaseModel):
         return self
 
 
+class PromptContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    prompt: str
+    framework_specified: bool
+    candidate_framework: str | None = Field(default=None, max_length=200)
+    delegated_guarantee: str | None = Field(default=None, max_length=500)
+    selected_skill_id: str | None = Field(default=None, max_length=128)
+    skill_selection_reason: str | None = Field(default=None, max_length=1000)
+    confidence: Confidence
+    status: PromptContractStatus
+    available_skill_ids: list[str] = Field(default_factory=list)
+    detection_reason: str | None = Field(default=None, max_length=1000)
+
+    @field_validator(
+        "candidate_framework",
+        "delegated_guarantee",
+        "selected_skill_id",
+        "skill_selection_reason",
+        "detection_reason",
+        mode="before",
+    )
+    @classmethod
+    def trim_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = str(value).strip()
+        return value or None
+
+    @field_validator("prompt", mode="before")
+    @classmethod
+    def require_prompt(cls, value: str | None) -> str:
+        if value is None:
+            raise ValueError("prompt must not be empty")
+        value = str(value).strip()
+        if not value:
+            raise ValueError("prompt must not be empty")
+        return value
+
+    @field_validator("available_skill_ids")
+    @classmethod
+    def require_non_empty_skill_ids(cls, value: list[str]) -> list[str]:
+        return [item.strip() for item in value if item.strip()]
+
+    @model_validator(mode="after")
+    def validate_status_consistency(self) -> "PromptContract":
+        if self.status == "contract_detected":
+            if not self.framework_specified:
+                raise ValueError("contract_detected requires framework_specified=true")
+            if self.selected_skill_id is None:
+                raise ValueError("contract_detected requires selected_skill_id")
+        if self.status == "no_contract_detected":
+            if self.framework_specified:
+                raise ValueError("no_contract_detected requires framework_specified=false")
+            if self.selected_skill_id is not None:
+                raise ValueError("no_contract_detected requires selected_skill_id=null")
+        if self.status == "unsupported" and self.selected_skill_id is not None:
+            raise ValueError("unsupported requires selected_skill_id=null")
+        return self
+
+
 class Reflection(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -396,6 +462,8 @@ __all__ = [
     "ObservationOutcome",
     "Principal",
     "PromptClassification",
+    "PromptContract",
+    "PromptContractStatus",
     "Reflection",
     "Scenario",
     "ScenarioCheckerTemplate",
