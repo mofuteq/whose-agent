@@ -5,6 +5,7 @@
 - Added deterministic skill trigger state updates to the LangGraph fixed scenario path.
 - Added checker-template comparison state and `.checker_comparison.json` artifacts.
 - Render `.state_trace.json` from LangGraph state instead of the legacy boundary transition runtime.
+- Pass selected skill perspective into non-mock bad response generation.
 
 ## v0.6.0
 

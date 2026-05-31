@@ -307,6 +307,8 @@ class WhoseAgentState(TypedDict, total=False):
     scenario: Scenario
     classification: Classification | None
     bad_response: str | None
+    generation_used_skill: bool
+    generation_skill_id: str | None
     trace: Trace | None
     state_trace: BoundaryStateTrace | None
     checker_observation: CheckerObservation | None

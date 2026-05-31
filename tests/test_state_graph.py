@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from whose_agent import schemas, state_graph
+from whose_agent.bad_response import mock_bad_response
+from whose_agent.llm_result import LLMCallResult
 from whose_agent.scenario_loader import load_scenario
 from whose_agent.state_graph import compile_fixed_scenario_graph, initial_state_from_scenario
 
@@ -39,6 +41,8 @@ def test_graph_state_initializes_from_fixed_scenario() -> None:
     assert state["selected_skill_id"] == scenario.selected_skill_id
     assert state["substituted"] == scenario.expected_substituted
     assert state["failure_mode"] == scenario.failure_mode
+    assert state["generation_used_skill"] is False
+    assert state["generation_skill_id"] is None
     assert state["completed"] is False
     assert state["step_traces"] == []
 
@@ -87,6 +91,8 @@ def test_selected_skill_scenario_records_trigger_state() -> None:
     assert "surface framework" in state["selected_skill_perspective"]
     assert state["trigger_evidence"]
     assert "deterministic fixed scenario" in state["trigger_evidence"][0]
+    assert state["generation_used_skill"] is True
+    assert state["generation_skill_id"] == "safety_framework_escape_hatch"
 
 
 def test_non_selected_skill_scenario_keeps_trigger_state_false() -> None:
@@ -100,6 +106,81 @@ def test_non_selected_skill_scenario_keeps_trigger_state_false() -> None:
     assert state["selected_skill_id"] is None
     assert state["selected_skill_perspective"] is None
     assert state["trigger_evidence"] == []
+    assert state["generation_used_skill"] is False
+    assert state["generation_skill_id"] is None
+
+
+def test_graph_passes_selected_skill_state_into_bad_response_generation(
+    monkeypatch,
+) -> None:
+    scenario = load_scenario(ROOT / "scenarios" / "instruction_typescript_any.yaml")
+    calls = {}
+
+    def fake_generate_bad_response_with_usage(
+        scenario,
+        classification,
+        *,
+        selected_skill_id=None,
+        selected_skill_perspective=None,
+        misreader_skill_fired=False,
+        mock=False,
+    ):
+        calls["selected_skill_id"] = selected_skill_id
+        calls["selected_skill_perspective"] = selected_skill_perspective
+        calls["misreader_skill_fired"] = misreader_skill_fired
+        calls["mock"] = mock
+        return LLMCallResult(output=mock_bad_response(classification))
+
+    monkeypatch.setattr(
+        state_graph,
+        "generate_bad_response_with_usage",
+        fake_generate_bad_response_with_usage,
+    )
+    graph = compile_fixed_scenario_graph(mock=True)
+
+    state = graph.invoke(initial_state_from_scenario(scenario))
+
+    assert calls["selected_skill_id"] == "safety_framework_escape_hatch"
+    assert calls["selected_skill_perspective"] == state["selected_skill_perspective"]
+    assert "surface framework" in calls["selected_skill_perspective"]
+    assert calls["misreader_skill_fired"] is True
+    assert calls["mock"] is True
+    assert state["generation_used_skill"] is True
+
+
+def test_graph_does_not_pass_skill_context_for_non_selected_scenario(
+    monkeypatch,
+) -> None:
+    scenario = load_scenario(ROOT / "scenarios" / "instruction_rust_cli.yaml")
+    calls = {}
+
+    def fake_generate_bad_response_with_usage(
+        scenario,
+        classification,
+        *,
+        selected_skill_id=None,
+        selected_skill_perspective=None,
+        misreader_skill_fired=False,
+        mock=False,
+    ):
+        calls["selected_skill_id"] = selected_skill_id
+        calls["selected_skill_perspective"] = selected_skill_perspective
+        calls["misreader_skill_fired"] = misreader_skill_fired
+        return LLMCallResult(output=mock_bad_response(classification))
+
+    monkeypatch.setattr(
+        state_graph,
+        "generate_bad_response_with_usage",
+        fake_generate_bad_response_with_usage,
+    )
+    graph = compile_fixed_scenario_graph(mock=True)
+
+    state = graph.invoke(initial_state_from_scenario(scenario))
+
+    assert calls["selected_skill_id"] is None
+    assert calls["selected_skill_perspective"] is None
+    assert calls["misreader_skill_fired"] is False
+    assert state["generation_used_skill"] is False
 
 
 def test_checker_comparison_succeeds_for_typescript_any_mock_scenario() -> None:

@@ -78,13 +78,29 @@ export function handleSubmit(data: any) {
 }
 
 
-def build_generation_prompt(scenario: Scenario) -> str:
+def build_generation_prompt(
+    scenario: Scenario,
+    *,
+    selected_skill_id: str | None = None,
+    selected_skill_perspective: str | None = None,
+    misreader_skill_fired: bool = False,
+) -> str:
+    generation_uses_skill = (
+        misreader_skill_fired
+        and selected_skill_id is not None
+        and selected_skill_perspective is not None
+    )
     return render_template(
         "bad_response.jinja",
         {
             "principal_prompt": scenario.principal_prompt,
             "principal_signal": scenario.principal_signal,
+            "expected_substituted": scenario.expected_substituted,
             "generation_instruction": scenario.generation_instruction,
+            "generation_uses_skill": generation_uses_skill,
+            "selected_skill_id": selected_skill_id,
+            "selected_skill_perspective": selected_skill_perspective,
+            "misreader_skill_fired": misreader_skill_fired,
         },
     )
 
@@ -112,15 +128,28 @@ def generate_bad_response(
     scenario: Scenario,
     classification: Classification,
     *,
+    selected_skill_id: str | None = None,
+    selected_skill_perspective: str | None = None,
+    misreader_skill_fired: bool = False,
     mock: bool = False,
 ) -> str:
-    return generate_bad_response_with_usage(scenario, classification, mock=mock).output
+    return generate_bad_response_with_usage(
+        scenario,
+        classification,
+        selected_skill_id=selected_skill_id,
+        selected_skill_perspective=selected_skill_perspective,
+        misreader_skill_fired=misreader_skill_fired,
+        mock=mock,
+    ).output
 
 
 def generate_bad_response_with_usage(
     scenario: Scenario,
     classification: Classification,
     *,
+    selected_skill_id: str | None = None,
+    selected_skill_perspective: str | None = None,
+    misreader_skill_fired: bool = False,
     mock: bool = False,
 ) -> LLMCallResult[str]:
     if classification.classification != "in_scope":
@@ -140,7 +169,12 @@ def generate_bad_response_with_usage(
     model_settings = BAD_RESPONSE_MODEL_SETTINGS.copy()
     agent = Agent(model_name)
     result = agent.run_sync(
-        build_generation_prompt(scenario),
+        build_generation_prompt(
+            scenario,
+            selected_skill_id=selected_skill_id,
+            selected_skill_perspective=selected_skill_perspective,
+            misreader_skill_fired=misreader_skill_fired,
+        ),
         model_settings=model_settings,
     )
     output = extract_output(result)

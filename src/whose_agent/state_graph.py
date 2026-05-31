@@ -50,6 +50,8 @@ def initial_state_from_scenario(scenario: Scenario) -> WhoseAgentState:
         "scenario": scenario,
         "classification": None,
         "bad_response": None,
+        "generation_used_skill": False,
+        "generation_skill_id": None,
         "trace": None,
         "state_trace": None,
         "checker_observation": None,
@@ -223,6 +225,14 @@ def build_fixed_scenario_graph(
     def generate_bad_response(state: WhoseAgentState) -> WhoseAgentState:
         scenario = _scenario(state)
         classification = _classification(state)
+        selected_skill_id = state.get("selected_skill_id")
+        selected_skill_perspective = state.get("selected_skill_perspective")
+        misreader_skill_fired = bool(state.get("misreader_skill_fired", False))
+        generation_used_skill = (
+            misreader_skill_fired
+            and selected_skill_id is not None
+            and selected_skill_perspective is not None
+        )
         bad_response_observation = tracer.span if mock else tracer.generation
         with bad_response_observation(
             name="generate_bad_response",
@@ -230,28 +240,43 @@ def build_fixed_scenario_graph(
                 "scenario_id": scenario.scenario_id,
                 "substituted": classification.substituted,
                 "mock": mock,
+                "generation_used_skill": generation_used_skill,
             },
             input=sanitized_scenario_input(
                 scenario,
                 classification=classification.classification,
                 substituted=classification.substituted,
+                selected_skill_id=selected_skill_id,
+                misreader_skill_fired=misreader_skill_fired,
+                generation_used_skill=generation_used_skill,
                 mock=mock,
             ),
         ) as span:
             bad_response_call = generate_bad_response_with_usage(
                 scenario,
                 classification,
+                selected_skill_id=selected_skill_id,
+                selected_skill_perspective=selected_skill_perspective,
+                misreader_skill_fired=misreader_skill_fired,
                 mock=mock,
             )
             bad_response = bad_response_call.output
             update_span_with_llm_call(
                 span,
-                output={"bad_response_length": len(bad_response)},
+                output={
+                    "bad_response_length": len(bad_response),
+                    "generation_used_skill": generation_used_skill,
+                    "generation_skill_id": (
+                        selected_skill_id if generation_used_skill else None
+                    ),
+                },
                 llm_call=bad_response_call,
             )
 
         return {
             "bad_response": bad_response,
+            "generation_used_skill": generation_used_skill,
+            "generation_skill_id": selected_skill_id if generation_used_skill else None,
             "next_action": "continue",
             **_step_update(state, "do"),
         }
