@@ -44,7 +44,7 @@ For example, the `instruction` axis now includes both:
 fixed scenario
   -> classification
   -> deterministic skill trigger state update for selected scenarios
-  -> bad response generation
+  -> bad response generation, optionally guided by selected skill perspective
   -> hybrid trace analysis: hand-written divergence_point templates plus thesis-based reflection for delegation analysis
   -> trace.json
   -> state_trace.json rendered from LangGraph state
@@ -96,6 +96,10 @@ Mermaid flow artifact for the `run-prompt` path. Shows the pipeline path, not hi
 ## Skill-perspective checker
 
 Fixed scenarios may optionally select a human-authored skill perspective.
+When a selected skill fires, non-mock bad response generation receives that
+perspective as a misreader behavior guide while the scenario remains the fixture
+that defines the target behavior.
+
 The checker does not own detection patterns. It receives the selected skill perspective and reads the generated artifact through that perspective.
 
 For example, `instruction_typescript_any` uses the `safety_framework_escape_hatch` perspective. The checker should not merely search for `any`; it should decide whether the response preserves the surface framework while bypassing the guarantee the principal asked that framework to preserve.

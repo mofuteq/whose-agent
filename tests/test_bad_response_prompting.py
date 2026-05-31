@@ -15,6 +15,7 @@ from whose_agent.bad_response import (
     generate_bad_response_with_usage,
     mock_bad_response,
 )
+from whose_agent.checker import load_skill_perspective
 from whose_agent.classifier import classify_scenario
 from whose_agent.env_loader import load_env_file
 from whose_agent.prompt_loader import render_template
@@ -41,6 +42,38 @@ def test_generation_prompt_contains_required_context_and_constraints() -> None:
     assert "Do not be rude." in prompt
     assert "Do not ask follow-up questions." in prompt
     assert "Keep the response concise." in prompt
+
+
+def test_generation_prompt_includes_selected_skill_context_when_present() -> None:
+    scenario = load_scenario(ROOT / "scenarios" / "instruction_typescript_any.yaml")
+    assert scenario.selected_skill_id is not None
+    skill_perspective = load_skill_perspective(scenario.selected_skill_id)
+
+    prompt = build_generation_prompt(
+        scenario,
+        selected_skill_id=scenario.selected_skill_id,
+        selected_skill_perspective=skill_perspective,
+        misreader_skill_fired=True,
+    )
+
+    assert "Scenario-specific target:" in prompt
+    assert "Expected substitution axis:" in prompt
+    assert scenario.expected_substituted in prompt
+    assert "Selected misreader skill perspective:" in prompt
+    assert f"Skill id: {scenario.selected_skill_id}" in prompt
+    assert "misreader behavior guide for generation" in prompt
+    assert "not as an external checker" in prompt
+    assert skill_perspective in prompt
+
+
+def test_generation_prompt_without_selected_skill_keeps_skill_context_empty() -> None:
+    scenario = load_scenario(ROOT / "scenarios" / "instruction_rust_cli.yaml")
+
+    prompt = build_generation_prompt(scenario)
+
+    assert "Selected misreader skill perspective:" not in prompt
+    assert "Skill id:" not in prompt
+    assert "surface framework" not in prompt
 
 
 def test_generation_prompt_template_requires_all_variables() -> None:
@@ -85,6 +118,88 @@ def test_generate_bad_response_uses_low_variance_model_settings(monkeypatch) -> 
         "seed": 42,
     }
     assert calls["model_settings"] is not BAD_RESPONSE_MODEL_SETTINGS
+
+
+def test_non_mock_generation_prompt_uses_selected_skill_context(monkeypatch) -> None:
+    scenario = load_scenario(ROOT / "scenarios" / "instruction_typescript_any.yaml")
+    classification = classify_scenario(scenario)
+    assert scenario.selected_skill_id is not None
+    skill_perspective = load_skill_perspective(scenario.selected_skill_id)
+    calls = {}
+
+    class FakeAgent:
+        def __init__(self, model_name: str) -> None:
+            calls["model_name"] = model_name
+
+        def run_sync(self, prompt: str, *, model_settings: dict[str, float | int]):
+            calls["prompt"] = prompt
+            calls["model_settings"] = model_settings
+            return SimpleNamespace(output="Here is a concise assistant response.")
+
+    import pydantic_ai
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("WHOSE_AGENT_MODEL", "openrouter:test/model")
+    monkeypatch.setattr(pydantic_ai, "Agent", FakeAgent)
+
+    result = generate_bad_response_with_usage(
+        scenario,
+        classification,
+        selected_skill_id=scenario.selected_skill_id,
+        selected_skill_perspective=skill_perspective,
+        misreader_skill_fired=True,
+        mock=False,
+    )
+
+    assert result.output == "Here is a concise assistant response."
+    assert scenario.selected_skill_id in calls["prompt"]
+    assert skill_perspective in calls["prompt"]
+    assert "misreader behavior guide for generation" in calls["prompt"]
+    assert "not as an external checker" in calls["prompt"]
+
+
+def test_non_selected_scenario_does_not_pass_skill_context_to_prompt(monkeypatch) -> None:
+    scenario = load_scenario(ROOT / "scenarios" / "instruction_rust_cli.yaml")
+    classification = classify_scenario(scenario)
+    calls = {}
+
+    class FakeAgent:
+        def __init__(self, model_name: str) -> None:
+            pass
+
+        def run_sync(self, prompt: str, *, model_settings: dict[str, float | int]):
+            calls["prompt"] = prompt
+            return SimpleNamespace(output="Here is a concise assistant response.")
+
+    import pydantic_ai
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("WHOSE_AGENT_MODEL", "openrouter:test/model")
+    monkeypatch.setattr(pydantic_ai, "Agent", FakeAgent)
+
+    generate_bad_response_with_usage(scenario, classification, mock=False)
+
+    assert "Selected misreader skill perspective:" not in calls["prompt"]
+    assert "Skill id:" not in calls["prompt"]
+    assert "surface framework" not in calls["prompt"]
+
+
+def test_mock_generation_ignores_skill_context_and_stays_deterministic() -> None:
+    scenario = load_scenario(ROOT / "scenarios" / "instruction_typescript_any.yaml")
+    classification = classify_scenario(scenario)
+    assert scenario.selected_skill_id is not None
+    skill_perspective = load_skill_perspective(scenario.selected_skill_id)
+
+    result = generate_bad_response_with_usage(
+        scenario,
+        classification,
+        selected_skill_id=scenario.selected_skill_id,
+        selected_skill_perspective=skill_perspective,
+        misreader_skill_fired=True,
+        mock=True,
+    )
+
+    assert result.output == mock_bad_response(classification)
 
 
 def test_generate_bad_response_normalizes_openrouter_text(monkeypatch) -> None:
