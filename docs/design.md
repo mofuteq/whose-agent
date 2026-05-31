@@ -250,7 +250,7 @@ plan -> do -> check -> plan
 It is a controlled poor-e2e fixture, not a general autonomous runtime.
 
 - `plan` sets `framework_specified`
-- `do` may fire the cause-side misreader skill
+- `do` calls `should_fire_misreader_skill(state)` — a cause-side policy helper in `loop_trigger_policy.py` — to decide whether the misreader skill fires
 - `check` runs the observation-side checker
 - The loop stops deterministically via `max_iterations`
 - `run-loop` emits `.loop_trace.json`
@@ -285,7 +285,6 @@ A `run-loop` does not emit classification or fixed benchmark artifacts.
 
 The following are out of scope for the current version:
 
-- Trigger policy extraction: a formal `should_fire_misreader_skill(state) -> bool` predicate
 - Additional safety-framework scenarios:
   - `instruction_zod_any`
   - `instruction_sql_parameterization_bypass`
