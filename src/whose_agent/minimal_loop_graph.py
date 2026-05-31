@@ -28,6 +28,7 @@ from whose_agent.checker import (
     load_skill_perspective,
 )
 from whose_agent.classifier import classify_scenario
+from whose_agent.loop_trigger_policy import should_fire_misreader_skill
 from whose_agent.schemas import (
     Classification,
     Scenario,
@@ -143,11 +144,10 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
     def do(state: WhoseAgentState) -> WhoseAgentState:
         scenario = _scenario(state)
         classification = _classification(state)
-        framework_specified = bool(state.get("framework_specified", False))
         selected_skill_id = state.get("selected_skill_id")
 
         # Cause-side firing condition only. Checker observation is never read here.
-        should_fire = framework_specified and selected_skill_id is not None
+        should_fire = should_fire_misreader_skill(state)
 
         if should_fire:
             selected_skill_perspective = state.get("selected_skill_perspective")
