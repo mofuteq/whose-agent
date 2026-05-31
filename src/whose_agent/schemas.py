@@ -320,6 +320,16 @@ class WhoseAgentState(TypedDict, total=False):
     handoff_ready: bool
     completed: bool
 
+    # Minimal loop fields. LangGraph state is the runtime source of truth; these
+    # extend WhoseAgentState directly rather than wiring ControlState as a nested
+    # runtime object. They support a minimal plan -> do -> check loop path.
+    loop_iteration: int
+    loop_phase: StepKind
+    max_iterations: int
+    framework_specified: bool
+    loop_completed: bool
+    loop_stop_reason: str | None
+
     selected_skill_id: str | None
     selected_skill_perspective: str | None
     skill_triggered: bool

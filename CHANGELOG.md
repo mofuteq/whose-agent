@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added a minimal LangGraph plan -> do -> check loop path that demonstrates intermittent boundary drift within one task execution.
+- Extended WhoseAgentState with minimal loop fields instead of wiring ControlState as a nested runtime object.
+- Kept misreader firing cause-side (framework_specified + selected_skill_id) and checker observation observation-side in the loop.
 - Added deterministic skill trigger state updates to the LangGraph fixed scenario path.
 - Added checker-template comparison state and `.checker_comparison.json` artifacts.
 - Render `.state_trace.json` from LangGraph state instead of the legacy boundary transition runtime.

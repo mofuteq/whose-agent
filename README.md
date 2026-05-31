@@ -12,12 +12,12 @@ See [CHANGELOG.md](CHANGELOG.md) for release history.
 This is not a general agent UX benchmark.
 This is not a tool-use benchmark.
 This is not an autonomous agent runtime.
-This is not a State Loop.
 
 ## State vocabulary
 
-These primitives do not introduce a State Loop. They introduce the state vocabulary needed to observe boundary events inside one.
+These primitives now support a minimal State Loop path (see [Minimal loop path](#minimal-loop-path)). They provide the state vocabulary needed to observe boundary events inside one.
 `ControlState` and `StepTrace` are passive, serializable primitives for principal/agent delegation state and checker-observed boundary events.
+The minimal loop is a controlled fixture, not a general autonomous agent runtime.
 
 ## Substitution axis
 
@@ -61,6 +61,33 @@ arbitrary prompt
   -> classification
   -> flow diagram
 ```
+
+## Minimal loop path
+
+The minimal loop path is a controlled poor-e2e fixture, not a general autonomous runtime.
+It runs a minimal LangGraph loop:
+
+```
+plan -> do -> check -> plan
+```
+
+It stops deterministically via `max_iterations`. It exists to demonstrate
+intermittent boundary drift within one task execution, where the misreader skill
+re-fires each iteration and the checker observes the resulting drift.
+
+For `instruction_typescript_any`:
+- plan: `framework_specified=true`, `misreader_skill_fired=false`
+- do: `misreader_skill_fired=true`, `generation_used_skill=true`
+- check: `checker_observed_bypass=true`, `observation_outcome=observation_succeeded`
+
+The causal direction is one-way:
+- `misreader_skill_fired` is cause-side. It is set in the `do` step from
+  `framework_specified` plus a selected skill, then drives the artifact drift.
+- `checker_observed_bypass` and `guarantee_bypass_observed` are observation-side.
+  They are set in the `check` step after the drift has already happened.
+- Checker observation is never a precondition for misreader firing.
+
+This path is exercised programmatically and in tests; it adds no new CLI command.
 
 ## Artifacts
 
@@ -218,5 +245,5 @@ Langfuse is used only for artifact-safe metadata such as scenario IDs, substitut
 - tool execution
 - multi-turn interaction
 - ask_user / authority restoration interrupt
-- State Loop
-- LangGraph loops
+- a general autonomous State Loop runtime (beyond the minimal poor-e2e loop fixture)
+- checkpoint persistence and LangGraph checkpointing
