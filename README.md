@@ -14,7 +14,7 @@ This is not a State Loop.
 
 ## State vocabulary
 
-This PR does not introduce a State Loop. It introduces the state vocabulary needed to observe boundary events inside one.
+These primitives do not introduce a State Loop. They introduce the state vocabulary needed to observe boundary events inside one.
 `ControlState` and `StepTrace` are passive, serializable primitives for principal/agent delegation state and checker-observed boundary events.
 
 ## Substitution axis

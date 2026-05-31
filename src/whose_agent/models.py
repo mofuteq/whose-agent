@@ -69,7 +69,7 @@ class StepTrace(BaseModel):
     checker_ran: bool = False
     checker_observed_bypass: bool = False
     trigger_evidence: list[str] = Field(default_factory=list)
-    substituted: str | None = None
+    substituted: TraceSubstituted | None = None
     boundary_flags: list[str] = Field(default_factory=list)
     divergence_point: str | None = None
 
