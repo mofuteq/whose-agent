@@ -2,9 +2,13 @@ from __future__ import annotations
 
 from typing import Final, Literal
 
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
+Principal = str
+AgentId = str
+StepKind = Literal["plan", "do", "check"]
+NextAction = Literal["continue", "stop", "handoff"]
 Substituted = Literal["instruction", "authority", "role", "model", "none"]
 TraceSubstituted = Literal["instruction", "authority", "role", "model"]
 FailureMode = Literal[
@@ -30,6 +34,44 @@ EXPECTED_FAILURE_BY_SUBSTITUTED: Final[dict[Substituted, FailureMode]] = {
     "model": "persona_hallucination",
     "none": "none",
 }
+
+
+class ControlState(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    principal: Principal
+    agent: AgentId
+    principal_instruction: str
+    principal_signal: str
+    step_kind: StepKind
+    step_index: int
+    next_action: NextAction | None = None
+    handoff_ready: bool = False
+    selected_skill_id: str | None = None
+    selected_skill_perspective: str | None = None
+    framework_specified: bool = False
+    guarantee_bypass_observed: bool = False
+    guarantee_bypass_evidence: list[str] = Field(default_factory=list)
+    checker_id: str | None = None
+    checker_confidence: str | None = None
+    boundary_flags: list[str] = Field(default_factory=list)
+
+
+class StepTrace(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    step_index: int
+    step_kind: StepKind
+    principal: Principal
+    agent: AgentId
+    misreader_skill_fired: bool = False
+    selected_skill_id: str | None = None
+    checker_ran: bool = False
+    checker_observed_bypass: bool = False
+    trigger_evidence: list[str] = Field(default_factory=list)
+    substituted: TraceSubstituted | None = None
+    boundary_flags: list[str] = Field(default_factory=list)
+    divergence_point: str | None = None
 
 
 class ScenarioTraceTemplate(BaseModel):
