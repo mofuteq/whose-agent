@@ -80,5 +80,25 @@ def test_all_observation_side_fields_present_but_cause_side_fails() -> None:
         guarantee_bypass_observed=True,
         checker_matches_expected=True,
         observation_outcome="observation_succeeded",
+        checker_comparison={"observation_outcome": "observation_succeeded"},
+        checker_observation={"checker_observed_bypass": True},
+    )
+    assert should_fire_misreader_skill(state) is False
+
+
+def test_ignores_checker_comparison() -> None:
+    state = _state(
+        framework_specified=False,
+        selected_skill_id=None,
+        checker_comparison={"observation_outcome": "observation_succeeded"},
+    )
+    assert should_fire_misreader_skill(state) is False
+
+
+def test_ignores_checker_observation() -> None:
+    state = _state(
+        framework_specified=False,
+        selected_skill_id=None,
+        checker_observation={"checker_observed_bypass": True},
     )
     assert should_fire_misreader_skill(state) is False

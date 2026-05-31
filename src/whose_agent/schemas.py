@@ -223,6 +223,12 @@ class PromptClassification(BaseModel):
 
 
 class PromptContract(BaseModel):
+    """Detected arbitrary-prompt boundary contract.
+
+    Status semantics intentionally separate a supported contract from a prompt
+    that names a boundary but has no applicable skill perspective.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     prompt: str
@@ -273,13 +279,26 @@ class PromptContract(BaseModel):
                 raise ValueError("contract_detected requires framework_specified=true")
             if self.selected_skill_id is None:
                 raise ValueError("contract_detected requires selected_skill_id")
+            if self.skill_selection_reason is None:
+                raise ValueError("contract_detected requires skill_selection_reason")
         if self.status == "no_contract_detected":
             if self.framework_specified:
                 raise ValueError("no_contract_detected requires framework_specified=false")
             if self.selected_skill_id is not None:
                 raise ValueError("no_contract_detected requires selected_skill_id=null")
-        if self.status == "unsupported" and self.selected_skill_id is not None:
-            raise ValueError("unsupported requires selected_skill_id=null")
+            if self.skill_selection_reason is not None:
+                raise ValueError("no_contract_detected requires skill_selection_reason=null")
+            if self.candidate_framework is not None:
+                raise ValueError("no_contract_detected requires candidate_framework=null")
+            if self.delegated_guarantee is not None:
+                raise ValueError("no_contract_detected requires delegated_guarantee=null")
+        if self.status == "unsupported":
+            if not self.framework_specified:
+                raise ValueError("unsupported requires framework_specified=true")
+            if self.selected_skill_id is not None:
+                raise ValueError("unsupported requires selected_skill_id=null")
+            if self.skill_selection_reason is not None:
+                raise ValueError("unsupported requires skill_selection_reason=null")
         return self
 
 

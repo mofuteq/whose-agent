@@ -233,11 +233,40 @@ It does not emit:
 - `.state_trace.json`
 - `.checker.json`
 - `.checker_comparison.json`
+- `.prompt_contract.json`
 - `.loop_trace.json`
 
 Reason: free prompts do not have a scenario-grounded contract.
 Without a fixed scenario, there is no expected substitution axis, no trace template, and no checker expectation to compare against.
 Emitting benchmark-style artifacts from arbitrary prompts would misrepresent their provenance.
+
+## Arbitrary Prompt Observability Boundaries
+
+Arbitrary prompt observability is not fixed benchmark evaluation.
+The fixed scenario path is the benchmark path; arbitrary prompt paths are
+exploratory or experimental observability paths.
+
+| command | purpose | artifacts |
+|---|---|---|
+| `run` | fixed scenario benchmark | benchmark artifacts |
+| `run-prompt` | arbitrary prompt classification exploration | `.classification.json`, `.flow.mmd` |
+| `detect-contract` | arbitrary prompt contract detection | `.prompt_contract.json` |
+| `run-loop` | fixed scenario minimal loop observability | `.loop_trace.json` |
+| `run-prompt-loop` | experimental arbitrary prompt loop observability | `.prompt_contract.json`, `.loop_trace.json` |
+
+`run-prompt` is classification exploration only.
+It does not detect contracts and does not run the minimal loop.
+
+`detect-contract` is contract detection only.
+It records whether an arbitrary prompt names a framework-level guarantee or
+boundary and whether an available skill perspective applies.
+It does not run the minimal loop.
+
+`run-prompt-loop` detects a contract and runs the minimal loop.
+`run-prompt-loop` is experimental loop observability.
+It is not fixed benchmark evaluation.
+
+Arbitrary prompt artifacts are not scenario-grounded benchmark artifacts.
 
 ## Prompt Contract Detection
 
@@ -250,6 +279,17 @@ Non-mock detection uses Pydantic AI Agent Skills backed by the repository `skill
 Skill selection is artifact data. The system should not silently choose a skill perspective and proceed without recording that selection.
 
 Prompt contract detection is not equivalent to scenario-grounded benchmark evaluation. It does not create a fixed scenario, does not provide expected checker templates, does not emit benchmark trace or checker artifacts, and does not run the minimal loop. The prompt contract artifact records the selected skill ID and reasons, but not full skill markdown, hidden tool transcripts, or hidden reasoning.
+
+Prompt contract status values are part of the boundary contract:
+
+| status | meaning | required fields |
+|---|---|---|
+| `contract_detected` | A framework-level guarantee or boundary was detected, and an available skill perspective applies. | `framework_specified=true`, `selected_skill_id != null`, `skill_selection_reason != null`; `candidate_framework` and `delegated_guarantee` are recorded when known. |
+| `no_contract_detected` | No framework-level guarantee or boundary was detected. | `framework_specified=false`, `selected_skill_id=null`, `skill_selection_reason=null`, `candidate_framework=null`, `delegated_guarantee=null` |
+| `unsupported` | A framework-level guarantee or boundary was detected, but no available skill perspective applies. | `framework_specified=true`, `selected_skill_id=null`, `skill_selection_reason=null` |
+
+`unsupported` must not be treated as a successful contract for skill-triggered
+drift.
 
 ## Arbitrary Prompt Loop Path
 
@@ -264,6 +304,9 @@ The resulting `.loop_trace.json` uses a synthetic scenario id, `prompt_loop`.
 It is experimental loop observability for an arbitrary prompt. It is not
 scenario-grounded benchmark evaluation and does not emit benchmark trace,
 checker, response, state trace, classification, or flow artifacts.
+`prompt_loop.loop_trace.json` is not a benchmark scenario result. There is no
+scenario YAML, no scenario-grounded checker expectation, and no emitted
+`.checker.json` or `.checker_comparison.json` artifact.
 
 The cause-side firing rule stays unchanged:
 
@@ -273,6 +316,16 @@ framework_specified and selected_skill_id is not None
 
 Checker observations remain observation-side and are recorded after the `do`
 step has already decided whether the misreader skill fired.
+
+Status-specific behavior is explicit:
+
+- `contract_detected`: `framework_specified=true`, `selected_skill_id != null`,
+  and the misreader may fire when `should_fire_misreader_skill(state)` returns true.
+- `no_contract_detected`: `framework_specified=false`, `selected_skill_id=null`,
+  no boundary event is observed, and `observation_outcome=not_applicable`.
+- `unsupported`: `framework_specified=true`, `selected_skill_id=null`, no
+  skill-triggered drift occurs, no checker bypass is observed, and
+  `observation_outcome=not_applicable`.
 
 ## Minimal State Loop Path
 
