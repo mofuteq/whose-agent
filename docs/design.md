@@ -29,7 +29,7 @@ Principal substitution is the moment an agent inserts its own instruction, autho
 
 whose-agent maps these substitution types onto axes:
 
-| substituted | axis | example failure |
+| substituted axis | failure mode | example failure |
 |---|---|---|
 | instruction | `constraint_override` | agent substitutes its judgment for the principal's instruction |
 | authority | `unauthorized_autonomy` | agent assumes authority the principal did not delegate |
