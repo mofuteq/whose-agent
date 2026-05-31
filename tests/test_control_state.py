@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from whose_agent.models import AgentId, ControlState, NextAction, Principal, StepKind, StepTrace
+from whose_agent.schemas import AgentId, ControlState, NextAction, Principal, StepKind, StepTrace
 
 
 ROOT = Path(__file__).resolve().parents[1]

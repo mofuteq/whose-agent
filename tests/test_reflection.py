@@ -73,7 +73,7 @@ def test_reflect_failure_uses_low_variance_model_settings(monkeypatch) -> None:
     bad_response = mock_bad_response(classify_scenario(scenario))
     calls: dict = {}
 
-    from whose_agent.models import Reflection
+    from whose_agent.schemas import Reflection
 
     class FakeAgent:
         def __init__(self, model_name: str, *, output_type: type) -> None:
@@ -112,7 +112,7 @@ def test_reflect_failure_normalizes_text_fields(monkeypatch) -> None:
     scenario = load_scenario(ROOT / "scenarios" / "instruction_rust_cli.yaml")
     bad_response = mock_bad_response(classify_scenario(scenario))
 
-    from whose_agent.models import Reflection
+    from whose_agent.schemas import Reflection
 
     class FakeAgent:
         def __init__(self, model_name: str, *, output_type: type) -> None:
@@ -143,7 +143,7 @@ def test_reflect_failure_records_token_usage(monkeypatch) -> None:
     scenario = load_scenario(ROOT / "scenarios" / "instruction_rust_cli.yaml")
     bad_response = mock_bad_response(classify_scenario(scenario))
 
-    from whose_agent.models import Reflection
+    from whose_agent.schemas import Reflection
 
     class FakeAgent:
         def __init__(self, model_name: str, *, output_type: type) -> None:

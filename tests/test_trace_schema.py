@@ -4,7 +4,7 @@ import pytest
 
 from whose_agent.bad_response import mock_bad_response
 from whose_agent.classifier import classify_scenario
-from whose_agent.models import Classification, Scenario, ScenarioTraceTemplate
+from whose_agent.schemas import Classification, Scenario, ScenarioTraceTemplate
 from whose_agent.scenario_loader import load_scenarios
 from whose_agent.trace_emitter import TraceNotApplicableError, _mock_reflection, emit_trace
 
