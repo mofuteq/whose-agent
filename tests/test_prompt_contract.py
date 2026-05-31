@@ -33,7 +33,6 @@ ARTIFACT_BOUNDARY_SUFFIXES = [
     ".state_trace.json",
     ".checker.json",
     ".checker_comparison.json",
-    ".flow.mmd",
     ".loop_trace.json",
 ]
 
@@ -364,17 +363,14 @@ def test_prompt_contract_artifact_does_not_include_full_skill_markdown(tmp_path:
     )
 
 
-def test_existing_commands_do_not_emit_prompt_contract(tmp_path: Path) -> None:
+def test_non_contract_commands_do_not_emit_prompt_contract(tmp_path: Path) -> None:
     fixed_outputs = tmp_path / "fixed"
-    prompt_outputs = tmp_path / "prompt"
     loop_outputs = tmp_path / "loop"
 
     run_fixed_cli(fixed_outputs)
-    run_prompt_cli(prompt_outputs)
     run_loop_cli(loop_outputs)
 
     assert list(single_run_dir(fixed_outputs).glob("*.prompt_contract.json")) == []
-    assert list(single_run_dir(prompt_outputs).glob("*.prompt_contract.json")) == []
     assert list(single_run_dir(loop_outputs).glob("*.prompt_contract.json")) == []
 
 
@@ -418,21 +414,6 @@ def run_fixed_cli(outputs: Path) -> subprocess.CompletedProcess[str]:
         "run",
         "--scenarios",
         "scenarios",
-        "--outputs",
-        str(outputs),
-        "--mock",
-    ]
-    return _run_cli(command)
-
-
-def run_prompt_cli(outputs: Path) -> subprocess.CompletedProcess[str]:
-    command = [
-        sys.executable,
-        "-m",
-        "whose_agent.cli",
-        "run-prompt",
-        "--prompt",
-        "Implement a CLI in Rust that counts lines in a file.",
         "--outputs",
         str(outputs),
         "--mock",

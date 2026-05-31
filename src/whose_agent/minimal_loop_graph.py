@@ -48,10 +48,9 @@ def derive_framework_specified_for_scenario(scenario: Scenario) -> bool:
     misreader skill on the instruction axis is one where the principal named a
     surface framework plus a guarantee that a misreader skill could bypass.
 
-    Arbitrary run-prompt loop support would later need actual instruction
-    reading (real framework detection from the prompt text). That is
-    intentionally out of scope here: no LLM judgment and no arbitrary prompt
-    framework detection are performed in this helper.
+    Arbitrary prompt loop support gets framework detection from a
+    PromptContract before it reaches this helper. This helper stays fixed
+    scenario-only.
     """
     return scenario.selected_skill_id is not None and scenario.expected_substituted == "instruction"
 

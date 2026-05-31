@@ -215,30 +215,17 @@ Artifacts produced per scenario:
 The hand-written thesis is fixed.
 It is not generated or rewritten by the model.
 
-## Run-Prompt Path
+## Contract-First Arbitrary Prompts
 
-The `run-prompt` path is exploratory, not benchmark-grade.
+Arbitrary prompt observability is now contract-first.
+Free prompts first go through prompt contract detection before they are used
+for loop observability.
+The legacy `run-prompt` classification path was removed because free prompts
+should not be interpreted as benchmark-like traces before their delegated
+contract is made explicit.
 
-It classifies an arbitrary prompt and emits a Mermaid flow diagram.
-
-It emits:
-
-- `.classification.json`
-- `.flow.mmd`
-
-It does not emit:
-
-- `.response.md`
-- `.trace.json`
-- `.state_trace.json`
-- `.checker.json`
-- `.checker_comparison.json`
-- `.prompt_contract.json`
-- `.loop_trace.json`
-
-Reason: free prompts do not have a scenario-grounded contract.
-Without a fixed scenario, there is no expected substitution axis, no trace template, and no checker expectation to compare against.
-Emitting benchmark-style artifacts from arbitrary prompts would misrepresent their provenance.
+The remaining arbitrary prompt commands are `detect-contract` and
+`run-prompt-loop`.
 
 ## Arbitrary Prompt Observability Boundaries
 
@@ -249,13 +236,12 @@ exploratory or experimental observability paths.
 | command | purpose | artifacts |
 |---|---|---|
 | `run` | fixed scenario benchmark | benchmark artifacts |
-| `run-prompt` | arbitrary prompt classification exploration | `.classification.json`, `.flow.mmd` |
 | `detect-contract` | arbitrary prompt contract detection | `.prompt_contract.json` |
 | `run-loop` | fixed scenario minimal loop observability | `.loop_trace.json` |
 | `run-prompt-loop` | experimental arbitrary prompt loop observability | `.prompt_contract.json`, `.loop_trace.json` |
 
-`run-prompt` is classification exploration only.
-It does not detect contracts and does not run the minimal loop.
+Free prompts first go through prompt contract detection before they are used
+for loop observability.
 
 `detect-contract` is contract detection only.
 It records whether an arbitrary prompt names a framework-level guarantee or
@@ -303,7 +289,7 @@ LangGraph minimal loop. It does not introduce a second runtime, wire
 The resulting `.loop_trace.json` uses a synthetic scenario id, `prompt_loop`.
 It is experimental loop observability for an arbitrary prompt. It is not
 scenario-grounded benchmark evaluation and does not emit benchmark trace,
-checker, response, state trace, classification, or flow artifacts.
+checker, response, state trace, classification, or other benchmark artifacts.
 `prompt_loop.loop_trace.json` is not a benchmark scenario result. There is no
 scenario YAML, no scenario-grounded checker expectation, and no emitted
 `.checker.json` or `.checker_comparison.json` artifact.
@@ -360,7 +346,6 @@ Each path owns a distinct set of artifacts.
 | path | artifacts |
 |---|---|
 | `run` (fixed) | `.classification.json`, `.response.md`, `.trace.json`, `.state_trace.json`, `.checker.json`, `.checker_comparison.json` |
-| `run-prompt` | `.classification.json`, `.flow.mmd` |
 | `run-loop` | `.loop_trace.json` |
 | `detect-contract` | `.prompt_contract.json` |
 | `run-prompt-loop` | `.prompt_contract.json`, `.loop_trace.json` |
@@ -368,7 +353,6 @@ Each path owns a distinct set of artifacts.
 Do not blur these paths.
 Each artifact has a single owning path.
 A fixed run does not emit `.loop_trace.json`.
-A `run-prompt` does not emit `.response.md` or trace artifacts.
 A `run-loop` does not emit classification or fixed benchmark artifacts.
 `detect-contract` does not emit `.loop_trace.json`.
 `run-prompt-loop` does not emit benchmark artifacts.

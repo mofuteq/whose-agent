@@ -142,15 +142,6 @@ def _make_run_args(outputs: Path) -> argparse.Namespace:
     )
 
 
-def _make_prompt_args(outputs: Path, prompt: str = "Implement a CLI in Rust.") -> argparse.Namespace:
-    return argparse.Namespace(
-        prompt=prompt,
-        outputs=str(outputs),
-        env_file="/nonexistent/.env",
-        mock=True,
-    )
-
-
 def _run_fixed_cli_subprocess(outputs: Path, extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     command = [
         sys.executable,
@@ -403,25 +394,6 @@ def test_run_command_tracer_spans_have_sanitized_input_and_output(tmp_path: Path
     assert len(classify_span.input["principal_prompt_sha256"]) == 64
 
 
-def test_run_prompt_tracer_spans_have_sanitized_input_and_output(tmp_path: Path) -> None:
-    from whose_agent.cli import run_prompt_command
-
-    tracer = SpyTracer()
-    with patch("whose_agent.cli.create_observability_tracer", return_value=tracer):
-        run_prompt_command(_make_prompt_args(tmp_path))
-
-    assert tracer.spans
-    for span in tracer.spans:
-        assert span.input is not None, span.name
-        assert span.output is not None, span.name
-        _assert_no_large_strings(span.input)
-        _assert_no_large_strings(span.output)
-
-    classify_span = next(s for s in tracer.spans if s.name == "classify_prompt")
-    assert classify_span.input["principal_prompt_length"] == len("Implement a CLI in Rust.")
-    assert len(classify_span.input["principal_prompt_sha256"]) == 64
-
-
 # ---------------------------------------------------------------------------
 # Test 7: tracer does not receive full bad_response text
 # ---------------------------------------------------------------------------
@@ -473,17 +445,6 @@ def test_tracer_flush_called_at_end_of_run_command(tmp_path: Path) -> None:
     tracer = SpyTracer()
     with patch("whose_agent.cli.create_observability_tracer", return_value=tracer):
         result = run_command(_make_run_args(tmp_path))
-
-    assert result == 0
-    assert tracer.flush_count == 1
-
-
-def test_tracer_flush_called_at_end_of_run_prompt_command(tmp_path: Path) -> None:
-    from whose_agent.cli import run_prompt_command
-
-    tracer = SpyTracer()
-    with patch("whose_agent.cli.create_observability_tracer", return_value=tracer):
-        result = run_prompt_command(_make_prompt_args(tmp_path))
 
     assert result == 0
     assert tracer.flush_count == 1
@@ -640,34 +601,6 @@ def test_run_command_metadata_includes_run_dir_name_not_path(tmp_path: Path) -> 
     run_dir_value = run_meta["run_dir"]
     assert not run_dir_value.startswith("/"), "run_dir in metadata must be a name, not an absolute path"
     assert run_dir_value == tracer.runs[0]["session_id"]
-
-
-def test_run_prompt_command_uses_run_dir_name_as_session_id(tmp_path: Path) -> None:
-    import re
-    from whose_agent.cli import run_prompt_command
-
-    tracer = SpyTracer()
-    with patch("whose_agent.cli.create_observability_tracer", return_value=tracer):
-        run_prompt_command(_make_prompt_args(tmp_path))
-
-    assert tracer.runs
-    run_record = tracer.runs[0]
-    session_id = run_record["session_id"]
-    assert session_id is not None
-    assert re.fullmatch(r"\d{8}T\d{6}Z(?:-\d{3})?", session_id), f"Unexpected session_id: {session_id!r}"
-    assert not session_id.startswith("/")
-
-
-def test_run_prompt_command_metadata_includes_run_dir_name_not_path(tmp_path: Path) -> None:
-    from whose_agent.cli import run_prompt_command
-
-    tracer = SpyTracer()
-    with patch("whose_agent.cli.create_observability_tracer", return_value=tracer):
-        run_prompt_command(_make_prompt_args(tmp_path))
-
-    run_meta = tracer.runs[0]["metadata"]
-    assert "run_dir" in run_meta
-    assert not run_meta["run_dir"].startswith("/")
 
 
 # ---------------------------------------------------------------------------

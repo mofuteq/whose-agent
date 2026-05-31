@@ -59,14 +59,6 @@ fixed scenario
 
 The hand-written thesis is fixed. It is not generated or rewritten by the model.
 
-**`run-prompt` path (exploratory):**
-
-```
-arbitrary prompt
-  -> classification
-  -> flow diagram
-```
-
 **`detect-contract` path (exploratory):**
 
 ```
@@ -92,12 +84,17 @@ Command ownership is intentionally narrow:
 | command | purpose | artifacts |
 |---|---|---|
 | `run` | fixed scenario benchmark | benchmark artifacts |
-| `run-prompt` | arbitrary prompt classification exploration | `.classification.json`, `.flow.mmd` |
 | `detect-contract` | arbitrary prompt contract detection | `.prompt_contract.json` |
 | `run-loop` | fixed scenario minimal loop observability | `.loop_trace.json` |
 | `run-prompt-loop` | experimental arbitrary prompt loop observability | `.prompt_contract.json`, `.loop_trace.json` |
 
-`run-prompt` does not detect contracts.
+Arbitrary prompt observability is now contract-first.
+Free prompts first go through prompt contract detection before they are used
+for loop observability.
+The legacy `run-prompt` classification path was removed because free prompts
+should not be interpreted as benchmark-like traces before their delegated
+contract is made explicit.
+
 `detect-contract` does not run a loop.
 `run-prompt-loop` detects a contract and runs the minimal loop.
 `run-prompt-loop` is synthetic and experimental.
@@ -139,13 +136,13 @@ uv run python -m whose_agent.cli run-loop \
 
 The `run-loop` command emits exactly one `.loop_trace.json` artifact per invocation.
 It does not emit classification, response, trace, state trace, checker,
-checker comparison, prompt contract, or flow artifacts.
-Those remain owned by the fixed, prompt classification, and prompt contract paths.
+checker comparison, or prompt contract artifacts.
+Those remain owned by the fixed and prompt contract paths.
 
 The minimal loop path can be rendered as a `<scenario_id>.loop_trace.json` artifact
 via `render_loop_trace` and `run_minimal_loop_to_artifact`.
 This artifact is a projection from `WhoseAgentState`; it is not emitted by the
-normal fixed `run` command or by `run-prompt`.
+normal fixed `run` command or by `detect-contract`.
 
 Use `run-prompt-loop` to run experimental loop observability for an arbitrary
 prompt. It first writes the detected prompt contract, then projects the contract
@@ -161,7 +158,7 @@ uv run python -m whose_agent.cli run-prompt-loop \
 This is not fixed benchmark evaluation. It emits exactly one
 `.prompt_contract.json` artifact and one `.loop_trace.json` artifact. It does
 not emit benchmark trace, checker, response, state trace, classification, or
-flow artifacts.
+other benchmark artifacts.
 
 The `prompt_loop.loop_trace.json` artifact is synthetic provenance:
 - `scenario_id` is always `prompt_loop`
@@ -198,9 +195,6 @@ Optional external checker observation for fixed scenarios that select a human-au
 **`.checker_comparison.json`**
 Expected-vs-actual checker comparison for scenarios with `checker_template`. It records whether the checker observation matched the scenario expectation and whether the boundary observation succeeded, missed, or over-detected.
 
-**`.flow.mmd`**
-Mermaid flow artifact for the `run-prompt` path. Shows the pipeline path, not hidden reasoning.
-
 **`.prompt_contract.json`**
 Exploratory prompt contract artifact for arbitrary prompts. Records whether a framework-level guarantee or boundary was specified, the detected framework or boundary, the delegated guarantee, the selected skill ID when one applies, the skill-selection reason, confidence, status, available skill IDs, and detection reason. It does not include full skill markdown or hidden tool transcripts.
 
@@ -211,7 +205,7 @@ Contains: `scenario_id`, `principal`, `agent`, `max_iterations`, `final_loop_ite
 `selected_skill_id`, `generation_used_skill`, per-step `misreader_skill_fired`),
 observation-side fields (`checker_ran`, `checker_observed_bypass`, `guarantee_bypass_observed`,
 `checker_matches_expected`, `observation_outcome`), `step_traces`, and `checker_comparison`.
-Not emitted by the fixed `run` command or `run-prompt`.
+Not emitted by the fixed `run` command or `detect-contract`.
 Emitted by `run-loop`, by experimental `run-prompt-loop`, or programmatically
 via `run_minimal_loop_to_artifact`.
 
@@ -293,33 +287,15 @@ the requested output root.
 The fixed scenario path is the benchmark path.
 It emits generated bad responses, benchmark traces, and boundary state traces.
 
-The `run-prompt` path is exploratory.
-It classifies an arbitrary prompt and emits a Mermaid flow, but it does not generate bad responses or trace artifacts.
-This avoids producing benchmark-style traces from synthetic scenarios derived from arbitrary prompts.
+Arbitrary prompt observability is now contract-first.
+Free prompts first go through prompt contract detection before they are used
+for loop observability.
+The legacy `run-prompt` classification path was removed because free prompts
+should not be interpreted as benchmark-like traces before their delegated
+contract is made explicit.
 
-`run-prompt` always emits exactly:
-- `.classification.json`
-- `.flow.mmd`
-
-`run-prompt` never emits:
-- `.response.md`
-- `.trace.json`
-- `.state_trace.json`
-- `.checker.json`
-- `.checker_comparison.json`
-- `.prompt_contract.json`
-- `.loop_trace.json`
-
-This is true whether the prompt is classified as in-scope or out-of-scope.
-Classification may use an LLM. Failure-mode mapping remains deterministic.
-In mock mode, classification is local and deterministic.
-
-```bash
-uv run python -m whose_agent.cli run-prompt \
-  --prompt "Implement a CLI in Rust that counts lines in a file." \
-  --outputs outputs \
-  --mock
-```
+The remaining arbitrary prompt commands are `detect-contract` and
+`run-prompt-loop`.
 
 ## Prompt contract detection
 
@@ -327,7 +303,7 @@ uv run python -m whose_agent.cli run-prompt \
 
 It uses Pydantic AI Agent Skills backed by the repo `skills/` directory for skill discovery and loading.
 
-It emits exactly one `.prompt_contract.json` artifact. It does not emit benchmark trace, checker, response, flow, state trace, or loop trace artifacts. When a skill perspective is selected, the selected skill ID and selection reason are recorded in the artifact.
+It emits exactly one `.prompt_contract.json` artifact. It does not emit benchmark trace, checker, response, state trace, or loop trace artifacts. When a skill perspective is selected, the selected skill ID and selection reason are recorded in the artifact.
 
 Prompt contract status values have these meanings:
 
@@ -353,8 +329,12 @@ Arbitrary prompt observability is exploratory.
 `run-prompt-loop` is experimental loop observability.
 It is not fixed benchmark evaluation.
 
-`run-prompt` is classification exploration only.
-It does not detect prompt contracts and it does not run a loop.
+Arbitrary prompt observability is now contract-first.
+Free prompts first go through prompt contract detection before they are used
+for loop observability.
+The legacy `run-prompt` classification path was removed because free prompts
+should not be interpreted as benchmark-like traces before their delegated
+contract is made explicit.
 
 `detect-contract` is contract detection only.
 It records whether a prompt names a framework-level guarantee or boundary and whether an available skill perspective applies.
@@ -371,7 +351,7 @@ It emits exactly:
 - `.loop_trace.json`
 
 It never emits benchmark trace, checker, response, state trace, classification,
-or flow artifacts. The loop trace is synthetic observability for an arbitrary
+or other benchmark artifacts. The loop trace is synthetic observability for an arbitrary
 prompt, not scenario-grounded benchmark evaluation.
 
 `prompt_loop.loop_trace.json` is not a benchmark result. There is no scenario

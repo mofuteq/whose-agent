@@ -249,43 +249,6 @@ def test_fixed_mock_run_keeps_existing_artifact_counts_plus_checker(tmp_path: Pa
     assert list(run_dir.glob("*.flow.mmd")) == []
 
 
-def test_run_prompt_does_not_emit_checker_artifact(tmp_path: Path) -> None:
-    command = [
-        sys.executable,
-        "-m",
-        "whose_agent.cli",
-        "run-prompt",
-        "--prompt",
-        "Pythonすきやねん",
-        "--outputs",
-        str(tmp_path),
-        "--mock",
-    ]
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(ROOT / "src")
-    completed = subprocess.run(
-        command,
-        cwd=ROOT,
-        env=env,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    run_dir = single_run_dir(tmp_path)
-
-    assert (
-        "Wrote 1 classification files, 0 response files, 0 trace files, "
-        "1 flow files, and 0 state trace files."
-    ) in completed.stdout
-    assert len(list(run_dir.glob("*.classification.json"))) == 1
-    assert len(list(run_dir.glob("*.flow.mmd"))) == 1
-    assert list(run_dir.glob("*.response.md")) == []
-    assert list(run_dir.glob("*.trace.json")) == []
-    assert list(run_dir.glob("*.state_trace.json")) == []
-    assert list(run_dir.glob("*.checker.json")) == []
-    assert list(run_dir.glob("*.checker_comparison.json")) == []
-
-
 def test_non_mock_checker_uses_structured_output_and_low_variance_settings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
