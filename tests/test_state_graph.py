@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from whose_agent import schemas, state_graph
 from whose_agent.scenario_loader import load_scenario
 from whose_agent.state_graph import compile_fixed_scenario_graph, initial_state_from_scenario
 
@@ -13,6 +14,16 @@ def test_fixed_scenario_graph_compiles() -> None:
     graph = compile_fixed_scenario_graph(mock=True)
 
     assert graph is not None
+
+
+def test_state_graph_uses_schema_owned_langgraph_state() -> None:
+    state_graph_source = (ROOT / "src" / "whose_agent" / "state_graph.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert state_graph.WhoseAgentState is schemas.WhoseAgentState
+    assert "from whose_agent.schemas import" in state_graph_source
+    assert "class WhoseAgentState" not in state_graph_source
 
 
 def test_graph_state_initializes_from_fixed_scenario() -> None:

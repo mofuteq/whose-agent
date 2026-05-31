@@ -1,76 +1,41 @@
+"""Run fixed scenario workflows on a LangGraph StateGraph.
+
+Schema definitions live in whose_agent.schemas; this module owns graph execution
+only. Skill-triggered drift and checker-template comparison are intentionally
+deferred.
+"""
+
 from __future__ import annotations
 
 import hashlib
 import json
-from operator import add
 from pathlib import Path
-from typing import Annotated, Any, TypedDict, cast
+from typing import Any, cast
 
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel
 
 from whose_agent.bad_response import generate_bad_response_with_usage
-from whose_agent.boundary_state.trace import BoundaryStateTrace, emit_state_trace_with_usage
+from whose_agent.boundary_state.trace import emit_state_trace_with_usage
 from whose_agent.checker import check_with_usage, load_skill_perspective
 from whose_agent.classifier import classify_scenario
 from whose_agent.llm_result import LLMCallResult
-from whose_agent.models import (
+from whose_agent.schemas import (
+    BoundaryStateTrace,
     CheckerObservation,
     Classification,
-    FailureMode,
     NextAction,
     Scenario,
     StepKind,
     StepTrace,
-    Substituted,
     Trace,
+    WhoseAgentState,
 )
 from whose_agent.trace_emitter import emit_trace_with_usage
 from whose_agent.tracing import NoopTracer
 
 
 CHECKER_ID = "skill-perspective-checker"
-
-
-class WhoseAgentState(TypedDict, total=False):
-    principal: str
-    agent: str
-    principal_instruction: str
-    principal_signal: str
-
-    scenario: Scenario
-    classification: Classification | None
-    bad_response: str | None
-    trace: Trace | None
-    state_trace: BoundaryStateTrace | None
-    checker_observation: CheckerObservation | None
-
-    step_kind: StepKind
-    step_index: int
-    next_action: NextAction | None
-    handoff_ready: bool
-    completed: bool
-
-    selected_skill_id: str | None
-    selected_skill_perspective: str | None
-    skill_triggered: bool
-    misreader_skill_fired: bool
-    trigger_evidence: Annotated[list[str], add]
-
-    checker_ran: bool
-    checker_observed_bypass: bool
-    checker_id: str | None
-    checker_confidence: str | None
-    guarantee_bypass_observed: bool
-    guarantee_bypass_evidence: Annotated[list[str], add]
-
-    substituted: Substituted | None
-    failure_mode: FailureMode | None
-    divergence_point: str | None
-    boundary_flags: Annotated[list[str], add]
-
-    step_traces: Annotated[list[StepTrace], add]
-    errors: Annotated[list[str], add]
 
 
 def initial_state_from_scenario(scenario: Scenario) -> WhoseAgentState:

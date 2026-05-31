@@ -15,7 +15,7 @@ from whose_agent.env_loader import load_env_file
 from whose_agent.flow_emitter import emit_prompt_flow
 from whose_agent.llm_classifier import PromptClassifierError, classify_prompt_with_usage
 from whose_agent.llm_result import LLMCallResult
-from whose_agent.models import Scenario
+from whose_agent.schemas import Scenario
 from whose_agent.prompt_run import build_prompt_run, mock_classify_prompt
 from whose_agent.reflection import ReflectionError
 from whose_agent.run_directory import create_run_directory

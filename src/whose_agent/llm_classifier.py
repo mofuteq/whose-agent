@@ -4,7 +4,7 @@ import os
 
 from whose_agent.bad_response import DEFAULT_MODEL
 from whose_agent.llm_result import LLMCallResult, extract_output, extract_usage_details
-from whose_agent.models import PromptClassification
+from whose_agent.schemas import PromptClassification
 from whose_agent.prompt_loader import render_template
 from whose_agent.text_normalization import normalize_llm_text
 

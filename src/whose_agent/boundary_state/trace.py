@@ -3,9 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import cast
 
-from pydantic import BaseModel, ConfigDict
-
-from whose_agent.boundary_state.state import BoundaryState
 from whose_agent.boundary_state.transitions import (
     apply_bad_response,
     apply_reflection,
@@ -14,21 +11,14 @@ from whose_agent.boundary_state.transitions import (
     update_boundary_state,
 )
 from whose_agent.llm_result import LLMCallResult
-from whose_agent.models import Classification, Reflection, Scenario, TraceSubstituted
-
-
-class BoundaryStateTransition(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    step: str
-    state: BoundaryState
-
-
-class BoundaryStateTrace(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    scenario_id: str
-    transitions: list[BoundaryStateTransition]
+from whose_agent.schemas import (
+    BoundaryStateTrace,
+    BoundaryStateTransition,
+    Classification,
+    Reflection,
+    Scenario,
+    TraceSubstituted,
+)
 
 
 @dataclass(frozen=True)

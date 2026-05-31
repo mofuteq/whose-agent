@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from hashlib import sha256
 
-from whose_agent.models import (
+from whose_agent.schemas import (
     EXPECTED_FAILURE_BY_SUBSTITUTED,
     Classification,
     ClassificationKind,

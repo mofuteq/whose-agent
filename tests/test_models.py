@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from whose_agent import models, schemas
 from whose_agent.models import Scenario
 from whose_agent.scenario_loader import load_scenario
 
@@ -34,6 +35,25 @@ def test_valid_scenario_passes_validation() -> None:
     assert scenario.failure_mode == "constraint_override"
     assert scenario.selected_skill_id is None
     assert scenario.checker_template is None
+
+
+def test_models_module_re_exports_schema_symbols() -> None:
+    models_source = (
+        Path(__file__).resolve().parents[1] / "src" / "whose_agent" / "models.py"
+    ).read_text(
+        encoding="utf-8",
+    )
+
+    assert "class " not in models_source
+    assert models.Scenario is schemas.Scenario
+    assert models.Classification is schemas.Classification
+    assert models.Trace is schemas.Trace
+    assert models.CheckerObservation is schemas.CheckerObservation
+    assert models.ControlState is schemas.ControlState
+    assert models.StepTrace is schemas.StepTrace
+    assert models.WhoseAgentState is schemas.WhoseAgentState
+    assert models.FAILURE_MODES is schemas.FAILURE_MODES
+    assert set(models.__all__) == set(schemas.__all__)
 
 
 def test_instruction_scenario_with_wrong_failure_mode_fails_validation() -> None:

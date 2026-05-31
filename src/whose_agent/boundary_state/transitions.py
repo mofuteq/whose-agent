@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import cast
 
-from whose_agent.boundary_state.state import BoundaryNextAction, BoundaryState
-from whose_agent.models import (
+from whose_agent.schemas import (
+    BoundaryNextAction,
+    BoundaryState,
     Classification,
     Reflection,
     Scenario,

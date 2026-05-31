@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import cast
 
 from whose_agent.llm_result import LLMCallResult
-from whose_agent.models import (
+from whose_agent.schemas import (
     Classification,
     Reflection,
     Scenario,

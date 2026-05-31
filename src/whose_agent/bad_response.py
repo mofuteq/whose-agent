@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 
-from whose_agent.models import Classification, Scenario, TraceSubstituted
+from whose_agent.schemas import Classification, Scenario, TraceSubstituted
 from whose_agent.llm_result import LLMCallResult, extract_output, extract_usage_details
 from whose_agent.prompt_loader import render_template
 from whose_agent.text_normalization import normalize_llm_text
