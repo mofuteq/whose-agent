@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-from whose_agent.models import Scenario
+from whose_agent.schemas import Scenario
 
 
 def load_scenario(path: Path) -> Scenario:

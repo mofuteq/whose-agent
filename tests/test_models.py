@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from whose_agent.models import Scenario
+from whose_agent.schemas import FAILURE_MODES, Scenario
 from whose_agent.scenario_loader import load_scenario
 
 
@@ -34,6 +34,13 @@ def test_valid_scenario_passes_validation() -> None:
     assert scenario.failure_mode == "constraint_override"
     assert scenario.selected_skill_id is None
     assert scenario.checker_template is None
+
+
+def test_models_module_is_removed() -> None:
+    models_path = Path(__file__).resolve().parents[1] / "src" / "whose_agent" / "models.py"
+
+    assert not models_path.exists()
+    assert "constraint_override" in FAILURE_MODES
 
 
 def test_instruction_scenario_with_wrong_failure_mode_fails_validation() -> None:

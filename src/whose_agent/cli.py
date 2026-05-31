@@ -9,20 +9,18 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from whose_agent.bad_response import BadResponseError, generate_bad_response_with_usage
-from whose_agent.boundary_state.trace import BoundaryStateTrace, emit_state_trace_with_usage
-from whose_agent.checker import CheckerError, check_with_usage
-from whose_agent.classifier import classify_scenario
+from whose_agent.bad_response import BadResponseError
+from whose_agent.checker import CheckerError
 from whose_agent.env_loader import load_env_file
 from whose_agent.flow_emitter import emit_prompt_flow
 from whose_agent.llm_classifier import PromptClassifierError, classify_prompt_with_usage
 from whose_agent.llm_result import LLMCallResult
-from whose_agent.models import CheckerObservation, Classification, Scenario, Trace
+from whose_agent.schemas import Scenario
 from whose_agent.prompt_run import build_prompt_run, mock_classify_prompt
 from whose_agent.reflection import ReflectionError
 from whose_agent.run_directory import create_run_directory
 from whose_agent.scenario_loader import load_scenarios
-from whose_agent.trace_emitter import emit_trace_with_usage
+from whose_agent.state_graph import compile_fixed_scenario_graph, initial_state_from_scenario
 from whose_agent.tracing import create_observability_tracer
 
 
@@ -92,198 +90,18 @@ def run_command(args: argparse.Namespace) -> int:
         session_id=session_id,
     )
 
-    classification_count = 0
-    response_count = 0
-    trace_count = 0
-    state_trace_count = 0
-    checker_count = 0
-
+    graph = compile_fixed_scenario_graph(run_dir=run_dir, tracer=tracer, mock=args.mock)
+    final_states = []
     for scenario in scenarios:
-        with tracer.span(
-            name="classify_scenario",
-            metadata={
-                "scenario_id": scenario.scenario_id,
-                "expected_substituted": scenario.expected_substituted,
-            },
-            input=sanitized_scenario_input(scenario),
-        ) as span:
-            classification: Classification = classify_scenario(scenario)
-            span.update(
-                output={
-                    "classification": classification.classification,
-                    "substituted": classification.substituted,
-                }
-            )
+        final_states.append(graph.invoke(initial_state_from_scenario(scenario)))
 
-        classification_count += 1
-
-        if classification.classification == "out_of_scope":
-            artifact_names = [f"{scenario.scenario_id}.classification.json"]
-            with tracer.span(
-                name="write_artifacts",
-                metadata={
-                    "scenario_id": scenario.scenario_id,
-                    "artifact_names": artifact_names,
-                },
-                input={"scenario_id": scenario.scenario_id, "artifact_names": artifact_names},
-            ) as span:
-                write_model_json(
-                    run_dir / f"{scenario.scenario_id}.classification.json", classification
-                )
-                span.update(output={"artifact_count": len(artifact_names)})
-            continue
-
-        bad_response_observation = tracer.span if args.mock else tracer.generation
-        with bad_response_observation(
-            name="generate_bad_response",
-            metadata={
-                "scenario_id": scenario.scenario_id,
-                "substituted": classification.substituted,
-                "mock": args.mock,
-            },
-            input=sanitized_scenario_input(
-                scenario,
-                classification=classification.classification,
-                substituted=classification.substituted,
-                mock=args.mock,
-            ),
-        ) as span:
-            bad_response_call = generate_bad_response_with_usage(
-                scenario,
-                classification,
-                mock=args.mock,
-            )
-            bad_response = bad_response_call.output
-            update_span_with_llm_call(
-                span,
-                output={"bad_response_length": len(bad_response)},
-                llm_call=bad_response_call,
-            )
-
-        emit_trace_observation = tracer.span if args.mock else tracer.generation
-        with emit_trace_observation(
-            name="emit_trace",
-            metadata={"scenario_id": scenario.scenario_id, "mock": args.mock},
-            input=sanitized_scenario_input(
-                scenario,
-                substituted=classification.substituted,
-                bad_response_length=len(bad_response),
-                mock=args.mock,
-            ),
-        ) as span:
-            trace_result = emit_trace_with_usage(
-                scenario,
-                classification,
-                bad_response,
-                mock=args.mock,
-            )
-            trace: Trace = trace_result.trace
-            update_span_with_llm_call(
-                span,
-                output={
-                    "substituted": trace.substituted,
-                    "failure_mode": trace.failure_mode,
-                    "reflection_substituted": trace.reflection_substituted,
-                },
-                llm_call=trace_result.reflection_call,
-            )
-
-        emit_state_trace_observation = tracer.span if args.mock else tracer.generation
-        with emit_state_trace_observation(
-            name="emit_state_trace",
-            metadata={"scenario_id": scenario.scenario_id, "mock": args.mock},
-            input=sanitized_scenario_input(
-                scenario,
-                substituted=classification.substituted,
-                bad_response_length=len(bad_response),
-                mock=args.mock,
-            ),
-        ) as span:
-            state_trace_result = emit_state_trace_with_usage(
-                scenario, classification, bad_response, mock=args.mock
-            )
-            state_trace: BoundaryStateTrace = state_trace_result.state_trace
-            if state_trace.transitions:
-                final = state_trace.transitions[-1].state
-                update_span_with_llm_call(
-                    span,
-                    output={
-                        "reflection_matches_expected": final.reflection_matches_expected,
-                        "boundary_flags": list(final.boundary_flags),
-                        "next_action": final.next_action,
-                    },
-                    llm_call=state_trace_result.reflection_call,
-                )
-
-        checker_observation: CheckerObservation | None = None
-        if scenario.selected_skill_id is not None:
-            check_observation = tracer.span if args.mock else tracer.generation
-            with check_observation(
-                name="check_artifact",
-                metadata={
-                    "scenario_id": scenario.scenario_id,
-                    "skill_id": scenario.selected_skill_id,
-                    "mock": args.mock,
-                },
-                input=sanitized_scenario_input(
-                    scenario,
-                    selected_skill_id=scenario.selected_skill_id,
-                    bad_response_length=len(bad_response),
-                    bad_response_sha256=hashlib.sha256(bad_response.encode()).hexdigest(),
-                    mock=args.mock,
-                ),
-            ) as span:
-                checker_result = check_with_usage(
-                    scenario,
-                    bad_response,
-                    mock=args.mock,
-                )
-                checker_observation = checker_result.observation
-                update_span_with_llm_call(
-                    span,
-                    output={
-                        "checker_ran": True,
-                        "skill_id": checker_observation.skill_id,
-                        "checker_observed_bypass": checker_observation.checker_observed_bypass,
-                        "confidence": checker_observation.confidence,
-                        "evidence_count": len(checker_observation.evidence),
-                        "substituted": checker_observation.substituted,
-                        "failure_mode": checker_observation.failure_mode,
-                    },
-                    llm_call=checker_result.checker_call,
-                )
-
-        artifact_names = [
-            f"{scenario.scenario_id}.classification.json",
-            f"{scenario.scenario_id}.response.md",
-            f"{scenario.scenario_id}.trace.json",
-            f"{scenario.scenario_id}.state_trace.json",
-        ]
-        if checker_observation is not None:
-            artifact_names.append(f"{scenario.scenario_id}.checker.json")
-        with tracer.span(
-            name="write_artifacts",
-            metadata={"scenario_id": scenario.scenario_id, "artifact_names": artifact_names},
-            input={"scenario_id": scenario.scenario_id, "artifact_names": artifact_names},
-        ) as span:
-            write_model_json(
-                run_dir / f"{scenario.scenario_id}.classification.json", classification
-            )
-            write_text(run_dir / f"{scenario.scenario_id}.response.md", bad_response)
-            write_model_json(run_dir / f"{scenario.scenario_id}.trace.json", trace)
-            write_model_json(run_dir / f"{scenario.scenario_id}.state_trace.json", state_trace)
-            if checker_observation is not None:
-                write_model_json(
-                    run_dir / f"{scenario.scenario_id}.checker.json",
-                    checker_observation,
-                )
-            span.update(output={"artifact_count": len(artifact_names)})
-
-        response_count += 1
-        trace_count += 1
-        state_trace_count += 1
-        if checker_observation is not None:
-            checker_count += 1
+    classification_count = sum(1 for state in final_states if state.get("classification") is not None)
+    response_count = sum(1 for state in final_states if state.get("bad_response") is not None)
+    trace_count = sum(1 for state in final_states if state.get("trace") is not None)
+    state_trace_count = sum(1 for state in final_states if state.get("state_trace") is not None)
+    checker_count = sum(
+        1 for state in final_states if state.get("checker_observation") is not None
+    )
 
     checker_file_label = "checker file" if checker_count == 1 else "checker files"
     print(f"Wrote outputs to {run_dir}")

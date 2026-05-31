@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from whose_agent.models import Classification, Scenario
+from whose_agent.schemas import Classification, Scenario
 
 
 IN_SCOPE_REASONS = {

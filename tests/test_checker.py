@@ -20,7 +20,7 @@ from whose_agent.checker import (
     load_skill_perspective,
 )
 from whose_agent.classifier import classify_scenario
-from whose_agent.models import CheckerObservation, Scenario
+from whose_agent.schemas import CheckerObservation, Scenario
 from whose_agent.prompt_loader import render_template
 from whose_agent.scenario_loader import load_scenario, load_scenarios
 

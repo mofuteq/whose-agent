@@ -1,16 +1,16 @@
 import json
 from pathlib import Path
 
-from whose_agent.models import AgentId, ControlState, NextAction, Principal, StepKind, StepTrace
+from whose_agent.schemas import AgentId, ControlState, NextAction, Principal, StepKind, StepTrace
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_no_langgraph_dependency_declared() -> None:
+def test_langgraph_dependency_declared() -> None:
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8").lower()
 
-    assert "langgraph" not in pyproject
+    assert "langgraph" in pyproject
 
 
 def test_control_state_defaults_are_deterministic() -> None:

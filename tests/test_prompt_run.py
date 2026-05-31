@@ -17,7 +17,7 @@ from whose_agent.llm_classifier import (
     classify_prompt_with_usage,
 )
 from whose_agent.flow_emitter import emit_prompt_flow
-from whose_agent.models import PromptClassification
+from whose_agent.schemas import PromptClassification
 from whose_agent.prompt_loader import render_template
 from whose_agent.prompt_run import (
     GENERATION_INSTRUCTION_BY_SUBSTITUTED,

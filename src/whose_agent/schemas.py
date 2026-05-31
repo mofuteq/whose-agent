@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Final, Literal
+from operator import add
+from typing import Annotated, Final, Literal, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -26,7 +27,21 @@ TraceFailureMode = Literal[
 ]
 Confidence = Literal["low", "medium", "high"]
 ClassificationKind = Literal["in_scope", "out_of_scope"]
+BoundaryNextAction = Literal["trace_ready", "review_reflection"]
 
+FAILURE_MODES: Final[tuple[FailureMode, ...]] = (
+    "constraint_override",
+    "unauthorized_autonomy",
+    "protective_shutdown",
+    "persona_hallucination",
+    "none",
+)
+TRACE_FAILURE_MODES: Final[tuple[TraceFailureMode, ...]] = (
+    "constraint_override",
+    "unauthorized_autonomy",
+    "protective_shutdown",
+    "persona_hallucination",
+)
 EXPECTED_FAILURE_BY_SUBSTITUTED: Final[dict[Substituted, FailureMode]] = {
     "instruction": "constraint_override",
     "authority": "unauthorized_autonomy",
@@ -229,3 +244,107 @@ class Trace(BaseModel):
     why_it_breaks_delegation: list[str]
     better_behavior: list[str]
     reflection_substituted: TraceSubstituted
+
+
+class BoundaryState(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scenario_id: str
+    principal_prompt: str
+    principal_signal: str
+    expected_substituted: TraceSubstituted
+    failure_mode: TraceFailureMode
+    bad_response: str | None = None
+    reflection_substituted: TraceSubstituted | None = None
+    reflection_matches_expected: bool | None = None
+    boundary_flags: list[TraceFailureMode] = Field(default_factory=list)
+    why_it_breaks_delegation: list[str] = Field(default_factory=list)
+    better_behavior: list[str] = Field(default_factory=list)
+    next_action: BoundaryNextAction | None = None
+
+
+class BoundaryStateTransition(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    step: str
+    state: BoundaryState
+
+
+class BoundaryStateTrace(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scenario_id: str
+    transitions: list[BoundaryStateTransition]
+
+
+class WhoseAgentState(TypedDict, total=False):
+    principal: str
+    agent: str
+    principal_instruction: str
+    principal_signal: str
+
+    scenario: Scenario
+    classification: Classification | None
+    bad_response: str | None
+    trace: Trace | None
+    state_trace: BoundaryStateTrace | None
+    checker_observation: CheckerObservation | None
+
+    step_kind: StepKind
+    step_index: int
+    next_action: NextAction | None
+    handoff_ready: bool
+    completed: bool
+
+    selected_skill_id: str | None
+    selected_skill_perspective: str | None
+    skill_triggered: bool
+    misreader_skill_fired: bool
+    trigger_evidence: Annotated[list[str], add]
+
+    checker_ran: bool
+    checker_observed_bypass: bool
+    checker_id: str | None
+    checker_confidence: str | None
+    guarantee_bypass_observed: bool
+    guarantee_bypass_evidence: Annotated[list[str], add]
+
+    substituted: Substituted | None
+    failure_mode: FailureMode | None
+    divergence_point: str | None
+    boundary_flags: Annotated[list[str], add]
+
+    step_traces: Annotated[list[StepTrace], add]
+    errors: Annotated[list[str], add]
+
+
+__all__ = [
+    "AgentId",
+    "BoundaryNextAction",
+    "BoundaryState",
+    "BoundaryStateTrace",
+    "BoundaryStateTransition",
+    "CheckerObservation",
+    "Classification",
+    "ClassificationKind",
+    "Confidence",
+    "ControlState",
+    "EXPECTED_FAILURE_BY_SUBSTITUTED",
+    "FAILURE_MODES",
+    "FailureMode",
+    "NextAction",
+    "Principal",
+    "PromptClassification",
+    "Reflection",
+    "Scenario",
+    "ScenarioCheckerTemplate",
+    "ScenarioTraceTemplate",
+    "StepKind",
+    "StepTrace",
+    "Substituted",
+    "TRACE_FAILURE_MODES",
+    "Trace",
+    "TraceFailureMode",
+    "TraceSubstituted",
+    "WhoseAgentState",
+]

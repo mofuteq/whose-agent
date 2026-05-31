@@ -22,7 +22,7 @@ from whose_agent.boundary_state.transitions import (
     initialize_boundary_state,
     update_boundary_state,
 )
-from whose_agent.models import Classification, Reflection, Scenario, ScenarioTraceTemplate
+from whose_agent.schemas import Classification, Reflection, Scenario, ScenarioTraceTemplate
 from tests.helpers import single_run_dir
 
 
