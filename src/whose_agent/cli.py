@@ -16,6 +16,11 @@ from whose_agent.flow_emitter import emit_prompt_flow
 from whose_agent.llm_classifier import PromptClassifierError, classify_prompt_with_usage
 from whose_agent.llm_result import LLMCallResult
 from whose_agent.loop_artifacts import run_minimal_loop_to_artifact
+from whose_agent.prompt_contract_artifacts import write_prompt_contract
+from whose_agent.prompt_contract_detector import (
+    PromptContractDetectorError,
+    detect_prompt_contract,
+)
 from whose_agent.schemas import Scenario
 from whose_agent.prompt_run import build_prompt_run, mock_classify_prompt
 from whose_agent.reflection import ReflectionError
@@ -246,6 +251,18 @@ def run_loop_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def detect_contract_command(args: argparse.Namespace) -> int:
+    load_env_file(Path(args.env_file))
+
+    run_dir = create_run_directory(Path(args.outputs))
+    contract = detect_prompt_contract(args.prompt, mock=args.mock)
+    write_prompt_contract(contract, run_dir)
+
+    print(f"Wrote outputs to {run_dir}")
+    print("Wrote 1 prompt contract file.")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="whose-agent")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -272,6 +289,16 @@ def build_parser() -> argparse.ArgumentParser:
     loop_parser.add_argument("--max-iterations", type=int, default=1, help="Maximum loop iterations (default: 1).")
     loop_parser.set_defaults(func=run_loop_command)
 
+    contract_parser = subparsers.add_parser(
+        "detect-contract",
+        help="Detect a prompt contract for one arbitrary principal prompt.",
+    )
+    contract_parser.add_argument("--prompt", required=True, help="Principal prompt text to inspect.")
+    contract_parser.add_argument("--outputs", required=True, help="Directory for generated output files.")
+    contract_parser.add_argument("--env-file", default=".env", help="Path to a dotenv file.")
+    contract_parser.add_argument("--mock", action="store_true", help="Use deterministic local contract detection.")
+    contract_parser.set_defaults(func=detect_contract_command)
+
     return parser
 
 
@@ -280,7 +307,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return args.func(args)
-    except (BadResponseError, CheckerError, PromptClassifierError, ReflectionError) as exc:
+    except (
+        BadResponseError,
+        CheckerError,
+        PromptClassifierError,
+        PromptContractDetectorError,
+        ReflectionError,
+    ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 

@@ -67,6 +67,15 @@ arbitrary prompt
   -> flow diagram
 ```
 
+**`detect-contract` path (exploratory):**
+
+```
+arbitrary prompt
+  -> prompt contract detection
+  -> Pydantic AI Agent Skills selection from skills/, when an available skill applies
+  -> prompt_contract.json
+```
+
 ## Minimal loop path
 
 The minimal loop path is a controlled poor-e2e fixture, not a general autonomous runtime.
@@ -140,6 +149,9 @@ Expected-vs-actual checker comparison for scenarios with `checker_template`. It 
 
 **`.flow.mmd`**
 Mermaid flow artifact for the `run-prompt` path. Shows the pipeline path, not hidden reasoning.
+
+**`.prompt_contract.json`**
+Exploratory prompt contract artifact for arbitrary prompts. Records whether a framework-level guarantee or boundary was specified, the detected framework or boundary, the delegated guarantee, the selected skill ID when one applies, the skill-selection reason, confidence, status, available skill IDs, and detection reason. It does not include full skill markdown or hidden tool transcripts.
 
 **`.loop_trace.json`**
 Loop trace artifact for the minimal loop path. Rendered from `WhoseAgentState` via `render_loop_trace`.
@@ -243,6 +255,7 @@ This avoids producing benchmark-style traces from synthetic scenarios derived fr
 - `.state_trace.json`
 - `.checker.json`
 - `.checker_comparison.json`
+- `.prompt_contract.json`
 
 This is true whether the prompt is classified as in-scope or out-of-scope.
 Classification may use an LLM. Failure-mode mapping remains deterministic.
@@ -251,6 +264,21 @@ In mock mode, classification is local and deterministic.
 ```bash
 uv run python -m whose_agent.cli run-prompt \
   --prompt "Implement a CLI in Rust that counts lines in a file." \
+  --outputs outputs \
+  --mock
+```
+
+## Prompt contract detection
+
+`detect-contract` is exploratory. It is not fixed benchmark evaluation, does not convert arbitrary prompts into benchmark scenarios, and does not run the minimal loop.
+
+It uses Pydantic AI Agent Skills backed by the repo `skills/` directory for skill discovery and loading.
+
+It emits exactly one `.prompt_contract.json` artifact. It does not emit benchmark trace, checker, response, flow, state trace, or loop trace artifacts. When a skill perspective is selected, the selected skill ID and selection reason are recorded in the artifact.
+
+```bash
+uv run python -m whose_agent.cli detect-contract \
+  --prompt "Use TypeScript with explicit models and avoid any" \
   --outputs outputs \
   --mock
 ```
