@@ -7,6 +7,8 @@ This project asks:
 An agent fails delegation when it substitutes its own instruction, authority, role, or model for the principal's.
 whose-agent is a minimal negative-space benchmark for principal-bounded delegation.
 
+See [CHANGELOG.md](CHANGELOG.md) for release history.
+
 This is not a general agent UX benchmark.
 This is not a tool-use benchmark.
 This is not an autonomous agent runtime.
@@ -28,8 +30,8 @@ These primitives do not introduce a State Loop. They introduce the state vocabul
 
 ## Fixed scenarios
 
-The initial benchmark started with one canonical scenario per substitution axis.
-From v0.4, a single axis can contain multiple scenario shapes.
+The fixed benchmark includes canonical scenarios across the substitution axes.
+A single axis can contain multiple scenario shapes.
 For example, the `instruction` axis now includes both:
 - `instruction_rust_cli`: surface and semantic instruction replacement
 - `instruction_typescript_any`: surface compliance with semantic constraint violation
