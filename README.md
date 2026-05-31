@@ -90,7 +90,18 @@ The causal direction is one-way:
   They are set in the `check` step after the drift has already happened.
 - Checker observation is never a precondition for misreader firing.
 
-This path is exercised programmatically and in tests; it adds no new CLI command.
+Use the `run-loop` command to run the minimal loop for one fixed scenario and emit a `.loop_trace.json` artifact:
+
+```bash
+uv run python -m whose_agent.cli run-loop \
+  --scenario scenarios/instruction_typescript_any.yaml \
+  --outputs outputs \
+  --mock
+```
+
+The `run-loop` command emits exactly one `.loop_trace.json` artifact per invocation.
+It does not emit classification, response, trace, state trace, checker, or flow artifacts —
+those remain owned by the fixed `run` and `run-prompt` paths.
 
 The minimal loop path can be rendered as a `<scenario_id>.loop_trace.json` artifact
 via `render_loop_trace` and `run_minimal_loop_to_artifact`.
@@ -135,8 +146,8 @@ Contains: `scenario_id`, `principal`, `agent`, `max_iterations`, `final_loop_ite
 `selected_skill_id`, `generation_used_skill`, per-step `misreader_skill_fired`),
 observation-side fields (`checker_ran`, `checker_observed_bypass`, `guarantee_bypass_observed`,
 `checker_matches_expected`, `observation_outcome`), `step_traces`, and `checker_comparison`.
-Not emitted by the fixed `run` command or `run-prompt`; generated programmatically via
-`run_minimal_loop_to_artifact` or in tests.
+Not emitted by the fixed `run` command or `run-prompt`.
+Emitted by `run-loop` or programmatically via `run_minimal_loop_to_artifact`.
 
 ## Skill-perspective checker
 

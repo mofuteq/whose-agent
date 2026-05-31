@@ -15,11 +15,12 @@ from whose_agent.env_loader import load_env_file
 from whose_agent.flow_emitter import emit_prompt_flow
 from whose_agent.llm_classifier import PromptClassifierError, classify_prompt_with_usage
 from whose_agent.llm_result import LLMCallResult
+from whose_agent.loop_artifacts import run_minimal_loop_to_artifact
 from whose_agent.schemas import Scenario
 from whose_agent.prompt_run import build_prompt_run, mock_classify_prompt
 from whose_agent.reflection import ReflectionError
 from whose_agent.run_directory import create_run_directory
-from whose_agent.scenario_loader import load_scenarios
+from whose_agent.scenario_loader import load_scenario, load_scenarios
 from whose_agent.state_graph import compile_fixed_scenario_graph, initial_state_from_scenario
 from whose_agent.tracing import create_observability_tracer
 
@@ -226,6 +227,25 @@ def run_prompt_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_loop_command(args: argparse.Namespace) -> int:
+    load_env_file(Path(args.env_file))
+
+    scenario_path = Path(args.scenario)
+    run_dir = create_run_directory(Path(args.outputs))
+
+    scenario = load_scenario(scenario_path)
+    run_minimal_loop_to_artifact(
+        scenario,
+        run_dir,
+        max_iterations=args.max_iterations,
+        mock=args.mock,
+    )
+
+    print(f"Wrote outputs to {run_dir}")
+    print("Wrote 1 loop trace file.")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="whose-agent")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -243,6 +263,15 @@ def build_parser() -> argparse.ArgumentParser:
     prompt_parser.add_argument("--env-file", default=".env", help="Path to a dotenv file for OpenRouter settings.")
     prompt_parser.add_argument("--mock", action="store_true", help="Use deterministic local classification and bad responses.")
     prompt_parser.set_defaults(func=run_prompt_command)
+
+    loop_parser = subparsers.add_parser("run-loop", help="Run the minimal loop for one scenario.")
+    loop_parser.add_argument("--scenario", required=True, help="Path to a scenario YAML file.")
+    loop_parser.add_argument("--outputs", required=True, help="Directory for generated output files.")
+    loop_parser.add_argument("--env-file", default=".env", help="Path to a dotenv file.")
+    loop_parser.add_argument("--mock", action="store_true", help="Use deterministic local mock responses.")
+    loop_parser.add_argument("--max-iterations", type=int, default=1, help="Maximum loop iterations (default: 1).")
+    loop_parser.set_defaults(func=run_loop_command)
+
     return parser
 
 
