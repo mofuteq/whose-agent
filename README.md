@@ -87,6 +87,22 @@ arbitrary prompt
   -> loop_trace.json
 ```
 
+Command ownership is intentionally narrow:
+
+| command | purpose | artifacts |
+|---|---|---|
+| `run` | fixed scenario benchmark | benchmark artifacts |
+| `run-prompt` | arbitrary prompt classification exploration | `.classification.json`, `.flow.mmd` |
+| `detect-contract` | arbitrary prompt contract detection | `.prompt_contract.json` |
+| `run-loop` | fixed scenario minimal loop observability | `.loop_trace.json` |
+| `run-prompt-loop` | experimental arbitrary prompt loop observability | `.prompt_contract.json`, `.loop_trace.json` |
+
+`run-prompt` does not detect contracts.
+`detect-contract` does not run a loop.
+`run-prompt-loop` detects a contract and runs the minimal loop.
+`run-prompt-loop` is synthetic and experimental.
+Arbitrary prompt artifacts are not scenario-grounded benchmark artifacts.
+
 ## Minimal loop path
 
 The minimal loop path is a controlled poor-e2e fixture, not a general autonomous runtime.
@@ -122,8 +138,9 @@ uv run python -m whose_agent.cli run-loop \
 ```
 
 The `run-loop` command emits exactly one `.loop_trace.json` artifact per invocation.
-It does not emit classification, response, trace, state trace, checker, or flow artifacts —
-those remain owned by the fixed `run` and `run-prompt` paths.
+It does not emit classification, response, trace, state trace, checker,
+checker comparison, prompt contract, or flow artifacts.
+Those remain owned by the fixed, prompt classification, and prompt contract paths.
 
 The minimal loop path can be rendered as a `<scenario_id>.loop_trace.json` artifact
 via `render_loop_trace` and `run_minimal_loop_to_artifact`.
@@ -145,6 +162,13 @@ This is not fixed benchmark evaluation. It emits exactly one
 `.prompt_contract.json` artifact and one `.loop_trace.json` artifact. It does
 not emit benchmark trace, checker, response, state trace, classification, or
 flow artifacts.
+
+The `prompt_loop.loop_trace.json` artifact is synthetic provenance:
+- `scenario_id` is always `prompt_loop`
+- there is no scenario YAML
+- there is no scenario-grounded checker expectation
+- `.checker.json` and `.checker_comparison.json` are not emitted
+- the loop trace is not a benchmark scenario result
 
 ## Artifacts
 
@@ -284,6 +308,7 @@ This avoids producing benchmark-style traces from synthetic scenarios derived fr
 - `.checker.json`
 - `.checker_comparison.json`
 - `.prompt_contract.json`
+- `.loop_trace.json`
 
 This is true whether the prompt is classified as in-scope or out-of-scope.
 Classification may use an LLM. Failure-mode mapping remains deterministic.
@@ -304,12 +329,36 @@ It uses Pydantic AI Agent Skills backed by the repo `skills/` directory for skil
 
 It emits exactly one `.prompt_contract.json` artifact. It does not emit benchmark trace, checker, response, flow, state trace, or loop trace artifacts. When a skill perspective is selected, the selected skill ID and selection reason are recorded in the artifact.
 
+Prompt contract status values have these meanings:
+
+| status | meaning | required fields |
+|---|---|---|
+| `contract_detected` | A framework-level guarantee or boundary was detected, and an available skill perspective applies. | `framework_specified=true`, `selected_skill_id != null`, `skill_selection_reason != null`; `candidate_framework` and `delegated_guarantee` are recorded when known. |
+| `no_contract_detected` | No framework-level guarantee or boundary was detected. | `framework_specified=false`, `selected_skill_id=null`, `skill_selection_reason=null`, `candidate_framework=null`, `delegated_guarantee=null` |
+| `unsupported` | A framework-level guarantee or boundary was detected, but no available skill perspective applies. | `framework_specified=true`, `selected_skill_id=null`, `skill_selection_reason=null` |
+
+`unsupported` is not treated as a successful contract for skill-triggered drift.
+
 ```bash
 uv run python -m whose_agent.cli detect-contract \
   --prompt "Use TypeScript with explicit models and avoid any" \
   --outputs outputs \
   --mock
 ```
+
+## Arbitrary prompt observability boundaries
+
+The fixed scenario path is the benchmark path.
+Arbitrary prompt observability is exploratory.
+`run-prompt-loop` is experimental loop observability.
+It is not fixed benchmark evaluation.
+
+`run-prompt` is classification exploration only.
+It does not detect prompt contracts and it does not run a loop.
+
+`detect-contract` is contract detection only.
+It records whether a prompt names a framework-level guarantee or boundary and whether an available skill perspective applies.
+It does not run a loop.
 
 ## Arbitrary prompt loop observability
 
@@ -324,6 +373,17 @@ It emits exactly:
 It never emits benchmark trace, checker, response, state trace, classification,
 or flow artifacts. The loop trace is synthetic observability for an arbitrary
 prompt, not scenario-grounded benchmark evaluation.
+
+`prompt_loop.loop_trace.json` is not a benchmark result. There is no scenario
+YAML, no scenario-grounded checker expectation, and no emitted `.checker.json`
+or `.checker_comparison.json` artifact.
+
+For `contract_detected`, the minimal loop may fire the misreader skill when
+`should_fire_misreader_skill(state)` returns true. For `no_contract_detected`,
+`framework_specified=false`, no skill fires, no boundary event is observed, and
+`observation_outcome=not_applicable`. For `unsupported`,
+`framework_specified=true` but `selected_skill_id=null`, so no skill-triggered
+drift is fabricated and `observation_outcome=not_applicable`.
 
 ```bash
 uv run python -m whose_agent.cli run-prompt-loop \

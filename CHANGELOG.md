@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Clarified and tested arbitrary prompt observability boundaries for `run-prompt`, `detect-contract`, and `run-prompt-loop`.
 - Added experimental `run-prompt-loop`, connecting prompt contract detection to the minimal loop and emitting `.prompt_contract.json` plus `.loop_trace.json`.
 - Added experimental prompt contract detection with Pydantic AI Agent Skills selection, emitting `.prompt_contract.json` for arbitrary prompts.
 - Extracted the minimal loop misreader trigger condition into a cause-side trigger policy helper.

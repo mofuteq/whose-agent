@@ -7,6 +7,10 @@ import sys
 from pathlib import Path
 
 from tests.helpers import single_run_dir
+from whose_agent.loop_trace_renderer import render_loop_trace
+from whose_agent.minimal_loop_graph import compile_minimal_loop_graph
+from whose_agent.prompt_loop import initial_loop_state_from_prompt_contract
+from whose_agent.schemas import CheckerComparison, CheckerObservation, PromptContract
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -106,8 +110,83 @@ def test_run_prompt_loop_negative_mock_does_not_fire_misreader(
     do_step = loop_trace["step_traces"][1]
     assert do_step["step_kind"] == "do"
     assert do_step["misreader_skill_fired"] is False
-    assert loop_trace["checker_observed_bypass"] is not True
-    assert loop_trace["observation_outcome"] != "observation_succeeded"
+    check_step = loop_trace["step_traces"][2]
+    assert check_step["checker_ran"] is False
+    assert check_step["checker_observed_bypass"] is False
+    assert loop_trace["checker_observed_bypass"] is False
+    assert loop_trace["guarantee_bypass_observed"] is False
+    assert loop_trace["observation_outcome"] == "not_applicable"
+
+
+def test_run_prompt_loop_unsupported_contract_does_not_fabricate_skill_drift() -> None:
+    contract = unsupported_contract()
+    graph = compile_minimal_loop_graph(mock=True)
+    state = graph.invoke(
+        initial_loop_state_from_prompt_contract(contract, max_iterations=1)
+    )
+
+    loop_trace = render_loop_trace(state)
+
+    assert loop_trace.scenario_id == "prompt_loop"
+    assert loop_trace.framework_specified is True
+    assert loop_trace.selected_skill_id is None
+    assert loop_trace.generation_used_skill is False
+    do_step = loop_trace.step_traces[1]
+    assert do_step.step_kind == "do"
+    assert do_step.misreader_skill_fired is False
+    check_step = loop_trace.step_traces[2]
+    assert check_step.step_kind == "check"
+    assert check_step.checker_ran is False
+    assert check_step.checker_observed_bypass is False
+    assert loop_trace.checker_observed_bypass is False
+    assert loop_trace.guarantee_bypass_observed is False
+    assert loop_trace.observation_outcome == "not_applicable"
+
+
+def test_prompt_loop_firing_ignores_preexisting_observation_side_fields() -> None:
+    contract = unsupported_contract()
+    state = initial_loop_state_from_prompt_contract(contract, max_iterations=1)
+    state.update(
+        {
+            "checker_observed_bypass": True,
+            "guarantee_bypass_observed": True,
+            "checker_matches_expected": True,
+            "observation_outcome": "observation_succeeded",
+            "checker_comparison": CheckerComparison(
+                scenario_id="prompt_loop",
+                expected_checker_observed_bypass=True,
+                actual_checker_observed_bypass=True,
+                expected_substituted="instruction",
+                actual_substituted="instruction",
+                expected_failure_mode="constraint_override",
+                actual_failure_mode="constraint_override",
+                matches_expected=True,
+                mismatch_reasons=[],
+                observation_outcome="observation_succeeded",
+            ),
+            "checker_observation": CheckerObservation(
+                scenario_id="prompt_loop",
+                skill_id="safety_framework_escape_hatch",
+                checker_observed_bypass=True,
+                substituted="instruction",
+                failure_mode="constraint_override",
+                evidence=["preexisting observation must not trigger the do step."],
+                divergence_point="preexisting observation",
+                confidence="high",
+            ),
+        }
+    )
+
+    final_state = compile_minimal_loop_graph(mock=True).invoke(state)
+    loop_trace = render_loop_trace(final_state)
+
+    do_step = loop_trace.step_traces[1]
+    assert loop_trace.framework_specified is True
+    assert loop_trace.selected_skill_id is None
+    assert do_step.step_kind == "do"
+    assert do_step.misreader_skill_fired is False
+    assert loop_trace.generation_used_skill is False
+    assert loop_trace.observation_outcome == "not_applicable"
 
 
 def test_existing_commands_keep_artifact_boundaries(tmp_path: Path) -> None:
@@ -266,3 +345,21 @@ def run_cli(command: list[str]) -> subprocess.CompletedProcess[str]:
 
 def read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def unsupported_contract() -> PromptContract:
+    return PromptContract(
+        prompt="Use a formal proof system and preserve all invariants.",
+        framework_specified=True,
+        candidate_framework="formal proof system",
+        delegated_guarantee="preserve all invariants",
+        selected_skill_id=None,
+        skill_selection_reason=None,
+        confidence="medium",
+        status="unsupported",
+        available_skill_ids=["safety_framework_escape_hatch"],
+        detection_reason=(
+            "A framework-level boundary was detected, but no available skill "
+            "perspective applies."
+        ),
+    )

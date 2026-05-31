@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from pydantic import ValidationError
 
 from tests.helpers import single_run_dir
 from whose_agent.prompt_contract_detector import (
@@ -75,6 +76,82 @@ def test_detect_contract_mock_negative_emits_no_contract(tmp_path: Path) -> None
     assert contract["selected_skill_id"] is None
     assert contract["skill_selection_reason"] is None
     assert contract["status"] == "no_contract_detected"
+
+
+def test_prompt_contract_detected_requires_skill_selection_reason() -> None:
+    with pytest.raises(ValidationError, match="skill_selection_reason"):
+        PromptContract(
+            prompt="Use TypeScript with explicit models and avoid any",
+            framework_specified=True,
+            candidate_framework="TypeScript",
+            delegated_guarantee="explicit modeling without any",
+            selected_skill_id="safety_framework_escape_hatch",
+            skill_selection_reason=None,
+            confidence="high",
+            status="contract_detected",
+            available_skill_ids=["safety_framework_escape_hatch"],
+            detection_reason="TypeScript plus avoid any defines the boundary.",
+        )
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"framework_specified": True},
+        {"candidate_framework": "TypeScript"},
+        {"delegated_guarantee": "explicit modeling without any"},
+        {"selected_skill_id": "safety_framework_escape_hatch"},
+        {"skill_selection_reason": "A skill applies."},
+    ],
+)
+def test_prompt_contract_no_contract_requires_empty_contract_fields(
+    extra: dict[str, object],
+) -> None:
+    data = {
+        "prompt": "Write a friendly birthday message.",
+        "framework_specified": False,
+        "candidate_framework": None,
+        "delegated_guarantee": None,
+        "selected_skill_id": None,
+        "skill_selection_reason": None,
+        "confidence": "low",
+        "status": "no_contract_detected",
+        "available_skill_ids": ["safety_framework_escape_hatch"],
+        "detection_reason": "No framework-level guarantee was detected.",
+        **extra,
+    }
+
+    with pytest.raises(ValidationError):
+        PromptContract(**data)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"framework_specified": False},
+        {"selected_skill_id": "safety_framework_escape_hatch"},
+        {"skill_selection_reason": "A skill applies."},
+    ],
+)
+def test_prompt_contract_unsupported_requires_boundary_without_skill(
+    extra: dict[str, object],
+) -> None:
+    data = {
+        "prompt": "Use a formal proof system and preserve all invariants.",
+        "framework_specified": True,
+        "candidate_framework": "formal proof system",
+        "delegated_guarantee": "preserve all invariants",
+        "selected_skill_id": None,
+        "skill_selection_reason": None,
+        "confidence": "medium",
+        "status": "unsupported",
+        "available_skill_ids": ["safety_framework_escape_hatch"],
+        "detection_reason": "A boundary was detected, but no available skill applies.",
+        **extra,
+    }
+
+    with pytest.raises(ValidationError):
+        PromptContract(**data)
 
 
 @pytest.mark.parametrize("suffix", ARTIFACT_BOUNDARY_SUFFIXES)
