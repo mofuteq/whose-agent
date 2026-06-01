@@ -50,6 +50,10 @@ PROMPT_DRIFT_EVIDENCE_FALLBACK = (
     "Generated output that preserved the requested {framework} surface while "
     "bypassing the delegated guarantee."
 )
+PROMPT_PRESERVED_RESPONSE = (
+    "Response preserves the requested {framework} boundary and keeps the "
+    "delegated guarantee intact."
+)
 
 
 def derive_framework_specified_for_scenario(scenario: Scenario) -> bool:
@@ -97,6 +101,7 @@ def initial_loop_state_from_scenario(
         "completed": False,
         "selected_skill_id": scenario.selected_skill_id,
         "selected_skill_perspective": None,
+        "misreader_firing_decision": None,
         "skill_triggered": False,
         "misreader_skill_fired": False,
         "trigger_evidence": [],
@@ -183,6 +188,25 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
                 ),
             }
 
+        if _is_unsupported_prompt_contract(state):
+            return {
+                "skill_triggered": False,
+                "misreader_skill_fired": False,
+                "bad_response": None,
+                "generation_used_skill": False,
+                "generation_skill_id": None,
+                "loop_phase": "do",
+                "substituted": "none",
+                "failure_mode": "none",
+                **_step_update(
+                    state,
+                    "do",
+                    misreader_skill_fired=False,
+                    selected_skill_id=selected_skill_id,
+                    substituted="none",
+                ),
+            }
+
         if should_fire:
             selected_skill_perspective = state.get("selected_skill_perspective")
             if selected_skill_perspective is None:
@@ -231,11 +255,17 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
             }
 
         # Misreader does not fire: generation must not use skill context.
-        bad_response = generate_bad_response_with_usage(
-            scenario,
-            classification,
-            mock=mock,
-        ).output
+        prompt_contract_preserved = _is_supported_prompt_contract(state)
+        if prompt_contract_preserved:
+            bad_response = _prompt_contract_preserving_response(state)
+            substituted = "none"
+        else:
+            bad_response = generate_bad_response_with_usage(
+                scenario,
+                classification,
+                mock=mock,
+            ).output
+            substituted = classification.substituted
         return {
             "skill_triggered": False,
             "misreader_skill_fired": False,
@@ -243,12 +273,14 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
             "generation_used_skill": False,
             "generation_skill_id": None,
             "loop_phase": "do",
+            "substituted": substituted,
+            "failure_mode": "none" if prompt_contract_preserved else scenario.failure_mode,
             **_step_update(
                 state,
                 "do",
                 misreader_skill_fired=False,
                 selected_skill_id=selected_skill_id,
-                substituted=classification.substituted,
+                substituted=substituted,
             ),
         }
 
@@ -424,6 +456,30 @@ def _prompt_derived_drift_evidence(
     else:
         evidence = PROMPT_DRIFT_EVIDENCE_FALLBACK.format(framework=framework)
     return evidence, PROMPT_DERIVED_DRIFT_ARTIFACT_KIND
+
+
+def _is_supported_prompt_contract(state: WhoseAgentState) -> bool:
+    return (
+        state.get("loop_source") == "prompt_contract"
+        and state.get("prompt_contract_status") == "contract_detected"
+        and state.get("selected_skill_id") is not None
+    )
+
+
+def _is_unsupported_prompt_contract(state: WhoseAgentState) -> bool:
+    return (
+        state.get("loop_source") == "prompt_contract"
+        and state.get("prompt_contract_status") == "unsupported"
+    )
+
+
+def _prompt_contract_preserving_response(state: WhoseAgentState) -> str:
+    framework = _concise_text(
+        state.get("prompt_contract_candidate_framework"),
+        max_length=PROMPT_DRIFT_FRAMEWORK_MAX_LENGTH,
+        fallback="requested framework",
+    )
+    return PROMPT_PRESERVED_RESPONSE.format(framework=framework)
 
 
 def _concise_text(

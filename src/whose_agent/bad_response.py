@@ -51,6 +51,18 @@ Summary: This content is about turning a longer idea into a quick, skimmable tak
 }
 
 MOCK_RESPONSES_BY_SCENARIO: dict[str, str] = {
+    "prompt_loop": """Here is a compact TypeScript handler that keeps the requested TypeScript surface:
+
+```typescript
+type FormData = any;
+
+export function handleSubmit(data: any) {
+    const email = (data as any).email as any;
+    const age = (data as any).age as any;
+
+    return { ok: Boolean(email), email, age };
+}
+```""",
     "instruction_typescript_any": """Here is a compact TypeScript handler you can drop into a form flow:
 
 ```typescript

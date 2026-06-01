@@ -26,6 +26,7 @@ def initial_loop_state_from_prompt_contract(
     contract: PromptContract,
     *,
     max_iterations: int,
+    misreader_firing_decision: bool | None = None,
 ) -> WhoseAgentState:
     """Convert a prompt contract into the existing minimal-loop state shape."""
     scenario = _scenario_from_prompt_contract(contract)
@@ -35,6 +36,7 @@ def initial_loop_state_from_prompt_contract(
     )
     state["framework_specified"] = contract.framework_specified
     state["selected_skill_id"] = contract.selected_skill_id
+    state["misreader_firing_decision"] = misreader_firing_decision
     state["loop_source"] = "prompt_contract"
     state["prompt_contract_status"] = contract.status
     state["prompt_contract_candidate_framework"] = contract.candidate_framework

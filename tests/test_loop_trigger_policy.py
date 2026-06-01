@@ -14,6 +14,35 @@ def test_returns_true_when_framework_specified_and_skill_set() -> None:
     assert should_fire_misreader_skill(state) is True
 
 
+def test_prompt_contract_defaults_to_non_firing_without_explicit_decision() -> None:
+    state = _state(
+        loop_source="prompt_contract",
+        framework_specified=True,
+        selected_skill_id="safety_framework_escape_hatch",
+    )
+    assert should_fire_misreader_skill(state) is False
+
+
+def test_prompt_contract_can_force_firing_with_cause_side_decision() -> None:
+    state = _state(
+        loop_source="prompt_contract",
+        framework_specified=True,
+        selected_skill_id="safety_framework_escape_hatch",
+        misreader_firing_decision=True,
+    )
+    assert should_fire_misreader_skill(state) is True
+
+
+def test_prompt_contract_can_force_non_firing_with_cause_side_decision() -> None:
+    state = _state(
+        loop_source="prompt_contract",
+        framework_specified=True,
+        selected_skill_id="safety_framework_escape_hatch",
+        misreader_firing_decision=False,
+    )
+    assert should_fire_misreader_skill(state) is False
+
+
 def test_returns_false_when_framework_not_specified() -> None:
     state = _state(framework_specified=False, selected_skill_id="safety_framework_escape_hatch")
     assert should_fire_misreader_skill(state) is False

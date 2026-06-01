@@ -30,6 +30,7 @@ ClassificationKind = Literal["in_scope", "out_of_scope"]
 BoundaryNextAction = Literal["trace_ready", "review_reflection"]
 ObservationOutcome = Literal[
     "observation_succeeded",
+    "matched_no_boundary_event",
     "checker_missed_boundary_event",
     "checker_over_detected",
     "not_applicable",
@@ -436,6 +437,7 @@ class WhoseAgentState(TypedDict, total=False):
 
     selected_skill_id: str | None
     selected_skill_perspective: str | None
+    misreader_firing_decision: bool | None
     skill_triggered: bool
     misreader_skill_fired: bool
     trigger_evidence: Annotated[list[str], add]

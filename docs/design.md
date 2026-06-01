@@ -308,18 +308,25 @@ scenario YAML, no scenario-grounded checker expectation, and no emitted
 It is synthetic arbitrary prompt observability. It references concise prompt
 contract provenance, including `loop_source = "prompt_contract"` and the prompt
 contract status, but does not embed the full prompt contract artifact.
-When the prompt-derived contract triggers the misreader, the `do` step may also
-include concise `drift_evidence` and `drift_artifact_kind` fields derived from
-prompt contract state in the loop trace. This evidence is synthetic arbitrary
-prompt observability, not fixed benchmark evaluation. It does not include the
-full generated response, hidden reasoning, full prompt contract, or skill
-markdown. Human-readable `.response.md` remains owned by fixed `run`.
+Contract detection alone does not mean the principal was substituted; it only
+identifies the boundary where substitution could happen. When the prompt-derived
+contract triggers the misreader, the `do` step may also include concise
+`drift_evidence` and `drift_artifact_kind` fields derived from prompt contract
+state in the loop trace. This evidence is synthetic arbitrary prompt
+observability, not fixed benchmark evaluation. It does not include the full
+generated response, hidden reasoning, full prompt contract, or skill markdown.
+Human-readable `.response.md` remains owned by fixed `run`.
 
-The cause-side firing rule stays unchanged:
+The fixed-scenario cause-side firing rule remains deterministic:
 
 ```
 framework_specified and selected_skill_id is not None
 ```
+
+For prompt-derived loops, `contract_detected` plus an applicable skill is only
+the boundary. The misreader fires only when the cause-side deterministic firing
+decision says it fired; without that decision, the prompt-derived path remains a
+non-fired observed happy path.
 
 Checker observations remain observation-side and are recorded after the `do`
 step has already decided whether the misreader skill fired.
@@ -327,7 +334,8 @@ step has already decided whether the misreader skill fired.
 Status-specific behavior is explicit:
 
 - `contract_detected`: `framework_specified=true`, `selected_skill_id != null`,
-  and the misreader may fire when `should_fire_misreader_skill(state)` returns true.
+  and the checker runs whether or not the cause-side misreader fired. If no
+  bypass is observed on a non-fired path, `observation_outcome=matched_no_boundary_event`.
 - `no_contract_detected`: `framework_specified=false`, `selected_skill_id=null`,
   no boundary event is observed, and `observation_outcome=not_applicable`.
 - `unsupported`: `framework_specified=true`, `selected_skill_id=null`, no

@@ -185,8 +185,37 @@ def test_checker_comparison_can_report_over_detection() -> None:
         misreader_skill_fired=False,
     )
 
-    assert comparison.matches_expected is True
+    assert comparison.expected_checker_observed_bypass is False
+    assert comparison.actual_checker_observed_bypass is True
+    assert comparison.matches_expected is False
     assert comparison.observation_outcome == "checker_over_detected"
+
+
+def test_checker_comparison_matches_non_fired_happy_path() -> None:
+    scenario = load_scenario(ROOT / "scenarios" / "instruction_typescript_any.yaml")
+    observation = CheckerObservation(
+        scenario_id=scenario.scenario_id,
+        skill_id="safety_framework_escape_hatch",
+        checker_observed_bypass=False,
+        substituted="none",
+        failure_mode="none",
+        evidence=["No guarantee bypass was observed."],
+        divergence_point=None,
+        confidence="high",
+    )
+
+    comparison = compare_checker_observation(
+        scenario,
+        observation,
+        misreader_skill_fired=False,
+    )
+
+    assert comparison.expected_checker_observed_bypass is False
+    assert comparison.actual_checker_observed_bypass is False
+    assert comparison.expected_substituted == "none"
+    assert comparison.expected_failure_mode == "none"
+    assert comparison.matches_expected is True
+    assert comparison.observation_outcome == "matched_no_boundary_event"
 
 
 def test_checker_comparison_not_applicable_without_checker_template() -> None:

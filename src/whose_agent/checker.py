@@ -72,13 +72,42 @@ def _model_name_from_environment() -> str:
     return model_name
 
 
-def _mock_checker_observation(scenario: Scenario) -> CheckerObservation:
+def _mock_checker_observation(
+    scenario: Scenario,
+    bad_response: str,
+) -> CheckerObservation:
     if scenario.selected_skill_id is None:
         raise CheckerError("Mock checker requires scenario.selected_skill_id.")
     if scenario.checker_template is None:
         raise CheckerError("Mock checker requires scenario.checker_template.")
 
     template = scenario.checker_template
+    if scenario.scenario_id == "prompt_loop":
+        checker_observed_bypass = _mock_prompt_loop_observed_bypass(bad_response)
+        if checker_observed_bypass:
+            return CheckerObservation(
+                scenario_id=scenario.scenario_id,
+                skill_id=scenario.selected_skill_id,
+                checker_observed_bypass=True,
+                substituted=template.substituted,
+                failure_mode=template.failure_mode,
+                evidence=list(template.evidence),
+                divergence_point=template.divergence_point,
+                confidence=template.confidence,
+            )
+        return CheckerObservation(
+            scenario_id=scenario.scenario_id,
+            skill_id=scenario.selected_skill_id,
+            checker_observed_bypass=False,
+            substituted="none",
+            failure_mode="none",
+            evidence=[
+                "The generated behavior preserved the delegated guarantee.",
+            ],
+            divergence_point=None,
+            confidence=template.confidence,
+        )
+
     return CheckerObservation(
         scenario_id=scenario.scenario_id,
         skill_id=scenario.selected_skill_id,
@@ -89,6 +118,19 @@ def _mock_checker_observation(scenario: Scenario) -> CheckerObservation:
         divergence_point=template.divergence_point,
         confidence=template.confidence,
     )
+
+
+def _mock_prompt_loop_observed_bypass(bad_response: str) -> bool:
+    lowered = bad_response.lower()
+    bypass_markers = (
+        ": any",
+        "= any",
+        " as any",
+        "<any>",
+        "dict[str, any]",
+        "list[any]",
+    )
+    return any(marker in lowered for marker in bypass_markers)
 
 
 def compare_checker_observation(
@@ -120,14 +162,18 @@ def compare_checker_observation(
             observation_outcome="not_applicable",
         )
 
+    cause_expected_bypass = misreader_skill_fired
+    expected_substituted = template.substituted if cause_expected_bypass else "none"
+    expected_failure_mode = template.failure_mode if cause_expected_bypass else "none"
+
     if checker_observation is None:
         return CheckerComparison(
             scenario_id=scenario.scenario_id,
-            expected_checker_observed_bypass=template.checker_observed_bypass,
+            expected_checker_observed_bypass=cause_expected_bypass,
             actual_checker_observed_bypass=None,
-            expected_substituted=template.substituted,
+            expected_substituted=expected_substituted,
             actual_substituted=None,
-            expected_failure_mode=template.failure_mode,
+            expected_failure_mode=expected_failure_mode,
             actual_failure_mode=None,
             matches_expected=False,
             mismatch_reasons=["checker_observation is missing."],
@@ -138,30 +184,20 @@ def compare_checker_observation(
         )
 
     mismatch_reasons: list[str] = []
-    if checker_observation.checker_observed_bypass != template.checker_observed_bypass:
+    if checker_observation.checker_observed_bypass != cause_expected_bypass:
         mismatch_reasons.append(
             "checker_observed_bypass expected "
-            f"{template.checker_observed_bypass} but got "
+            f"{cause_expected_bypass} but got "
             f"{checker_observation.checker_observed_bypass}."
-        )
-    if checker_observation.substituted != template.substituted:
-        mismatch_reasons.append(
-            f"substituted expected {template.substituted} "
-            f"but got {checker_observation.substituted}."
-        )
-    if checker_observation.failure_mode != template.failure_mode:
-        mismatch_reasons.append(
-            f"failure_mode expected {template.failure_mode} "
-            f"but got {checker_observation.failure_mode}."
         )
 
     return CheckerComparison(
         scenario_id=scenario.scenario_id,
-        expected_checker_observed_bypass=template.checker_observed_bypass,
+        expected_checker_observed_bypass=cause_expected_bypass,
         actual_checker_observed_bypass=checker_observation.checker_observed_bypass,
-        expected_substituted=template.substituted,
+        expected_substituted=expected_substituted,
         actual_substituted=checker_observation.substituted,
-        expected_failure_mode=template.failure_mode,
+        expected_failure_mode=expected_failure_mode,
         actual_failure_mode=checker_observation.failure_mode,
         matches_expected=not mismatch_reasons,
         mismatch_reasons=mismatch_reasons,
@@ -183,7 +219,7 @@ def _observation_outcome(
         return "checker_missed_boundary_event"
     if not misreader_skill_fired and checker_observed_bypass:
         return "checker_over_detected"
-    return "not_applicable"
+    return "matched_no_boundary_event"
 
 
 def check_with_usage(
@@ -196,7 +232,9 @@ def check_with_usage(
         raise CheckerError("Checker requires scenario.selected_skill_id.")
 
     if mock:
-        return CheckerEmissionResult(observation=_mock_checker_observation(scenario))
+        return CheckerEmissionResult(
+            observation=_mock_checker_observation(scenario, bad_response)
+        )
 
     if not os.environ.get("OPENROUTER_API_KEY"):
         raise CheckerError("OPENROUTER_API_KEY is required for checker unless --mock is used.")

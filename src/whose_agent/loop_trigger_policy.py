@@ -19,4 +19,14 @@ def should_fire_misreader_skill(state: WhoseAgentState) -> bool:
     """
     framework_specified = bool(state.get("framework_specified", False))
     selected_skill_id = state.get("selected_skill_id")
-    return framework_specified and selected_skill_id is not None
+    if not framework_specified or selected_skill_id is None:
+        return False
+
+    explicit_decision = state.get("misreader_firing_decision")
+    if explicit_decision is not None:
+        return bool(explicit_decision)
+
+    if state.get("loop_source") == "prompt_contract":
+        return False
+
+    return True
