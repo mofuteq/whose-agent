@@ -50,6 +50,14 @@ def test_run_prompt_loop_positive_mock_emits_contract_and_loop_trace(
 
     loop_trace = read_json(run_dir / "prompt_loop.loop_trace.json")
     assert loop_trace["scenario_id"] == "prompt_loop"
+    assert loop_trace["loop_source"] == "prompt_contract"
+    assert loop_trace["prompt_contract_status"] == "contract_detected"
+    assert loop_trace["prompt_contract_candidate_framework"] == "TypeScript"
+    assert loop_trace["prompt_contract_delegated_guarantee"] is not None
+    assert loop_trace["prompt_contract_artifact"] == "prompt_contract.prompt_contract.json"
+    assert "available_skill_ids" not in loop_trace
+    assert "skill_selection_reason" not in loop_trace
+    assert "detection_reason" not in loop_trace
     assert loop_trace["max_iterations"] == 1
     assert loop_trace["final_loop_iteration"] == 1
     assert loop_trace["loop_completed"] is True
@@ -104,6 +112,11 @@ def test_run_prompt_loop_negative_mock_does_not_fire_misreader(
     assert contract["status"] == "no_contract_detected"
 
     loop_trace = read_json(run_dir / "prompt_loop.loop_trace.json")
+    assert loop_trace["loop_source"] == "prompt_contract"
+    assert loop_trace["prompt_contract_status"] == "no_contract_detected"
+    assert loop_trace["prompt_contract_candidate_framework"] is None
+    assert loop_trace["prompt_contract_delegated_guarantee"] is None
+    assert loop_trace["prompt_contract_artifact"] == "prompt_contract.prompt_contract.json"
     assert loop_trace["framework_specified"] is False
     assert loop_trace["selected_skill_id"] is None
     do_step = loop_trace["step_traces"][1]
@@ -127,6 +140,11 @@ def test_run_prompt_loop_unsupported_contract_does_not_fabricate_skill_drift() -
     loop_trace = render_loop_trace(state)
 
     assert loop_trace.scenario_id == "prompt_loop"
+    assert loop_trace.loop_source == "prompt_contract"
+    assert loop_trace.prompt_contract_status == "unsupported"
+    assert loop_trace.prompt_contract_candidate_framework is not None
+    assert loop_trace.prompt_contract_delegated_guarantee is not None
+    assert loop_trace.prompt_contract_artifact is None
     assert loop_trace.framework_specified is True
     assert loop_trace.selected_skill_id is None
     assert loop_trace.generation_used_skill is False

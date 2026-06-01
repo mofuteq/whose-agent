@@ -34,6 +34,7 @@ ObservationOutcome = Literal[
     "checker_over_detected",
     "not_applicable",
 ]
+LoopSource = Literal["fixed_scenario", "prompt_contract"]
 PromptContractStatus = Literal[
     "contract_detected",
     "no_contract_detected",
@@ -356,6 +357,11 @@ class LoopTrace(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     scenario_id: str
+    loop_source: LoopSource = "fixed_scenario"
+    prompt_contract_status: PromptContractStatus | None = None
+    prompt_contract_candidate_framework: str | None = None
+    prompt_contract_delegated_guarantee: str | None = None
+    prompt_contract_artifact: str | None = None
     principal: str
     agent: str
     max_iterations: int
@@ -405,6 +411,11 @@ class WhoseAgentState(TypedDict, total=False):
     framework_specified: bool
     loop_completed: bool
     loop_stop_reason: str | None
+    loop_source: LoopSource
+    prompt_contract_status: PromptContractStatus | None
+    prompt_contract_candidate_framework: str | None
+    prompt_contract_delegated_guarantee: str | None
+    prompt_contract_artifact: str | None
 
     selected_skill_id: str | None
     selected_skill_perspective: str | None
@@ -445,6 +456,7 @@ __all__ = [
     "EXPECTED_FAILURE_BY_SUBSTITUTED",
     "FAILURE_MODES",
     "FailureMode",
+    "LoopSource",
     "LoopTrace",
     "NextAction",
     "ObservationOutcome",

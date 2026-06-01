@@ -179,6 +179,11 @@ It is not a separate runtime.
 
 `LoopTrace` is also a projection artifact.
 It is not a new runtime state object.
+Loop traces carry provenance. Fixed scenario loops use
+`loop_source = "fixed_scenario"`. Prompt-derived loops use
+`loop_source = "prompt_contract"` and record the prompt contract status.
+This makes synthetic prompt loop traces distinguishable from fixed scenario
+benchmark loops.
 
 The following are not part of the current runtime:
 
@@ -293,6 +298,9 @@ checker, response, state trace, classification, or other benchmark artifacts.
 `prompt_loop.loop_trace.json` is not a benchmark scenario result. There is no
 scenario YAML, no scenario-grounded checker expectation, and no emitted
 `.checker.json` or `.checker_comparison.json` artifact.
+It is synthetic arbitrary prompt observability. It references concise prompt
+contract provenance, including `loop_source = "prompt_contract"` and the prompt
+contract status, but does not embed the full prompt contract artifact.
 
 The cause-side firing rule stays unchanged:
 
@@ -338,6 +346,9 @@ The loop exists to demonstrate intermittent boundary drift within one task execu
 
 The `.loop_trace.json` artifact is the projection that makes the loop observable.
 Without it, the loop runs but leaves no record of whether drift occurred.
+Fixed scenario loop traces record `loop_source = "fixed_scenario"`.
+Prompt-derived loop traces record `loop_source = "prompt_contract"` and the
+prompt contract status.
 
 ## Artifact Boundaries
 

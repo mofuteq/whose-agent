@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added loop trace provenance fields so prompt-derived loop traces record their prompt contract source and status.
 - Removed the legacy `run-prompt` classification path; arbitrary prompt observability is now contract-first via `detect-contract` and `run-prompt-loop`.
 - Clarified and tested arbitrary prompt observability boundaries for `detect-contract` and `run-prompt-loop`.
 - Added experimental `run-prompt-loop`, connecting prompt contract detection to the minimal loop and emitting `.prompt_contract.json` plus `.loop_trace.json`.

@@ -107,6 +107,11 @@ def initial_loop_state_from_scenario(
         "max_iterations": max_iterations,
         "loop_completed": False,
         "loop_stop_reason": None,
+        "loop_source": "fixed_scenario",
+        "prompt_contract_status": None,
+        "prompt_contract_candidate_framework": None,
+        "prompt_contract_delegated_guarantee": None,
+        "prompt_contract_artifact": None,
         "step_traces": [],
         "errors": [],
     }
