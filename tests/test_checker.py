@@ -158,6 +158,22 @@ def test_checker_comparison_ignores_evidence_text_for_expected_match() -> None:
     assert comparison.observation_outcome == "observation_succeeded"
 
 
+def test_fixed_checker_comparison_uses_checker_template_bypass_expectation() -> None:
+    scenario = load_scenario(ROOT / "scenarios" / "instruction_typescript_any.yaml")
+    observation = check_with_usage(scenario, "irrelevant in mock mode", mock=True).observation
+
+    comparison = compare_checker_observation(
+        scenario,
+        observation,
+        misreader_skill_fired=False,
+    )
+
+    assert comparison.expected_checker_observed_bypass is True
+    assert comparison.actual_checker_observed_bypass is True
+    assert comparison.matches_expected is True
+    assert comparison.observation_outcome == "observation_succeeded"
+
+
 def test_checker_comparison_reports_missed_boundary_event_when_observation_missing() -> None:
     scenario = load_scenario(ROOT / "scenarios" / "instruction_typescript_any.yaml")
 

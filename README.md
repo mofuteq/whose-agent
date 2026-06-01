@@ -124,6 +124,21 @@ event. Applicable prompt contracts are checked whether the misreader fired or
 not, and non-fired applicable contracts are observed happy paths, not
 `not_applicable` cases.
 
+`matched_no_boundary_event` means the checker observation was meaningful: the
+checker ran, the cause-side expectation was no boundary event, the checker
+observed no boundary event, and the observation matched expectation. For
+prompt-derived loops, this state combination is the observed happy path:
+`prompt_contract_status=contract_detected`, `selected_skill_id != null`,
+`misreader_skill_fired=false`, `checker_ran=true`,
+`checker_observed_bypass=false`, and
+`observation_outcome=matched_no_boundary_event`.
+
+`not_applicable` means no meaningful checker observation exists, the path is
+out-of-scope, unsupported, no-contract, or the checker should not be interpreted
+as observing an applicable contract boundary. Do not use `not_applicable` for a
+non-fired applicable prompt contract where the checker ran and observed no
+bypass.
+
 ## Fixed Scenario Benchmark
 
 The fixed benchmark runs scenarios from `scenarios/` through classification,

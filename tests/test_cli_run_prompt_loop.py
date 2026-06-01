@@ -147,6 +147,10 @@ def test_run_prompt_loop_contract_detected_fired_path_uses_skill_and_records_dri
     assert loop_trace.checker_comparison is not None
     assert loop_trace.checker_comparison.expected_checker_observed_bypass is True
     assert loop_trace.checker_comparison.actual_checker_observed_bypass is True
+    assert loop_trace.checker_comparison.expected_substituted == "instruction"
+    assert loop_trace.checker_comparison.actual_substituted == "instruction"
+    assert loop_trace.checker_comparison.expected_failure_mode == "constraint_override"
+    assert loop_trace.checker_comparison.actual_failure_mode == "constraint_override"
     assert loop_trace.observation_outcome == "observation_succeeded"
 
 
@@ -236,6 +240,28 @@ def test_run_prompt_loop_contract_detected_non_fired_happy_path() -> None:
     assert loop_trace.checker_comparison is not None
     assert loop_trace.checker_comparison.expected_checker_observed_bypass is False
     assert loop_trace.checker_comparison.actual_checker_observed_bypass is False
+    assert loop_trace.checker_comparison.expected_substituted == "none"
+    assert loop_trace.checker_comparison.actual_substituted == "none"
+    assert loop_trace.checker_comparison.expected_failure_mode == "none"
+    assert loop_trace.checker_comparison.actual_failure_mode == "none"
+
+
+def test_prompt_loop_scenario_represents_boundary_not_unconditional_bypass() -> None:
+    contract = detected_contract(delegated_guarantee="explicit modeling without any")
+    state = initial_loop_state_from_prompt_contract(contract, max_iterations=1)
+    scenario = state["scenario"]
+
+    assert scenario.scenario_id == "prompt_loop"
+    assert scenario.selected_skill_id == "safety_framework_escape_hatch"
+    assert "prompt-derived boundary" in scenario.generation_instruction
+    assert "preserve explicit modeling without any" in scenario.generation_instruction
+    assert "bypass" not in scenario.generation_instruction.lower()
+    assert "ignored" not in scenario.generation_instruction.lower()
+    assert scenario.checker_template is not None
+    assert scenario.checker_template.checker_observed_bypass is False
+    assert scenario.checker_template.substituted == "none"
+    assert scenario.checker_template.failure_mode == "none"
+    assert scenario.checker_template.divergence_point is None
 
 
 def test_run_prompt_loop_contract_detected_non_fired_can_over_detect(
