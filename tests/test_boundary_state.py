@@ -116,19 +116,6 @@ def test_state_trace_json_remains_structurally_compatible(tmp_path: Path) -> Non
     assert final["next_action"] == "trace_ready"
 
 
-def test_out_of_scope_run_prompt_does_not_emit_state_trace(tmp_path: Path) -> None:
-    run_prompt_cli("Explain the difference between Deployment and StatefulSet.", tmp_path)
-    run_dir = single_run_dir(tmp_path)
-
-    assert list(run_dir.glob("*.state_trace.json")) == []
-    assert len(list(run_dir.glob("*.classification.json"))) == 1
-    assert len(list(run_dir.glob("*.flow.mmd"))) == 1
-    assert list(run_dir.glob("*.response.md")) == []
-    assert list(run_dir.glob("*.trace.json")) == []
-    assert list(run_dir.glob("*.checker.json")) == []
-    assert list(run_dir.glob("*.checker_comparison.json")) == []
-
-
 def test_mock_mode_does_not_require_openrouter_credentials(tmp_path: Path) -> None:
     env = {key: value for key, value in os.environ.items() if key != "OPENROUTER_API_KEY"}
     env["PYTHONPATH"] = str(ROOT / "src")
@@ -168,30 +155,6 @@ def run_fixed_cli(outputs: Path) -> subprocess.CompletedProcess[str]:
         "run",
         "--scenarios",
         "scenarios",
-        "--outputs",
-        str(outputs),
-        "--mock",
-    ]
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(ROOT / "src")
-    return subprocess.run(
-        command,
-        cwd=ROOT,
-        env=env,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-
-def run_prompt_cli(prompt: str, outputs: Path) -> subprocess.CompletedProcess[str]:
-    command = [
-        sys.executable,
-        "-m",
-        "whose_agent.cli",
-        "run-prompt",
-        "--prompt",
-        prompt,
         "--outputs",
         str(outputs),
         "--mock",

@@ -2,13 +2,14 @@
 
 ## Unreleased
 
-- Clarified and tested arbitrary prompt observability boundaries for `run-prompt`, `detect-contract`, and `run-prompt-loop`.
+- Removed the legacy `run-prompt` classification path; arbitrary prompt observability is now contract-first via `detect-contract` and `run-prompt-loop`.
+- Clarified and tested arbitrary prompt observability boundaries for `detect-contract` and `run-prompt-loop`.
 - Added experimental `run-prompt-loop`, connecting prompt contract detection to the minimal loop and emitting `.prompt_contract.json` plus `.loop_trace.json`.
 - Added experimental prompt contract detection with Pydantic AI Agent Skills selection, emitting `.prompt_contract.json` for arbitrary prompts.
 - Extracted the minimal loop misreader trigger condition into a cause-side trigger policy helper.
 - Added docs/design.md to document the design principles behind principal substitution, hidden divergence, skill perspectives, LangGraph state, and loop trace observability.
-- Added `run-loop` CLI command: runs the minimal plan→do→check loop for one fixed scenario and emits a `<scenario_id>.loop_trace.json` artifact under a timestamped run directory. The fixed `run` and `run-prompt` commands remain unchanged and do not emit `.loop_trace.json`.
-- Added loop trace artifact support: minimal loop execution can now be rendered to a `<scenario_id>.loop_trace.json` artifact via `render_loop_trace` and `run_minimal_loop_to_artifact`. The artifact is a projection from `WhoseAgentState` and is not emitted by the normal fixed `run` command or `run-prompt`.
+- Added `run-loop` CLI command: runs the minimal plan→do→check loop for one fixed scenario and emits a `<scenario_id>.loop_trace.json` artifact under a timestamped run directory. The fixed `run` command does not emit `.loop_trace.json`.
+- Added loop trace artifact support: minimal loop execution can now be rendered to a `<scenario_id>.loop_trace.json` artifact via `render_loop_trace` and `run_minimal_loop_to_artifact`. The artifact is a projection from `WhoseAgentState` and is not emitted by the normal fixed `run` command.
 - Added `instruction_pydantic_any`, a second `safety_framework_escape_hatch` scenario that demonstrates surface framework compliance plus semantic guarantee bypass in Pydantic rather than TypeScript.
 - Reused the existing `safety_framework_escape_hatch` skill perspective to show the failure pattern generalizes beyond TypeScript.
 - Added a minimal LangGraph plan -> do -> check loop path that demonstrates intermittent boundary drift within one task execution.

@@ -222,27 +222,6 @@ def test_fixed_run_still_does_not_emit_loop_trace(tmp_path: Path) -> None:
     assert list(run_dirs[0].glob("*.loop_trace.json")) == []
 
 
-def test_run_prompt_still_does_not_emit_loop_trace(tmp_path: Path) -> None:
-    command = [
-        sys.executable,
-        "-m",
-        "whose_agent.cli",
-        "run-prompt",
-        "--prompt",
-        "Implement a CLI in Rust that counts lines in a file.",
-        "--outputs",
-        str(tmp_path),
-        "--mock",
-    ]
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(ROOT / "src")
-    result = subprocess.run(command, cwd=ROOT, env=env, check=True, capture_output=True, text=True)
-    assert result.returncode == 0
-    run_dirs = [d for d in tmp_path.iterdir() if d.is_dir()]
-    assert len(run_dirs) == 1
-    assert list(run_dirs[0].glob("*.loop_trace.json")) == []
-
-
 # --- Invariants ---
 
 

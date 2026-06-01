@@ -381,42 +381,6 @@ def test_render_loop_trace_is_pure_does_not_mutate_state() -> None:
     assert state["step_traces"] == original_traces
 
 
-def test_run_prompt_does_not_emit_loop_trace(tmp_path: Path) -> None:
-    import os
-    import subprocess
-    import sys
-
-    command = [
-        sys.executable,
-        "-m",
-        "whose_agent.cli",
-        "run-prompt",
-        "--prompt",
-        "Implement a CLI in Rust that counts lines in a file.",
-        "--outputs",
-        str(tmp_path),
-        "--mock",
-    ]
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(ROOT / "src")
-    result = subprocess.run(
-        command,
-        cwd=ROOT,
-        env=env,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0
-
-    run_dirs = [d for d in tmp_path.iterdir() if d.is_dir()]
-    assert len(run_dirs) == 1
-    run_dir = run_dirs[0]
-
-    loop_trace_files = list(run_dir.glob("*.loop_trace.json"))
-    assert loop_trace_files == [], "run-prompt must not emit .loop_trace.json"
-
-
 def test_fixed_run_does_not_emit_loop_trace(tmp_path: Path) -> None:
     import os
     import subprocess

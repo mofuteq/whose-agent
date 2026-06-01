@@ -67,57 +67,72 @@ jobs:
             exit 1
           fi
 
-      - name: Run deterministic prompt mock CLI
+      - name: Run deterministic arbitrary prompt mock CLIs
         shell: bash
         run: |
-          uv run python -m whose_agent.cli run-prompt \
-            --prompt "Implement a CLI in Rust that counts lines in a file." \
-            --outputs prompt-outputs \
+          uv run python -m whose_agent.cli detect-contract \
+            --prompt "Use TypeScript with explicit models and avoid any" \
+            --outputs contract-outputs \
             --mock
 
-          uv run python -m whose_agent.cli run-prompt \
-            --prompt "Explain the difference between Deployment and StatefulSet." \
-            --outputs prompt-outputs \
+          uv run python -m whose_agent.cli run-prompt-loop \
+            --prompt "Use TypeScript with explicit models and avoid any" \
+            --outputs prompt-loop-outputs \
             --mock
 
-      - name: Verify generated prompt output counts
+      - name: Verify generated arbitrary prompt output counts
         shell: bash
         run: |
-          run_dir_count="$(find prompt-outputs -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
-          classification_count="$(find prompt-outputs -mindepth 2 -name '*.classification.json' | wc -l | tr -d ' ')"
-          response_count="$(find prompt-outputs -mindepth 2 -name '*.response.md' | wc -l | tr -d ' ')"
-          trace_count="$(find prompt-outputs -mindepth 2 -name '*.trace.json' | wc -l | tr -d ' ')"
-          flow_count="$(find prompt-outputs -mindepth 2 -name '*.flow.mmd' | wc -l | tr -d ' ')"
+          contract_run_dir_count="$(find contract-outputs -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
+          prompt_loop_run_dir_count="$(find prompt-loop-outputs -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
+          contract_prompt_contract_count="$(find contract-outputs -mindepth 2 -name '*.prompt_contract.json' | wc -l | tr -d ' ')"
+          prompt_loop_prompt_contract_count="$(find prompt-loop-outputs -mindepth 2 -name '*.prompt_contract.json' | wc -l | tr -d ' ')"
+          prompt_loop_trace_count="$(find prompt-loop-outputs -mindepth 2 -name '*.loop_trace.json' | wc -l | tr -d ' ')"
+          benchmark_artifact_count="$(
+            find contract-outputs prompt-loop-outputs -mindepth 2 \
+              \( -name '*.classification.json' \
+                -o -name '*.response.md' \
+                -o -name '*.trace.json' \
+                -o -name '*.state_trace.json' \
+                -o -name '*.checker.json' \
+                -o -name '*.checker_comparison.json' \) \
+              | wc -l | tr -d ' '
+          )"
 
-          if [[ "$run_dir_count" != "2" ]]; then
-            echo "Expected 2 prompt run directories, got $run_dir_count"
+          if [[ "$contract_run_dir_count" != "1" ]]; then
+            echo "Expected 1 detect-contract run directory, got $contract_run_dir_count"
             exit 1
           fi
 
-          if [[ "$classification_count" != "2" ]]; then
-            echo "Expected 2 prompt classification files, got $classification_count"
+          if [[ "$prompt_loop_run_dir_count" != "1" ]]; then
+            echo "Expected 1 run-prompt-loop run directory, got $prompt_loop_run_dir_count"
             exit 1
           fi
 
-          if [[ "$response_count" != "0" ]]; then
-            echo "Expected 0 prompt response files, got $response_count"
+          if [[ "$contract_prompt_contract_count" != "1" ]]; then
+            echo "Expected 1 detect-contract prompt contract file, got $contract_prompt_contract_count"
             exit 1
           fi
 
-          if [[ "$trace_count" != "0" ]]; then
-            echo "Expected 0 prompt trace files, got $trace_count"
+          if [[ "$prompt_loop_prompt_contract_count" != "1" ]]; then
+            echo "Expected 1 run-prompt-loop prompt contract file, got $prompt_loop_prompt_contract_count"
             exit 1
           fi
 
-          if [[ "$flow_count" != "2" ]]; then
-            echo "Expected 2 prompt flow files, got $flow_count"
+          if [[ "$prompt_loop_trace_count" != "1" ]]; then
+            echo "Expected 1 run-prompt-loop loop trace file, got $prompt_loop_trace_count"
+            exit 1
+          fi
+
+          if [[ "$benchmark_artifact_count" != "0" ]]; then
+            echo "Expected 0 arbitrary prompt benchmark artifacts, got $benchmark_artifact_count"
             exit 1
           fi
 
       - name: Verify generated outputs are untracked
         shell: bash
         run: |
-          tracked_outputs="$(git ls-files outputs prompt-outputs | grep -E '\.(classification\.json|response\.md|trace\.json|flow\.mmd)$' || true)"
+          tracked_outputs="$(git ls-files outputs contract-outputs prompt-loop-outputs | grep -E '\.(classification|prompt_contract|loop_trace|trace|state_trace|checker|checker_comparison)\.json$|\.response\.md$' || true)"
           if [[ -n "$tracked_outputs" ]]; then
             echo "Generated outputs are tracked:"
             echo "$tracked_outputs"

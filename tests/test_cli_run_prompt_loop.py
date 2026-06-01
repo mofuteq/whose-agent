@@ -23,7 +23,6 @@ BENCHMARK_ARTIFACT_SUFFIXES = [
     ".state_trace.json",
     ".checker.json",
     ".checker_comparison.json",
-    ".flow.mmd",
 ]
 
 
@@ -191,19 +190,15 @@ def test_prompt_loop_firing_ignores_preexisting_observation_side_fields() -> Non
 
 def test_existing_commands_keep_artifact_boundaries(tmp_path: Path) -> None:
     fixed_outputs = tmp_path / "fixed"
-    prompt_outputs = tmp_path / "prompt"
     loop_outputs = tmp_path / "loop"
     contract_outputs = tmp_path / "contract"
 
     run_fixed_cli(fixed_outputs)
-    run_prompt_cli(prompt_outputs)
     run_loop_cli(loop_outputs)
     run_detect_contract_cli(contract_outputs)
 
     assert list(single_run_dir(fixed_outputs).glob("*.prompt_contract.json")) == []
     assert list(single_run_dir(fixed_outputs).glob("*.loop_trace.json")) == []
-    assert list(single_run_dir(prompt_outputs).glob("*.prompt_contract.json")) == []
-    assert list(single_run_dir(prompt_outputs).glob("*.loop_trace.json")) == []
     assert list(single_run_dir(loop_outputs).glob("*.prompt_contract.json")) == []
     assert list(single_run_dir(contract_outputs).glob("*.loop_trace.json")) == []
 
@@ -275,22 +270,6 @@ def run_fixed_cli(outputs: Path) -> subprocess.CompletedProcess[str]:
             "run",
             "--scenarios",
             "scenarios",
-            "--outputs",
-            str(outputs),
-            "--mock",
-        ]
-    )
-
-
-def run_prompt_cli(outputs: Path) -> subprocess.CompletedProcess[str]:
-    return run_cli(
-        [
-            sys.executable,
-            "-m",
-            "whose_agent.cli",
-            "run-prompt",
-            "--prompt",
-            "Implement a CLI in Rust that counts lines in a file.",
             "--outputs",
             str(outputs),
             "--mock",
