@@ -169,6 +169,10 @@ trace, state trace, checker, or checker comparison artifacts.
 Prompt-derived loop traces carry provenance, including
 `loop_source = "prompt_contract"`, the prompt contract status, and the prompt
 contract artifact name. They do not embed the full prompt contract artifact.
+When a prompt-derived contract triggers the misreader step, the `do` step can
+also carry concise `drift_evidence` inside `.loop_trace.json`. This is synthetic
+arbitrary prompt observability, not fixed benchmark evaluation, and it does not
+emit a human-readable `.response.md`.
 
 ## Minimal Loop Observability
 
@@ -202,7 +206,9 @@ fields null.
 The resulting `prompt_loop.loop_trace.json` artifact is synthetic arbitrary
 prompt observability, not a benchmark scenario result. There is no scenario
 YAML, no scenario-grounded checker expectation, and no emitted `.checker.json`
-or `.checker_comparison.json` artifact.
+or `.checker_comparison.json` artifact. Prompt-derived poor-e2e evidence stays
+inside the loop trace; human-readable `.response.md` remains owned by the fixed
+`run` benchmark path.
 
 ## Core Design Rules
 

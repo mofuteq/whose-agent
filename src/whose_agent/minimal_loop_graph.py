@@ -39,6 +39,15 @@ from whose_agent.schemas import (
 
 
 CHECKER_ID = "skill-perspective-checker"
+PROMPT_DERIVED_DRIFT_ARTIFACT_KIND = "prompt_derived_poor_e2e"
+PROMPT_DERIVED_DRIFT_EVIDENCE = (
+    "Generated TypeScript-shaped output that preserves the surface framework while "
+    "bypassing the delegated type-safety guarantee with unsafe typing."
+)
+GENERIC_PROMPT_DERIVED_DRIFT_EVIDENCE = (
+    "Generated {framework}-shaped output that preserves the surface framework while "
+    "bypassing the delegated safety-framework guarantee."
+)
 
 
 def derive_framework_specified_for_scenario(scenario: Scenario) -> bool:
@@ -175,7 +184,9 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
         if should_fire:
             selected_skill_perspective = state.get("selected_skill_perspective")
             if selected_skill_perspective is None:
-                selected_skill_perspective = load_skill_perspective(cast(str, selected_skill_id))
+                selected_skill_perspective = load_skill_perspective(
+                    cast(str, selected_skill_id)
+                )
             trigger_evidence = [
                 f"framework_specified with selected skill {selected_skill_id!r} on the do "
                 "step; the misreader skill fires and the artifact drifts past the guarantee."
@@ -189,6 +200,7 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
                 mock=mock,
             ).output
             generation_used_skill = selected_skill_perspective is not None
+            drift_evidence, drift_artifact_kind = _prompt_derived_drift_evidence(state)
             return {
                 "selected_skill_perspective": selected_skill_perspective,
                 "skill_triggered": True,
@@ -196,14 +208,22 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
                 "trigger_evidence": trigger_evidence,
                 "bad_response": bad_response,
                 "generation_used_skill": generation_used_skill,
-                "generation_skill_id": selected_skill_id if generation_used_skill else None,
+                "generation_skill_id": (
+                    selected_skill_id if generation_used_skill else None
+                ),
                 "loop_phase": "do",
                 **_step_update(
                     state,
                     "do",
                     misreader_skill_fired=True,
                     selected_skill_id=selected_skill_id,
+                    generation_used_skill=generation_used_skill,
+                    generation_skill_id=(
+                        selected_skill_id if generation_used_skill else None
+                    ),
                     trigger_evidence=trigger_evidence,
+                    drift_evidence=drift_evidence,
+                    drift_artifact_kind=drift_artifact_kind,
                     substituted=classification.substituted,
                 ),
             }
@@ -331,6 +351,10 @@ def _step_update(
     trigger_evidence: list[str] | None = None,
     checker_ran: bool = False,
     checker_observed_bypass: bool = False,
+    generation_used_skill: bool = False,
+    generation_skill_id: str | None = None,
+    drift_evidence: str | None = None,
+    drift_artifact_kind: str | None = None,
     substituted: str | None = None,
 ) -> WhoseAgentState:
     step_index = int(state.get("step_index", 0))
@@ -341,9 +365,13 @@ def _step_update(
         agent=state.get("agent", "assistant"),
         misreader_skill_fired=misreader_skill_fired,
         selected_skill_id=selected_skill_id,
+        generation_used_skill=generation_used_skill,
+        generation_skill_id=generation_skill_id,
         checker_ran=checker_ran,
         checker_observed_bypass=checker_observed_bypass,
         trigger_evidence=list(trigger_evidence or []),
+        drift_evidence=drift_evidence,
+        drift_artifact_kind=drift_artifact_kind,
         substituted=_step_substituted(substituted),
         boundary_flags=[],
         divergence_point=None,
@@ -367,6 +395,33 @@ def _classification(state: WhoseAgentState) -> Classification:
     if classification is None:
         raise ValueError("WhoseAgentState requires classification.")
     return classification
+
+
+def _prompt_derived_drift_evidence(
+    state: WhoseAgentState,
+) -> tuple[str | None, str | None]:
+    if state.get("loop_source") != "prompt_contract":
+        return None, None
+    if state.get("prompt_contract_status") != "contract_detected":
+        return None, None
+    framework = _concise_framework_label(
+        state.get("prompt_contract_candidate_framework")
+    )
+    if framework == "TypeScript":
+        return PROMPT_DERIVED_DRIFT_EVIDENCE, PROMPT_DERIVED_DRIFT_ARTIFACT_KIND
+    return (
+        GENERIC_PROMPT_DERIVED_DRIFT_EVIDENCE.format(framework=framework),
+        PROMPT_DERIVED_DRIFT_ARTIFACT_KIND,
+    )
+
+
+def _concise_framework_label(value: object) -> str:
+    if not isinstance(value, str):
+        return "requested framework"
+    framework = value.strip()
+    if not framework or len(framework) > 60:
+        return "requested framework"
+    return framework
 
 
 def _step_substituted(value: str | None) -> str | None:

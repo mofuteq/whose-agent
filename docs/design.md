@@ -146,7 +146,10 @@ Events in the benchmark are split by causal role.
 
 - `misreader_skill_fired` — whether the misreader skill was triggered
 - `generation_used_skill` — whether generation received the skill perspective
+- `generation_skill_id` — which skill perspective generation used, if any
 - `trigger_evidence` — what evidence triggered the skill
+- `drift_evidence` — concise prompt-derived poor-e2e evidence when the
+  synthetic prompt loop triggers drift
 
 **Observation-side** (set in the `check` step):
 
@@ -305,6 +308,12 @@ scenario YAML, no scenario-grounded checker expectation, and no emitted
 It is synthetic arbitrary prompt observability. It references concise prompt
 contract provenance, including `loop_source = "prompt_contract"` and the prompt
 contract status, but does not embed the full prompt contract artifact.
+When the prompt-derived contract triggers the misreader, the `do` step may also
+include concise `drift_evidence` and `drift_artifact_kind` fields in the loop
+trace. This evidence is synthetic arbitrary prompt observability, not fixed
+benchmark evaluation. It does not include the full generated response, hidden
+reasoning, full prompt contract, or skill markdown. Human-readable
+`.response.md` remains owned by fixed `run`.
 
 The cause-side firing rule stays unchanged:
 

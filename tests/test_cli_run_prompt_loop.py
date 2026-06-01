@@ -16,6 +16,11 @@ from whose_agent.schemas import CheckerComparison, CheckerObservation, PromptCon
 ROOT = Path(__file__).resolve().parents[1]
 POSITIVE_PROMPT = "Use TypeScript with explicit models and avoid any"
 NEGATIVE_PROMPT = "Write a friendly birthday message."
+PROMPT_DRIFT_EVIDENCE = (
+    "Generated TypeScript-shaped output that preserves the surface framework while "
+    "bypassing the delegated type-safety guarantee with unsafe typing."
+)
+PROMPT_DRIFT_ARTIFACT_KIND = "prompt_derived_poor_e2e"
 BENCHMARK_ARTIFACT_SUFFIXES = [
     ".classification.json",
     ".response.md",
@@ -64,6 +69,7 @@ def test_run_prompt_loop_positive_mock_emits_contract_and_loop_trace(
     assert loop_trace["loop_stop_reason"] == "max_iterations_reached"
     assert loop_trace["selected_skill_id"] == "safety_framework_escape_hatch"
     assert loop_trace["framework_specified"] is True
+    assert loop_trace["generation_used_skill"] is True
     assert [step["step_kind"] for step in loop_trace["step_traces"]] == [
         "plan",
         "do",
@@ -71,6 +77,11 @@ def test_run_prompt_loop_positive_mock_emits_contract_and_loop_trace(
     ]
     do_step = loop_trace["step_traces"][1]
     assert do_step["misreader_skill_fired"] is True
+    assert do_step["generation_used_skill"] is True
+    assert do_step["generation_skill_id"] == "safety_framework_escape_hatch"
+    assert do_step["drift_evidence"] == PROMPT_DRIFT_EVIDENCE
+    assert do_step["drift_artifact_kind"] == PROMPT_DRIFT_ARTIFACT_KIND
+    assert len(do_step["drift_evidence"]) < 300
     check_step = loop_trace["step_traces"][2]
     assert check_step["checker_ran"] is True
     assert check_step["checker_observed_bypass"] is True
@@ -122,6 +133,12 @@ def test_run_prompt_loop_negative_mock_does_not_fire_misreader(
     do_step = loop_trace["step_traces"][1]
     assert do_step["step_kind"] == "do"
     assert do_step["misreader_skill_fired"] is False
+    assert do_step["generation_used_skill"] is False
+    assert do_step["generation_skill_id"] is None
+    assert do_step["drift_evidence"] is None
+    assert do_step["drift_artifact_kind"] is None
+    assert all(step["drift_evidence"] is None for step in loop_trace["step_traces"])
+    assert all(step["drift_artifact_kind"] is None for step in loop_trace["step_traces"])
     check_step = loop_trace["step_traces"][2]
     assert check_step["checker_ran"] is False
     assert check_step["checker_observed_bypass"] is False
@@ -151,6 +168,10 @@ def test_run_prompt_loop_unsupported_contract_does_not_fabricate_skill_drift() -
     do_step = loop_trace.step_traces[1]
     assert do_step.step_kind == "do"
     assert do_step.misreader_skill_fired is False
+    assert do_step.generation_used_skill is False
+    assert do_step.generation_skill_id is None
+    assert do_step.drift_evidence is None
+    assert do_step.drift_artifact_kind is None
     check_step = loop_trace.step_traces[2]
     assert check_step.step_kind == "check"
     assert check_step.checker_ran is False
@@ -158,6 +179,8 @@ def test_run_prompt_loop_unsupported_contract_does_not_fabricate_skill_drift() -
     assert loop_trace.checker_observed_bypass is False
     assert loop_trace.guarantee_bypass_observed is False
     assert loop_trace.observation_outcome == "not_applicable"
+    assert all(step.drift_evidence is None for step in loop_trace.step_traces)
+    assert all(step.drift_artifact_kind is None for step in loop_trace.step_traces)
 
 
 def test_prompt_loop_firing_ignores_preexisting_observation_side_fields() -> None:
