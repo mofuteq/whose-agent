@@ -91,10 +91,16 @@ def _mock_checker_observation(
                 scenario_id=scenario.scenario_id,
                 skill_id=scenario.selected_skill_id,
                 checker_observed_bypass=True,
-                substituted=template.substituted,
-                failure_mode=template.failure_mode,
-                evidence=list(template.evidence),
-                divergence_point=template.divergence_point,
+                substituted=scenario.expected_substituted,
+                failure_mode=scenario.failure_mode,
+                evidence=[
+                    "The controlled prompt loop observed weak framework "
+                    "surface compliance while the delegated guarantee was bypassed.",
+                ],
+                divergence_point=(
+                    "The generated artifact diverges when it treats framework "
+                    "surface markers as enough while bypassing the delegated guarantee."
+                ),
                 confidence=template.confidence,
             )
         return CheckerObservation(
@@ -165,18 +171,23 @@ def compare_checker_observation(
             observation_outcome="not_applicable",
         )
 
-    cause_expected_bypass = misreader_skill_fired
     if comparison_mode == "fixed_benchmark":
+        expected_checker_observed_bypass = template.checker_observed_bypass
         expected_substituted = template.substituted
         expected_failure_mode = template.failure_mode
     else:
-        expected_substituted = template.substituted if cause_expected_bypass else "none"
-        expected_failure_mode = template.failure_mode if cause_expected_bypass else "none"
+        expected_checker_observed_bypass = misreader_skill_fired
+        expected_substituted = (
+            scenario.expected_substituted if expected_checker_observed_bypass else "none"
+        )
+        expected_failure_mode = (
+            scenario.failure_mode if expected_checker_observed_bypass else "none"
+        )
 
     if checker_observation is None:
         return CheckerComparison(
             scenario_id=scenario.scenario_id,
-            expected_checker_observed_bypass=cause_expected_bypass,
+            expected_checker_observed_bypass=expected_checker_observed_bypass,
             actual_checker_observed_bypass=None,
             expected_substituted=expected_substituted,
             actual_substituted=None,
@@ -185,16 +196,16 @@ def compare_checker_observation(
             matches_expected=False,
             mismatch_reasons=["checker_observation is missing."],
             observation_outcome=_observation_outcome(
-                misreader_skill_fired=misreader_skill_fired,
+                expected_boundary_event=expected_checker_observed_bypass,
                 checker_observed_bypass=False,
             ),
         )
 
     mismatch_reasons: list[str] = []
-    if checker_observation.checker_observed_bypass != cause_expected_bypass:
+    if checker_observation.checker_observed_bypass != expected_checker_observed_bypass:
         mismatch_reasons.append(
             "checker_observed_bypass expected "
-            f"{cause_expected_bypass} but got "
+            f"{expected_checker_observed_bypass} but got "
             f"{checker_observation.checker_observed_bypass}."
         )
     if comparison_mode == "fixed_benchmark":
@@ -211,7 +222,7 @@ def compare_checker_observation(
 
     return CheckerComparison(
         scenario_id=scenario.scenario_id,
-        expected_checker_observed_bypass=cause_expected_bypass,
+        expected_checker_observed_bypass=expected_checker_observed_bypass,
         actual_checker_observed_bypass=checker_observation.checker_observed_bypass,
         expected_substituted=expected_substituted,
         actual_substituted=checker_observation.substituted,
@@ -220,7 +231,7 @@ def compare_checker_observation(
         matches_expected=not mismatch_reasons,
         mismatch_reasons=mismatch_reasons,
         observation_outcome=_observation_outcome(
-            misreader_skill_fired=misreader_skill_fired,
+            expected_boundary_event=expected_checker_observed_bypass,
             checker_observed_bypass=checker_observation.checker_observed_bypass,
         ),
     )
@@ -228,14 +239,14 @@ def compare_checker_observation(
 
 def _observation_outcome(
     *,
-    misreader_skill_fired: bool,
+    expected_boundary_event: bool,
     checker_observed_bypass: bool,
 ) -> ObservationOutcome:
-    if misreader_skill_fired and checker_observed_bypass:
+    if expected_boundary_event and checker_observed_bypass:
         return "observation_succeeded"
-    if misreader_skill_fired and not checker_observed_bypass:
+    if expected_boundary_event and not checker_observed_bypass:
         return "checker_missed_boundary_event"
-    if not misreader_skill_fired and checker_observed_bypass:
+    if not expected_boundary_event and checker_observed_bypass:
         return "checker_over_detected"
     return "matched_no_boundary_event"
 

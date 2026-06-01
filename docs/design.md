@@ -348,10 +348,31 @@ Status-specific behavior is explicit:
   and the checker runs whether or not the cause-side misreader fired. If no
   bypass is observed on a non-fired path, `observation_outcome=matched_no_boundary_event`.
 - `no_contract_detected`: `framework_specified=false`, `selected_skill_id=null`,
-  no boundary event is observed, and `observation_outcome=not_applicable`.
-- `unsupported`: `framework_specified=true`, `selected_skill_id=null`, no
-  skill-triggered drift occurs, no checker bypass is observed, and
+  no meaningful prompt-contract observation target exists, and
   `observation_outcome=not_applicable`.
+- `unsupported`: `framework_specified=true`, `selected_skill_id=null`, no
+  skill-triggered drift occurs, no applicable checker target exists, and
+  `observation_outcome=not_applicable`.
+
+`matched_no_boundary_event` means the checker observation was meaningful: the
+checker ran, the cause-side expectation was no boundary event, the checker
+observed no boundary event, and the observation matched expectation. For
+prompt-derived paths, the observed happy path is:
+
+```
+prompt_contract_status=contract_detected
+selected_skill_id != null
+misreader_skill_fired=false
+checker_ran=true
+checker_observed_bypass=false
+observation_outcome=matched_no_boundary_event
+```
+
+`not_applicable` means no meaningful checker observation exists, the path is
+out-of-scope, unsupported, no-contract, or the checker should not be interpreted
+as observing an applicable contract boundary. It must not be used for a
+non-fired applicable prompt contract where the checker ran and observed no
+bypass.
 
 ## Prompt-Derived Loop Causality Invariants
 
