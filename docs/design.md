@@ -342,6 +342,40 @@ Status-specific behavior is explicit:
   skill-triggered drift occurs, no checker bypass is observed, and
   `observation_outcome=not_applicable`.
 
+## Prompt-Derived Loop Causality Invariants
+
+Prompt-derived loop semantics must keep three concepts separate:
+contract detection, cause-side misreader firing, and observation-side checker
+results.
+
+These invariants define that separation:
+
+| invariant | meaning |
+|---|---|
+| Fixed scenario equals benchmark. | Fixed scenario `run` is the benchmark path. It owns scenario-grounded classification, response, trace, state trace, checker, and checker comparison artifacts. |
+| Arbitrary prompt equals contract-first observability. | Arbitrary prompts are not classified as benchmark scenarios. They first emit a `PromptContract`, and only then may run the synthetic prompt loop. |
+| `PromptContract` detection identifies a boundary, not a bypass. | Contract detection records the delegated framework-level guarantee or boundary where drift could happen. It does not assert that drift happened. |
+| `contract_detected` does not imply principal substitution. | A detected, supported contract means an applicable skill perspective exists. Principal substitution is only present when the cause-side misreader actually fires and the artifact drifts. |
+| `misreader_skill_fired` is the cause-side event. | It is decided in `do` from cause-side state. Checker results must never be read to decide this value. |
+| `checker_observed_bypass` is the observation-side event. | It is produced in `check` after generation. It observes the artifact; it does not cause the drift. |
+| A non-fired `contract_detected` path is an observed happy path. | When an applicable contract is detected, the checker still runs. If the misreader did not fire and the checker observes no bypass, the outcome is `matched_no_boundary_event`, not `not_applicable`. |
+| Applicable prompt contracts are checked whether fired or not. | For `contract_detected` with `selected_skill_id != null`, the checker runs for both fired and non-fired prompt-loop iterations. |
+| `fixed_benchmark` comparison stays strict. | Fixed benchmark comparison checks `checker_observed_bypass`, `substituted`, and `failure_mode` against the fixed scenario checker template. |
+| `prompt_observability` derives expected bypass from firing. | Prompt observability comparison derives expected `checker_observed_bypass` from `misreader_skill_fired`. On non-fired prompt paths, expected `substituted` and `failure_mode` are `none`. |
+| Prompt-derived loops remain synthetic observability. | `run-prompt-loop` emits `.prompt_contract.json` and `.loop_trace.json`; it must not emit `.response.md` or become a fixed benchmark scenario. |
+| Probabilistic firing is out of scope. | Firing remains deterministic in the current model. Do not introduce probability, sampling, or intermittent random firing semantics as part of prompt-derived loops. |
+
+The practical rule is:
+
+```
+PromptContract detection -> applicable boundary
+misreader_skill_fired -> cause-side drift event
+checker_observed_bypass -> observation-side result
+```
+
+Do not collapse these into one flag. In particular, `contract_detected` is not
+a bypass, not a substitution, and not a benchmark result.
+
 ## Minimal State Loop Path
 
 The minimal controlled loop runs:

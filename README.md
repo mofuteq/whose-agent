@@ -117,6 +117,13 @@ do not create scenario-grounded benchmark results.
 `run-loop` and `run-prompt-loop` emit loop traces, but loop traces are projection
 artifacts, not separate runtime state.
 
+Prompt contract detection identifies an applicable boundary; it is not itself a
+bypass or principal substitution. In prompt-derived loops, `misreader_skill_fired`
+is the cause-side event and `checker_observed_bypass` is the observation-side
+event. Applicable prompt contracts are checked whether the misreader fired or
+not, and non-fired applicable contracts are observed happy paths, not
+`not_applicable` cases.
+
 ## Fixed Scenario Benchmark
 
 The fixed benchmark runs scenarios from `scenarios/` through classification,
@@ -220,6 +227,8 @@ inside the loop trace; human-readable `.response.md` remains owned by the fixed
 - Checker observation is observation-side.
 - Do not use checker observations to decide whether the misreader fires.
 - Arbitrary prompt observability is contract-first.
+- Prompt contract detection identifies a boundary, not a bypass.
+- Prompt-derived loops are synthetic observability, not benchmark evaluation.
 - Prompt-derived loop traces carry provenance.
 - `none` scenarios are negative controls, not a fifth failure axis.
 
