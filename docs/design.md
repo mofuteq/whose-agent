@@ -250,7 +250,7 @@ exploratory or experimental observability paths.
 | `run` | fixed scenario benchmark | benchmark artifacts |
 | `detect-contract` | arbitrary prompt contract detection | `.prompt_contract.json` |
 | `run-loop` | fixed scenario minimal loop observability | `.loop_trace.json` |
-| `run-prompt-loop` | experimental arbitrary prompt loop observability | `.prompt_contract.json`, `.loop_trace.json` |
+| `run-prompt-loop` | experimental arbitrary prompt loop observability | `.prompt_contract.json`, `.loop_trace.json`, conditionally `prompt_loop.generated.md` |
 
 Free prompts first go through prompt contract detection before they are used
 for loop observability.
@@ -301,7 +301,7 @@ LangGraph minimal loop. It does not introduce a second runtime, wire
 The resulting `.loop_trace.json` uses a synthetic scenario id, `prompt_loop`.
 It is experimental loop observability for an arbitrary prompt. It is not
 scenario-grounded benchmark evaluation and does not emit benchmark trace,
-checker, response, state trace, classification, or other benchmark artifacts.
+checker, `.response.md`, state trace, classification, or other benchmark artifacts.
 `prompt_loop.loop_trace.json` is not a benchmark scenario result. There is no
 scenario YAML, no scenario-grounded checker expectation, and no emitted
 `.checker.json` or `.checker_comparison.json` artifact.
@@ -315,7 +315,14 @@ contract triggers the misreader, the `do` step may also include concise
 state in the loop trace. This evidence is synthetic arbitrary prompt
 observability, not fixed benchmark evaluation. It does not include the full
 generated response, hidden reasoning, full prompt contract, or skill markdown.
-Human-readable `.response.md` remains owned by fixed `run`.
+Human-readable fixed benchmark `.response.md` remains owned by fixed `run`.
+
+For `contract_detected` prompt contracts with `selected_skill_id != null`,
+`run-prompt-loop` also emits `prompt_loop.generated.md`.
+`prompt_loop.generated.md` is the human-readable projection of the
+prompt-derived do-step generated output. It is the exact output observed by the
+checker. It is not fixed benchmark `.response.md` and does not turn arbitrary
+prompts into benchmark scenarios.
 
 Prompt-derived `drift_evidence` is contract-field-derived. It is generated from
 `PromptContract` fields such as `candidate_framework` and
@@ -394,7 +401,7 @@ These invariants define that separation:
 | Applicable prompt contracts are checked whether fired or not. | For `contract_detected` with `selected_skill_id != null`, the checker runs for both fired and non-fired prompt-loop iterations. |
 | `fixed_benchmark` comparison stays strict. | Fixed benchmark comparison checks `checker_observed_bypass`, `substituted`, and `failure_mode` against the fixed scenario checker template. |
 | `prompt_observability` derives expected bypass from firing. | Prompt observability comparison derives expected `checker_observed_bypass` from `misreader_skill_fired`. On non-fired prompt paths, expected `substituted` and `failure_mode` are `none`. |
-| Prompt-derived loops remain synthetic observability. | `run-prompt-loop` emits `.prompt_contract.json` and `.loop_trace.json`; it must not emit `.response.md` or become a fixed benchmark scenario. |
+| Prompt-derived loops remain synthetic observability. | `run-prompt-loop` emits `.prompt_contract.json`, `.loop_trace.json`, and conditionally `prompt_loop.generated.md`; it must not emit `.response.md` or become a fixed benchmark scenario. |
 | Probabilistic firing is out of scope. | Firing remains deterministic in the current model. Do not introduce probability, sampling, or intermittent random firing semantics as part of prompt-derived loops. |
 
 The practical rule is:
@@ -446,7 +453,7 @@ Each path owns a distinct set of artifacts.
 | `run` (fixed) | `.classification.json`, `.response.md`, `.trace.json`, `.state_trace.json`, `.checker.json`, `.checker_comparison.json` |
 | `run-loop` | `.loop_trace.json` |
 | `detect-contract` | `.prompt_contract.json` |
-| `run-prompt-loop` | `.prompt_contract.json`, `.loop_trace.json` |
+| `run-prompt-loop` | `.prompt_contract.json`, `.loop_trace.json`, conditionally `prompt_loop.generated.md` |
 
 Do not blur these paths.
 Each artifact has a single owning path.

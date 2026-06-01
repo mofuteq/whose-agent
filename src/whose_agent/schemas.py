@@ -380,6 +380,8 @@ class LoopTrace(BaseModel):
     prompt_contract_candidate_framework: str | None = None
     prompt_contract_delegated_guarantee: str | None = None
     prompt_contract_artifact: str | None = None
+    prompt_loop_generated_artifact: str | None = None
+    prompt_loop_generated_step_index: int | None = None
     principal: str
     agent: str
     max_iterations: int
@@ -434,6 +436,8 @@ class WhoseAgentState(TypedDict, total=False):
     prompt_contract_candidate_framework: str | None
     prompt_contract_delegated_guarantee: str | None
     prompt_contract_artifact: str | None
+    prompt_loop_generated_artifact: str | None
+    prompt_loop_generated_step_index: int | None
 
     selected_skill_id: str | None
     selected_skill_perspective: str | None

@@ -34,6 +34,7 @@ ARTIFACT_BOUNDARY_SUFFIXES = [
     ".checker.json",
     ".checker_comparison.json",
     ".loop_trace.json",
+    ".generated.md",
 ]
 
 

@@ -115,7 +115,7 @@ def run_prompt_loop_command(args: argparse.Namespace) -> int:
     load_env_file(Path(args.env_file))
 
     run_dir = create_run_directory(Path(args.outputs))
-    run_prompt_loop_to_artifact(
+    _, _, generated_path = run_prompt_loop_to_artifact(
         args.prompt,
         run_dir,
         mock=args.mock,
@@ -123,7 +123,10 @@ def run_prompt_loop_command(args: argparse.Namespace) -> int:
     )
 
     print(f"Wrote outputs to {run_dir}")
-    print("Wrote 1 prompt contract file and 1 loop trace file.")
+    if generated_path is None:
+        print("Wrote 1 prompt contract file and 1 loop trace file.")
+    else:
+        print("Wrote 1 prompt contract file, 1 loop trace file, and 1 generated file.")
     return 0
 
 

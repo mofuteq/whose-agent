@@ -1,4 +1,4 @@
-"""Artifact writer for loop trace artifacts.
+"""Artifact writer for loop artifacts.
 
 Writes <scenario_id>.loop_trace.json from a LoopTrace.
 Does not wire into the existing fixed scenario run command.
@@ -12,13 +12,25 @@ from pathlib import Path
 from whose_agent.schemas import LoopTrace, Scenario
 
 
+PROMPT_LOOP_GENERATED_FILENAME = "prompt_loop.generated.md"
+
+
 def write_loop_trace(output_dir: Path, loop_trace: LoopTrace) -> Path:
     """Write a LoopTrace to output_dir/<scenario_id>.loop_trace.json."""
+    output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / f"{loop_trace.scenario_id}.loop_trace.json"
     path.write_text(
         json.dumps(loop_trace.model_dump(), indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
+    return path
+
+
+def write_prompt_loop_generated(output_dir: Path, generated_output: str) -> Path:
+    """Write the prompt-loop generated output exactly as checker input."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path = output_dir / PROMPT_LOOP_GENERATED_FILENAME
+    path.write_text(generated_output, encoding="utf-8")
     return path
 
 
