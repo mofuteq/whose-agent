@@ -120,6 +120,17 @@ def test_run_loop_trace_scenario_id(tmp_path: Path) -> None:
     assert data["scenario_id"] == "instruction_typescript_any"
 
 
+def test_run_loop_trace_fixed_scenario_provenance(tmp_path: Path) -> None:
+    _run_loop_cli("scenarios/instruction_typescript_any.yaml", tmp_path)
+    run_dir = _run_dir(tmp_path)
+    data = json.loads((run_dir / "instruction_typescript_any.loop_trace.json").read_text(encoding="utf-8"))
+    assert data["loop_source"] == "fixed_scenario"
+    assert data["prompt_contract_status"] is None
+    assert data["prompt_contract_candidate_framework"] is None
+    assert data["prompt_contract_delegated_guarantee"] is None
+    assert data["prompt_contract_artifact"] is None
+
+
 def test_run_loop_trace_default_max_iterations(tmp_path: Path) -> None:
     _run_loop_cli("scenarios/instruction_typescript_any.yaml", tmp_path)
     run_dir = _run_dir(tmp_path)

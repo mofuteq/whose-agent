@@ -99,6 +99,11 @@ contract is made explicit.
 `run-prompt-loop` detects a contract and runs the minimal loop.
 `run-prompt-loop` is synthetic and experimental.
 Arbitrary prompt artifacts are not scenario-grounded benchmark artifacts.
+Loop traces carry provenance. Fixed scenario loops use
+`loop_source = "fixed_scenario"`. Prompt-derived loops use
+`loop_source = "prompt_contract"` and record the prompt contract status.
+This makes synthetic prompt loop traces distinguishable from fixed scenario
+benchmark loops.
 
 ## Minimal loop path
 
@@ -138,6 +143,8 @@ The `run-loop` command emits exactly one `.loop_trace.json` artifact per invocat
 It does not emit classification, response, trace, state trace, checker,
 checker comparison, or prompt contract artifacts.
 Those remain owned by the fixed and prompt contract paths.
+Fixed scenario loop traces record `loop_source = "fixed_scenario"` and leave
+prompt contract provenance fields null.
 
 The minimal loop path can be rendered as a `<scenario_id>.loop_trace.json` artifact
 via `render_loop_trace` and `run_minimal_loop_to_artifact`.
@@ -159,9 +166,16 @@ This is not fixed benchmark evaluation. It emits exactly one
 `.prompt_contract.json` artifact and one `.loop_trace.json` artifact. It does
 not emit benchmark trace, checker, response, state trace, classification, or
 other benchmark artifacts.
+The `prompt_loop.loop_trace.json` artifact is synthetic arbitrary prompt
+observability, not a benchmark result. It references prompt contract provenance
+with `loop_source = "prompt_contract"` and the prompt contract status, but it
+does not embed the full prompt contract artifact.
 
 The `prompt_loop.loop_trace.json` artifact is synthetic provenance:
 - `scenario_id` is always `prompt_loop`
+- `loop_source` is `prompt_contract`
+- `prompt_contract_status` records the detected contract status
+- `prompt_contract_artifact` names the emitted `.prompt_contract.json` file
 - there is no scenario YAML
 - there is no scenario-grounded checker expectation
 - `.checker.json` and `.checker_comparison.json` are not emitted
@@ -201,7 +215,9 @@ Exploratory prompt contract artifact for arbitrary prompts. Records whether a fr
 **`.loop_trace.json`**
 Loop trace artifact for the minimal loop path. Rendered from `WhoseAgentState` via `render_loop_trace`.
 Contains: `scenario_id`, `principal`, `agent`, `max_iterations`, `final_loop_iteration`,
-`loop_completed`, `loop_stop_reason`, cause-side fields (`framework_specified`,
+`loop_completed`, `loop_stop_reason`, provenance fields (`loop_source`,
+`prompt_contract_status`, concise prompt contract metadata and artifact name),
+cause-side fields (`framework_specified`,
 `selected_skill_id`, `generation_used_skill`, per-step `misreader_skill_fired`),
 observation-side fields (`checker_ran`, `checker_observed_bypass`, `guarantee_bypass_observed`,
 `checker_matches_expected`, `observation_outcome`), `step_traces`, and `checker_comparison`.

@@ -35,6 +35,11 @@ def initial_loop_state_from_prompt_contract(
     )
     state["framework_specified"] = contract.framework_specified
     state["selected_skill_id"] = contract.selected_skill_id
+    state["loop_source"] = "prompt_contract"
+    state["prompt_contract_status"] = contract.status
+    state["prompt_contract_candidate_framework"] = contract.candidate_framework
+    state["prompt_contract_delegated_guarantee"] = contract.delegated_guarantee
+    state["prompt_contract_artifact"] = None
     return state
 
 
@@ -50,12 +55,12 @@ def run_prompt_loop_to_artifact(
     contract_path = write_prompt_contract(contract, output_dir)
 
     graph = compile_minimal_loop_graph(mock=mock)
-    state = graph.invoke(
-        initial_loop_state_from_prompt_contract(
-            contract,
-            max_iterations=max_iterations,
-        )
+    initial_state = initial_loop_state_from_prompt_contract(
+        contract,
+        max_iterations=max_iterations,
     )
+    initial_state["prompt_contract_artifact"] = contract_path.name
+    state = graph.invoke(initial_state)
     loop_trace = render_loop_trace(state)
     loop_trace_path = write_loop_trace(output_dir, loop_trace)
 
