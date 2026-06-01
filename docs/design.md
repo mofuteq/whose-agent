@@ -317,6 +317,17 @@ observability, not fixed benchmark evaluation. It does not include the full
 generated response, hidden reasoning, full prompt contract, or skill markdown.
 Human-readable `.response.md` remains owned by fixed `run`.
 
+Prompt-derived `drift_evidence` is contract-field-derived. It is generated from
+`PromptContract` fields such as `candidate_framework` and
+`delegated_guarantee`, so it can be exercised with Pydantic, SQL
+parameterization, Zod, TypeScript, or other framework examples without
+hard-coding a TypeScript evidence sentence. This does not mean prompt-derived
+checker observation is framework-agnostic. The current `prompt_loop` mock
+checker is a bounded test double that uses narrow markers sufficient for the
+current tests, and it should not be treated as a general semantic checker for
+Pydantic, SQL, Zod, or other framework bypasses. Generalizing checker
+observation across frameworks is separate scope.
+
 The fixed-scenario cause-side firing rule remains deterministic:
 
 ```
