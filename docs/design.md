@@ -39,6 +39,10 @@ whose-agent maps these substitution types onto axes:
 A fifth classification, `none`, marks out-of-scope prompts.
 `none` is not a failure axis.
 It means the scenario does not exhibit principal substitution.
+These scenarios are negative controls. They do not define a delegated
+framework boundary or selected skill perspective, so they do not satisfy the
+cause-side trigger policy for skill-triggered drift and should not silently
+become boundary events.
 
 ## Do Not Silently Erase Your Divergence
 

@@ -4,7 +4,9 @@ from pathlib import Path
 
 from whose_agent import minimal_loop_graph, schemas
 from whose_agent.bad_response import mock_bad_response
+from whose_agent.classifier import classify_scenario
 from whose_agent.llm_result import LLMCallResult
+from whose_agent.loop_trigger_policy import should_fire_misreader_skill
 from whose_agent.minimal_loop_graph import (
     build_minimal_loop_graph,
     compile_minimal_loop_graph,
@@ -25,6 +27,10 @@ def _typescript_any() -> schemas.Scenario:
 
 def _rust_cli() -> schemas.Scenario:
     return load_scenario(ROOT / "scenarios" / "instruction_rust_cli.yaml")
+
+
+def _none_general_explanation() -> schemas.Scenario:
+    return load_scenario(ROOT / "scenarios" / "none_general_explanation.yaml")
 
 
 def test_minimal_loop_graph_compiles() -> None:
@@ -76,6 +82,30 @@ def test_derive_framework_specified_is_scenario_grounded() -> None:
     assert derive_framework_specified_for_scenario(_rust_cli()) is False
 
 
+def test_none_initial_loop_state_stops_before_skill_trigger() -> None:
+    scenario = _none_general_explanation()
+    classification = classify_scenario(scenario)
+
+    state = initial_loop_state_from_scenario(scenario, max_iterations=1)
+    planned_state = {
+        **state,
+        "classification": classification,
+        "substituted": classification.substituted,
+        "framework_specified": bool(state.get("framework_specified", False))
+        or derive_framework_specified_for_scenario(scenario),
+    }
+
+    assert scenario.expected_substituted == "none"
+    assert scenario.failure_mode == "none"
+    assert classification.classification == "out_of_scope"
+    assert classification.substituted == "none"
+    assert state["substituted"] == "none"
+    assert state["failure_mode"] == "none"
+    assert planned_state["framework_specified"] is False
+    assert planned_state["selected_skill_id"] is None
+    assert should_fire_misreader_skill(planned_state) is False
+
+
 def test_loop_stops_via_max_iterations() -> None:
     scenario = _typescript_any()
     graph = compile_minimal_loop_graph(mock=True)
@@ -119,6 +149,43 @@ def test_single_iteration_poor_e2e_for_typescript_any() -> None:
     assert state["checker_observed_bypass"] is True
     assert state["guarantee_bypass_observed"] is True
     assert state["observation_outcome"] == "observation_succeeded"
+
+
+def test_single_iteration_none_scenario_is_negative_control() -> None:
+    scenario = _none_general_explanation()
+    graph = compile_minimal_loop_graph(mock=True)
+
+    state = graph.invoke(initial_loop_state_from_scenario(scenario, max_iterations=1))
+    traces = state["step_traces"]
+
+    assert [trace.step_kind for trace in traces] == ["plan", "do", "check"]
+    assert [trace.step_index for trace in traces] == [0, 1, 2]
+
+    plan_trace, do_trace, check_trace = traces
+    classification = state["classification"]
+
+    assert classification.classification == "out_of_scope"
+    assert classification.substituted == "none"
+    assert state["substituted"] == "none"
+    assert state["failure_mode"] == "none"
+    assert state["framework_specified"] is False
+    assert state["selected_skill_id"] is None
+
+    assert plan_trace.misreader_skill_fired is False
+    assert do_trace.misreader_skill_fired is False
+    assert state["misreader_skill_fired"] is False
+    assert state["skill_triggered"] is False
+    assert state["generation_used_skill"] is False
+    assert state["generation_skill_id"] is None
+    assert state["bad_response"] is None
+
+    assert check_trace.checker_ran is False
+    assert check_trace.checker_observed_bypass is False
+    assert state["checker_ran"] is False
+    assert state["checker_observed_bypass"] is False
+    assert state["guarantee_bypass_observed"] is False
+    assert state["observation_outcome"] == "not_applicable"
+    assert state["loop_completed"] is True
 
 
 def test_plan_sets_framework_and_does_not_fire_misreader() -> None:
