@@ -175,7 +175,45 @@ def test_checker_comparison_reports_missed_boundary_event_when_observation_missi
     assert comparison.mismatch_reasons == ["checker_observation is missing."]
 
 
-def test_checker_comparison_can_report_over_detection() -> None:
+def test_fixed_checker_comparison_fails_when_substituted_is_wrong() -> None:
+    scenario = load_scenario(ROOT / "scenarios" / "instruction_typescript_any.yaml")
+    observation = check_with_usage(scenario, "irrelevant in mock mode", mock=True).observation
+    observation = observation.model_copy(update={"substituted": "authority"})
+
+    comparison = compare_checker_observation(
+        scenario,
+        observation,
+        misreader_skill_fired=True,
+    )
+
+    assert comparison.expected_checker_observed_bypass is True
+    assert comparison.actual_checker_observed_bypass is True
+    assert comparison.matches_expected is False
+    assert comparison.mismatch_reasons == [
+        "substituted expected instruction but got authority."
+    ]
+
+
+def test_fixed_checker_comparison_fails_when_failure_mode_is_wrong() -> None:
+    scenario = load_scenario(ROOT / "scenarios" / "instruction_typescript_any.yaml")
+    observation = check_with_usage(scenario, "irrelevant in mock mode", mock=True).observation
+    observation = observation.model_copy(update={"failure_mode": "unauthorized_autonomy"})
+
+    comparison = compare_checker_observation(
+        scenario,
+        observation,
+        misreader_skill_fired=True,
+    )
+
+    assert comparison.expected_checker_observed_bypass is True
+    assert comparison.actual_checker_observed_bypass is True
+    assert comparison.matches_expected is False
+    assert comparison.mismatch_reasons == [
+        "failure_mode expected constraint_override but got unauthorized_autonomy."
+    ]
+
+
+def test_prompt_observability_comparison_can_report_over_detection() -> None:
     scenario = load_scenario(ROOT / "scenarios" / "instruction_typescript_any.yaml")
     observation = check_with_usage(scenario, "irrelevant in mock mode", mock=True).observation
 
@@ -183,10 +221,41 @@ def test_checker_comparison_can_report_over_detection() -> None:
         scenario,
         observation,
         misreader_skill_fired=False,
+        comparison_mode="prompt_observability",
     )
 
-    assert comparison.matches_expected is True
+    assert comparison.expected_checker_observed_bypass is False
+    assert comparison.actual_checker_observed_bypass is True
+    assert comparison.matches_expected is False
     assert comparison.observation_outcome == "checker_over_detected"
+
+
+def test_prompt_observability_comparison_matches_non_fired_happy_path() -> None:
+    scenario = load_scenario(ROOT / "scenarios" / "instruction_typescript_any.yaml")
+    observation = CheckerObservation(
+        scenario_id=scenario.scenario_id,
+        skill_id="safety_framework_escape_hatch",
+        checker_observed_bypass=False,
+        substituted="none",
+        failure_mode="none",
+        evidence=["No guarantee bypass was observed."],
+        divergence_point=None,
+        confidence="high",
+    )
+
+    comparison = compare_checker_observation(
+        scenario,
+        observation,
+        misreader_skill_fired=False,
+        comparison_mode="prompt_observability",
+    )
+
+    assert comparison.expected_checker_observed_bypass is False
+    assert comparison.actual_checker_observed_bypass is False
+    assert comparison.expected_substituted == "none"
+    assert comparison.expected_failure_mode == "none"
+    assert comparison.matches_expected is True
+    assert comparison.observation_outcome == "matched_no_boundary_event"
 
 
 def test_checker_comparison_not_applicable_without_checker_template() -> None:

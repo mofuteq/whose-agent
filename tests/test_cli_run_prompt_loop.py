@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from tests.helpers import single_run_dir
+from whose_agent.checker import CheckerEmissionResult
 from whose_agent.loop_trace_renderer import render_loop_trace
 from whose_agent.minimal_loop_graph import compile_minimal_loop_graph
 from whose_agent.prompt_loop import initial_loop_state_from_prompt_contract
@@ -28,7 +29,7 @@ BENCHMARK_ARTIFACT_SUFFIXES = [
 ]
 
 
-def test_run_prompt_loop_positive_mock_emits_contract_and_loop_trace(
+def test_run_prompt_loop_positive_mock_defaults_to_non_fired_happy_path(
     tmp_path: Path,
 ) -> None:
     completed = run_prompt_loop_cli(POSITIVE_PROMPT, tmp_path)
@@ -66,27 +67,28 @@ def test_run_prompt_loop_positive_mock_emits_contract_and_loop_trace(
     assert loop_trace["loop_stop_reason"] == "max_iterations_reached"
     assert loop_trace["selected_skill_id"] == "safety_framework_escape_hatch"
     assert loop_trace["framework_specified"] is True
-    assert loop_trace["generation_used_skill"] is True
+    assert loop_trace["generation_used_skill"] is False
     assert [step["step_kind"] for step in loop_trace["step_traces"]] == [
         "plan",
         "do",
         "check",
     ]
     do_step = loop_trace["step_traces"][1]
-    assert do_step["misreader_skill_fired"] is True
-    assert do_step["generation_used_skill"] is True
-    assert do_step["generation_skill_id"] == "safety_framework_escape_hatch"
-    assert do_step["drift_evidence"] is not None
-    assert "requested TypeScript surface" in do_step["drift_evidence"]
-    assert "explicit modeling without any" in do_step["drift_evidence"]
-    assert "TypeScript-shaped" not in do_step["drift_evidence"]
-    assert do_step["drift_artifact_kind"] == PROMPT_DRIFT_ARTIFACT_KIND
-    assert len(do_step["drift_evidence"]) <= PROMPT_DRIFT_EVIDENCE_BOUND
+    assert do_step["misreader_skill_fired"] is False
+    assert do_step["generation_used_skill"] is False
+    assert do_step["generation_skill_id"] is None
+    assert do_step["drift_evidence"] is None
+    assert do_step["drift_artifact_kind"] is None
     check_step = loop_trace["step_traces"][2]
     assert check_step["checker_ran"] is True
-    assert check_step["checker_observed_bypass"] is True
-    assert loop_trace["checker_observed_bypass"] is True
-    assert loop_trace["observation_outcome"] == "observation_succeeded"
+    assert check_step["checker_observed_bypass"] is False
+    assert loop_trace["checker_observed_bypass"] is False
+    assert loop_trace["guarantee_bypass_observed"] is False
+    assert loop_trace["checker_matches_expected"] is True
+    assert loop_trace["observation_outcome"] == "matched_no_boundary_event"
+    assert loop_trace["checker_comparison"]["expected_checker_observed_bypass"] is False
+    assert loop_trace["checker_comparison"]["actual_checker_observed_bypass"] is False
+    assert loop_trace["checker_comparison"]["matches_expected"] is True
 
 
 def test_run_prompt_loop_positive_mock_max_iterations_2(
@@ -106,6 +108,129 @@ def test_run_prompt_loop_positive_mock_max_iterations_2(
         "do",
         "check",
     ]
+
+
+def test_run_prompt_loop_contract_detected_fired_path_uses_skill_and_records_drift() -> None:
+    contract = detected_contract(delegated_guarantee="explicit modeling without any")
+    graph = compile_minimal_loop_graph(mock=True)
+    state = graph.invoke(
+        initial_loop_state_from_prompt_contract(
+            contract,
+            max_iterations=1,
+            misreader_firing_decision=True,
+        )
+    )
+
+    loop_trace = render_loop_trace(state)
+
+    assert loop_trace.prompt_contract_status == "contract_detected"
+    assert loop_trace.selected_skill_id == "safety_framework_escape_hatch"
+    assert loop_trace.generation_used_skill is True
+    do_step = loop_trace.step_traces[1]
+    assert do_step.misreader_skill_fired is True
+    assert do_step.generation_used_skill is True
+    assert do_step.generation_skill_id == "safety_framework_escape_hatch"
+    assert do_step.drift_evidence is not None
+    assert "requested TypeScript surface" in do_step.drift_evidence
+    assert "explicit modeling without any" in do_step.drift_evidence
+    assert "TypeScript-shaped" not in do_step.drift_evidence
+    assert do_step.drift_artifact_kind == PROMPT_DRIFT_ARTIFACT_KIND
+    assert len(do_step.drift_evidence) <= PROMPT_DRIFT_EVIDENCE_BOUND
+    check_step = loop_trace.step_traces[2]
+    assert check_step.checker_ran is True
+    assert check_step.checker_observed_bypass is True
+    assert loop_trace.checker_observed_bypass is True
+    assert loop_trace.guarantee_bypass_observed is True
+    assert loop_trace.checker_matches_expected is True
+    assert loop_trace.checker_comparison is not None
+    assert loop_trace.checker_comparison.expected_checker_observed_bypass is True
+    assert loop_trace.checker_comparison.actual_checker_observed_bypass is True
+    assert loop_trace.observation_outcome == "observation_succeeded"
+
+
+def test_run_prompt_loop_contract_detected_non_fired_happy_path() -> None:
+    contract = detected_contract(delegated_guarantee="explicit modeling without any")
+    graph = compile_minimal_loop_graph(mock=True)
+    state = graph.invoke(
+        initial_loop_state_from_prompt_contract(
+            contract,
+            max_iterations=1,
+            misreader_firing_decision=False,
+        )
+    )
+
+    loop_trace = render_loop_trace(state)
+
+    assert loop_trace.prompt_contract_status == "contract_detected"
+    assert loop_trace.selected_skill_id == "safety_framework_escape_hatch"
+    assert loop_trace.generation_used_skill is False
+    do_step = loop_trace.step_traces[1]
+    assert do_step.misreader_skill_fired is False
+    assert do_step.generation_used_skill is False
+    assert do_step.generation_skill_id is None
+    assert do_step.drift_evidence is None
+    assert do_step.drift_artifact_kind is None
+    check_step = loop_trace.step_traces[2]
+    assert check_step.checker_ran is True
+    assert check_step.checker_observed_bypass is False
+    assert loop_trace.checker_observed_bypass is False
+    assert loop_trace.guarantee_bypass_observed is False
+    assert loop_trace.checker_matches_expected is True
+    assert loop_trace.observation_outcome == "matched_no_boundary_event"
+    assert loop_trace.observation_outcome != "not_applicable"
+    assert loop_trace.checker_comparison is not None
+    assert loop_trace.checker_comparison.expected_checker_observed_bypass is False
+    assert loop_trace.checker_comparison.actual_checker_observed_bypass is False
+
+
+def test_run_prompt_loop_contract_detected_non_fired_can_over_detect(
+    monkeypatch,
+) -> None:
+    contract = detected_contract(delegated_guarantee="explicit modeling without any")
+
+    def fake_check_with_usage(
+        scenario,
+        bad_response,
+        *,
+        mock=False,
+    ) -> CheckerEmissionResult:
+        return CheckerEmissionResult(
+            observation=CheckerObservation(
+                scenario_id=scenario.scenario_id,
+                skill_id="safety_framework_escape_hatch",
+                checker_observed_bypass=True,
+                substituted="instruction",
+                failure_mode="constraint_override",
+                evidence=["Synthetic over-detection from checker observation."],
+                divergence_point="checker over-detected a bypass",
+                confidence="high",
+            )
+        )
+
+    monkeypatch.setattr(
+        "whose_agent.minimal_loop_graph.check_with_usage",
+        fake_check_with_usage,
+    )
+    graph = compile_minimal_loop_graph(mock=True)
+    state = graph.invoke(
+        initial_loop_state_from_prompt_contract(
+            contract,
+            max_iterations=1,
+            misreader_firing_decision=False,
+        )
+    )
+
+    loop_trace = render_loop_trace(state)
+
+    assert loop_trace.step_traces[1].misreader_skill_fired is False
+    assert loop_trace.step_traces[2].checker_ran is True
+    assert loop_trace.step_traces[2].checker_observed_bypass is True
+    assert loop_trace.checker_observed_bypass is True
+    assert loop_trace.checker_matches_expected is False
+    assert loop_trace.observation_outcome == "checker_over_detected"
+    assert loop_trace.checker_comparison is not None
+    assert loop_trace.checker_comparison.expected_checker_observed_bypass is False
+    assert loop_trace.checker_comparison.actual_checker_observed_bypass is True
 
 
 def test_run_prompt_loop_negative_mock_does_not_fire_misreader(
@@ -151,11 +276,16 @@ def test_run_prompt_loop_unsupported_contract_does_not_fabricate_skill_drift() -
     contract = unsupported_contract()
     graph = compile_minimal_loop_graph(mock=True)
     state = graph.invoke(
-        initial_loop_state_from_prompt_contract(contract, max_iterations=1)
+        initial_loop_state_from_prompt_contract(
+            contract,
+            max_iterations=1,
+            misreader_firing_decision=True,
+        )
     )
 
     loop_trace = render_loop_trace(state)
 
+    assert state["bad_response"] is None
     assert loop_trace.scenario_id == "prompt_loop"
     assert loop_trace.loop_source == "prompt_contract"
     assert loop_trace.prompt_contract_status == "unsupported"
@@ -188,7 +318,11 @@ def test_run_prompt_loop_contract_detected_long_guarantee_uses_concise_fallback(
     contract = detected_contract(delegated_guarantee=long_guarantee)
     graph = compile_minimal_loop_graph(mock=True)
     state = graph.invoke(
-        initial_loop_state_from_prompt_contract(contract, max_iterations=1)
+        initial_loop_state_from_prompt_contract(
+            contract,
+            max_iterations=1,
+            misreader_firing_decision=True,
+        )
     )
 
     loop_trace = render_loop_trace(state)
@@ -207,7 +341,11 @@ def test_run_prompt_loop_contract_detected_missing_guarantee_uses_concise_fallba
     contract = detected_contract(delegated_guarantee=None)
     graph = compile_minimal_loop_graph(mock=True)
     state = graph.invoke(
-        initial_loop_state_from_prompt_contract(contract, max_iterations=1)
+        initial_loop_state_from_prompt_contract(
+            contract,
+            max_iterations=1,
+            misreader_firing_decision=True,
+        )
     )
 
     loop_trace = render_loop_trace(state)
