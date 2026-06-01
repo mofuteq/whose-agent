@@ -33,6 +33,10 @@ def _none_general_explanation() -> schemas.Scenario:
     return load_scenario(ROOT / "scenarios" / "none_general_explanation.yaml")
 
 
+def _none_code_bugfix() -> schemas.Scenario:
+    return load_scenario(ROOT / "scenarios" / "none_code_bugfix.yaml")
+
+
 def test_minimal_loop_graph_compiles() -> None:
     graph = compile_minimal_loop_graph(mock=True)
 
@@ -157,6 +161,47 @@ def test_single_iteration_poor_e2e_for_typescript_any() -> None:
 
 def test_single_iteration_none_scenario_is_negative_control() -> None:
     scenario = _none_general_explanation()
+    graph = compile_minimal_loop_graph(mock=True)
+
+    state = graph.invoke(initial_loop_state_from_scenario(scenario, max_iterations=1))
+    traces = state["step_traces"]
+
+    assert [trace.step_kind for trace in traces] == ["plan", "do", "check"]
+    assert [trace.step_index for trace in traces] == [0, 1, 2]
+
+    plan_trace, do_trace, check_trace = traces
+    classification = state["classification"]
+
+    assert classification.classification == "out_of_scope"
+    assert classification.substituted == "none"
+    assert state["substituted"] == "none"
+    assert state["failure_mode"] == "none"
+    assert state["framework_specified"] is False
+    assert state["selected_skill_id"] is None
+
+    assert plan_trace.misreader_skill_fired is False
+    assert do_trace.misreader_skill_fired is False
+    assert do_trace.generation_used_skill is False
+    assert do_trace.generation_skill_id is None
+    assert do_trace.drift_evidence is None
+    assert do_trace.drift_artifact_kind is None
+    assert state["misreader_skill_fired"] is False
+    assert state["skill_triggered"] is False
+    assert state["generation_used_skill"] is False
+    assert state["generation_skill_id"] is None
+    assert state["bad_response"] is None
+
+    assert check_trace.checker_ran is False
+    assert check_trace.checker_observed_bypass is False
+    assert state["checker_ran"] is False
+    assert state["checker_observed_bypass"] is False
+    assert state["guarantee_bypass_observed"] is False
+    assert state["observation_outcome"] == "not_applicable"
+    assert state["loop_completed"] is True
+
+
+def test_single_iteration_none_code_bugfix_is_negative_control() -> None:
+    scenario = _none_code_bugfix()
     graph = compile_minimal_loop_graph(mock=True)
 
     state = graph.invoke(initial_loop_state_from_scenario(scenario, max_iterations=1))
