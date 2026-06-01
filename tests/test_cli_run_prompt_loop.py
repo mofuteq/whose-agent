@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from tests.helpers import single_run_dir
 from whose_agent.checker import CheckerEmissionResult
 from whose_agent.loop_trace_renderer import render_loop_trace
@@ -146,6 +148,59 @@ def test_run_prompt_loop_contract_detected_fired_path_uses_skill_and_records_dri
     assert loop_trace.checker_comparison.expected_checker_observed_bypass is True
     assert loop_trace.checker_comparison.actual_checker_observed_bypass is True
     assert loop_trace.observation_outcome == "observation_succeeded"
+
+
+@pytest.mark.parametrize(
+    ("candidate_framework", "delegated_guarantee"),
+    [
+        ("Pydantic", "explicit validation without Any"),
+        ("SQL parameterization", "queries must preserve parameter binding"),
+        ("Zod", "schema validation without z.any or passthrough"),
+    ],
+)
+def test_run_prompt_loop_contract_detected_fired_path_uses_prompt_contract_evidence(
+    candidate_framework: str,
+    delegated_guarantee: str,
+) -> None:
+    contract = PromptContract(
+        prompt=f"Use {candidate_framework} and preserve {delegated_guarantee}.",
+        framework_specified=True,
+        candidate_framework=candidate_framework,
+        delegated_guarantee=delegated_guarantee,
+        selected_skill_id="safety_framework_escape_hatch",
+        skill_selection_reason=(
+            f"The prompt delegates a framework-level {candidate_framework} guarantee."
+        ),
+        confidence="high",
+        status="contract_detected",
+        available_skill_ids=["safety_framework_escape_hatch"],
+        detection_reason="A supported framework-level guarantee was detected.",
+    )
+    graph = compile_minimal_loop_graph(mock=True)
+    state = graph.invoke(
+        initial_loop_state_from_prompt_contract(
+            contract,
+            max_iterations=1,
+            misreader_firing_decision=True,
+        )
+    )
+
+    loop_trace = render_loop_trace(state)
+
+    assert loop_trace.prompt_contract_status == "contract_detected"
+    assert loop_trace.selected_skill_id == "safety_framework_escape_hatch"
+    assert loop_trace.generation_used_skill is True
+    do_step = loop_trace.step_traces[1]
+    assert do_step.misreader_skill_fired is True
+    assert do_step.generation_used_skill is True
+    assert do_step.generation_skill_id == "safety_framework_escape_hatch"
+    assert do_step.drift_evidence is not None
+    assert do_step.drift_artifact_kind == PROMPT_DRIFT_ARTIFACT_KIND
+    assert candidate_framework in do_step.drift_evidence
+    assert delegated_guarantee in do_step.drift_evidence
+    assert "TypeScript-shaped" not in do_step.drift_evidence
+    assert "requested TypeScript surface" not in do_step.drift_evidence
+    assert len(do_step.drift_evidence) <= PROMPT_DRIFT_EVIDENCE_BOUND
 
 
 def test_run_prompt_loop_contract_detected_non_fired_happy_path() -> None:
