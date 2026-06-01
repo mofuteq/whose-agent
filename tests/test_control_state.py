@@ -139,8 +139,8 @@ def test_step_trace_explicit_construction_and_json_serialization() -> None:
         checker_observed_bypass=True,
         trigger_evidence=["The response keeps TypeScript but replaces the guard with any."],
         drift_evidence=(
-            "Generated TypeScript-shaped output that preserves the surface framework "
-            "while bypassing the delegated type-safety guarantee with unsafe typing."
+            "Generated output that preserved the requested TypeScript surface while "
+            "bypassing the delegated guarantee: explicit modeling without any."
         ),
         drift_artifact_kind="prompt_derived_poor_e2e",
         substituted="instruction",
@@ -165,8 +165,8 @@ def test_step_trace_explicit_construction_and_json_serialization() -> None:
             "The response keeps TypeScript but replaces the guard with any.",
         ],
         "drift_evidence": (
-            "Generated TypeScript-shaped output that preserves the surface framework "
-            "while bypassing the delegated type-safety guarantee with unsafe typing."
+            "Generated output that preserved the requested TypeScript surface while "
+            "bypassing the delegated guarantee: explicit modeling without any."
         ),
         "drift_artifact_kind": "prompt_derived_poor_e2e",
         "substituted": "instruction",

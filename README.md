@@ -170,9 +170,9 @@ Prompt-derived loop traces carry provenance, including
 `loop_source = "prompt_contract"`, the prompt contract status, and the prompt
 contract artifact name. They do not embed the full prompt contract artifact.
 When a prompt-derived contract triggers the misreader step, the `do` step can
-also carry concise `drift_evidence` inside `.loop_trace.json`. This is synthetic
-arbitrary prompt observability, not fixed benchmark evaluation, and it does not
-emit a human-readable `.response.md`.
+also carry concise PromptContract-derived `drift_evidence` inside
+`.loop_trace.json`. This is synthetic arbitrary prompt observability, not fixed
+benchmark evaluation, and it does not emit a human-readable `.response.md`.
 
 ## Minimal Loop Observability
 

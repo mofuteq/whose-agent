@@ -309,11 +309,11 @@ It is synthetic arbitrary prompt observability. It references concise prompt
 contract provenance, including `loop_source = "prompt_contract"` and the prompt
 contract status, but does not embed the full prompt contract artifact.
 When the prompt-derived contract triggers the misreader, the `do` step may also
-include concise `drift_evidence` and `drift_artifact_kind` fields in the loop
-trace. This evidence is synthetic arbitrary prompt observability, not fixed
-benchmark evaluation. It does not include the full generated response, hidden
-reasoning, full prompt contract, or skill markdown. Human-readable
-`.response.md` remains owned by fixed `run`.
+include concise `drift_evidence` and `drift_artifact_kind` fields derived from
+prompt contract state in the loop trace. This evidence is synthetic arbitrary
+prompt observability, not fixed benchmark evaluation. It does not include the
+full generated response, hidden reasoning, full prompt contract, or skill
+markdown. Human-readable `.response.md` remains owned by fixed `run`.
 
 The cause-side firing rule stays unchanged:
 

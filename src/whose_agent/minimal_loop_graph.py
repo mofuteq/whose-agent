@@ -40,13 +40,15 @@ from whose_agent.schemas import (
 
 CHECKER_ID = "skill-perspective-checker"
 PROMPT_DERIVED_DRIFT_ARTIFACT_KIND = "prompt_derived_poor_e2e"
-PROMPT_DERIVED_DRIFT_EVIDENCE = (
-    "Generated TypeScript-shaped output that preserves the surface framework while "
-    "bypassing the delegated type-safety guarantee with unsafe typing."
+PROMPT_DRIFT_FRAMEWORK_MAX_LENGTH = 40
+PROMPT_DRIFT_GUARANTEE_MAX_LENGTH = 120
+PROMPT_DRIFT_EVIDENCE_WITH_GUARANTEE = (
+    "Generated output that preserved the requested {framework} surface while "
+    "bypassing the delegated guarantee: {guarantee}."
 )
-GENERIC_PROMPT_DERIVED_DRIFT_EVIDENCE = (
-    "Generated {framework}-shaped output that preserves the surface framework while "
-    "bypassing the delegated safety-framework guarantee."
+PROMPT_DRIFT_EVIDENCE_FALLBACK = (
+    "Generated output that preserved the requested {framework} surface while "
+    "bypassing the delegated guarantee."
 )
 
 
@@ -404,24 +406,38 @@ def _prompt_derived_drift_evidence(
         return None, None
     if state.get("prompt_contract_status") != "contract_detected":
         return None, None
-    framework = _concise_framework_label(
-        state.get("prompt_contract_candidate_framework")
+    framework = _concise_text(
+        state.get("prompt_contract_candidate_framework"),
+        max_length=PROMPT_DRIFT_FRAMEWORK_MAX_LENGTH,
+        fallback="framework",
     )
-    if framework == "TypeScript":
-        return PROMPT_DERIVED_DRIFT_EVIDENCE, PROMPT_DERIVED_DRIFT_ARTIFACT_KIND
-    return (
-        GENERIC_PROMPT_DERIVED_DRIFT_EVIDENCE.format(framework=framework),
-        PROMPT_DERIVED_DRIFT_ARTIFACT_KIND,
+    guarantee = _concise_text(
+        state.get("prompt_contract_delegated_guarantee"),
+        max_length=PROMPT_DRIFT_GUARANTEE_MAX_LENGTH,
+        fallback=None,
     )
+    if guarantee is not None:
+        evidence = PROMPT_DRIFT_EVIDENCE_WITH_GUARANTEE.format(
+            framework=framework,
+            guarantee=guarantee,
+        )
+    else:
+        evidence = PROMPT_DRIFT_EVIDENCE_FALLBACK.format(framework=framework)
+    return evidence, PROMPT_DERIVED_DRIFT_ARTIFACT_KIND
 
 
-def _concise_framework_label(value: object) -> str:
+def _concise_text(
+    value: object,
+    *,
+    max_length: int,
+    fallback: str | None,
+) -> str | None:
     if not isinstance(value, str):
-        return "requested framework"
-    framework = value.strip()
-    if not framework or len(framework) > 60:
-        return "requested framework"
-    return framework
+        return fallback
+    text = " ".join(value.split())
+    if not text or len(text) > max_length:
+        return fallback
+    return text
 
 
 def _step_substituted(value: str | None) -> str | None:

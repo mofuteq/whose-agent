@@ -16,11 +16,8 @@ from whose_agent.schemas import CheckerComparison, CheckerObservation, PromptCon
 ROOT = Path(__file__).resolve().parents[1]
 POSITIVE_PROMPT = "Use TypeScript with explicit models and avoid any"
 NEGATIVE_PROMPT = "Write a friendly birthday message."
-PROMPT_DRIFT_EVIDENCE = (
-    "Generated TypeScript-shaped output that preserves the surface framework while "
-    "bypassing the delegated type-safety guarantee with unsafe typing."
-)
 PROMPT_DRIFT_ARTIFACT_KIND = "prompt_derived_poor_e2e"
+PROMPT_DRIFT_EVIDENCE_BOUND = 300
 BENCHMARK_ARTIFACT_SUFFIXES = [
     ".classification.json",
     ".response.md",
@@ -79,9 +76,12 @@ def test_run_prompt_loop_positive_mock_emits_contract_and_loop_trace(
     assert do_step["misreader_skill_fired"] is True
     assert do_step["generation_used_skill"] is True
     assert do_step["generation_skill_id"] == "safety_framework_escape_hatch"
-    assert do_step["drift_evidence"] == PROMPT_DRIFT_EVIDENCE
+    assert do_step["drift_evidence"] is not None
+    assert "requested TypeScript surface" in do_step["drift_evidence"]
+    assert "explicit modeling without any" in do_step["drift_evidence"]
+    assert "TypeScript-shaped" not in do_step["drift_evidence"]
     assert do_step["drift_artifact_kind"] == PROMPT_DRIFT_ARTIFACT_KIND
-    assert len(do_step["drift_evidence"]) < 300
+    assert len(do_step["drift_evidence"]) <= PROMPT_DRIFT_EVIDENCE_BOUND
     check_step = loop_trace["step_traces"][2]
     assert check_step["checker_ran"] is True
     assert check_step["checker_observed_bypass"] is True
@@ -181,6 +181,44 @@ def test_run_prompt_loop_unsupported_contract_does_not_fabricate_skill_drift() -
     assert loop_trace.observation_outcome == "not_applicable"
     assert all(step.drift_evidence is None for step in loop_trace.step_traces)
     assert all(step.drift_artifact_kind is None for step in loop_trace.step_traces)
+
+
+def test_run_prompt_loop_contract_detected_long_guarantee_uses_concise_fallback() -> None:
+    long_guarantee = " ".join(["preserve a deeply nested invariant"] * 8)
+    contract = detected_contract(delegated_guarantee=long_guarantee)
+    graph = compile_minimal_loop_graph(mock=True)
+    state = graph.invoke(
+        initial_loop_state_from_prompt_contract(contract, max_iterations=1)
+    )
+
+    loop_trace = render_loop_trace(state)
+    do_step = loop_trace.step_traces[1]
+
+    assert do_step.misreader_skill_fired is True
+    assert do_step.drift_evidence == (
+        "Generated output that preserved the requested TypeScript surface while "
+        "bypassing the delegated guarantee."
+    )
+    assert long_guarantee not in do_step.drift_evidence
+    assert len(do_step.drift_evidence) <= PROMPT_DRIFT_EVIDENCE_BOUND
+
+
+def test_run_prompt_loop_contract_detected_missing_guarantee_uses_concise_fallback() -> None:
+    contract = detected_contract(delegated_guarantee=None)
+    graph = compile_minimal_loop_graph(mock=True)
+    state = graph.invoke(
+        initial_loop_state_from_prompt_contract(contract, max_iterations=1)
+    )
+
+    loop_trace = render_loop_trace(state)
+    do_step = loop_trace.step_traces[1]
+
+    assert do_step.misreader_skill_fired is True
+    assert do_step.drift_evidence == (
+        "Generated output that preserved the requested TypeScript surface while "
+        "bypassing the delegated guarantee."
+    )
+    assert len(do_step.drift_evidence) <= PROMPT_DRIFT_EVIDENCE_BOUND
 
 
 def test_prompt_loop_firing_ignores_preexisting_observation_side_fields() -> None:
@@ -382,4 +420,21 @@ def unsupported_contract() -> PromptContract:
             "A framework-level boundary was detected, but no available skill "
             "perspective applies."
         ),
+    )
+
+
+def detected_contract(*, delegated_guarantee: str | None) -> PromptContract:
+    return PromptContract(
+        prompt="Use TypeScript with strict explicit models.",
+        framework_specified=True,
+        candidate_framework="TypeScript",
+        delegated_guarantee=delegated_guarantee,
+        selected_skill_id="safety_framework_escape_hatch",
+        skill_selection_reason=(
+            "The prompt delegates a framework-level TypeScript guarantee."
+        ),
+        confidence="high",
+        status="contract_detected",
+        available_skill_ids=["safety_framework_escape_hatch"],
+        detection_reason="A supported framework-level guarantee was detected.",
     )
