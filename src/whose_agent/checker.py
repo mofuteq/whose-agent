@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from whose_agent.bad_response import DEFAULT_MODEL
 from whose_agent.llm_result import LLMCallResult, extract_output, extract_usage_details
@@ -22,6 +23,7 @@ CHECKER_MODEL_SETTINGS: dict[str, float | int] = {
     "top_p": 0.1,
     "seed": 42,
 }
+CheckerComparisonMode = Literal["fixed_benchmark", "prompt_observability"]
 
 
 class CheckerError(RuntimeError):
@@ -138,6 +140,7 @@ def compare_checker_observation(
     checker_observation: CheckerObservation | None,
     *,
     misreader_skill_fired: bool,
+    comparison_mode: CheckerComparisonMode = "fixed_benchmark",
 ) -> CheckerComparison:
     template = scenario.checker_template
     if template is None:
@@ -163,8 +166,12 @@ def compare_checker_observation(
         )
 
     cause_expected_bypass = misreader_skill_fired
-    expected_substituted = template.substituted if cause_expected_bypass else "none"
-    expected_failure_mode = template.failure_mode if cause_expected_bypass else "none"
+    if comparison_mode == "fixed_benchmark":
+        expected_substituted = template.substituted
+        expected_failure_mode = template.failure_mode
+    else:
+        expected_substituted = template.substituted if cause_expected_bypass else "none"
+        expected_failure_mode = template.failure_mode if cause_expected_bypass else "none"
 
     if checker_observation is None:
         return CheckerComparison(
@@ -190,6 +197,17 @@ def compare_checker_observation(
             f"{cause_expected_bypass} but got "
             f"{checker_observation.checker_observed_bypass}."
         )
+    if comparison_mode == "fixed_benchmark":
+        if checker_observation.substituted != expected_substituted:
+            mismatch_reasons.append(
+                f"substituted expected {expected_substituted} "
+                f"but got {checker_observation.substituted}."
+            )
+        if checker_observation.failure_mode != expected_failure_mode:
+            mismatch_reasons.append(
+                f"failure_mode expected {expected_failure_mode} "
+                f"but got {checker_observation.failure_mode}."
+            )
 
     return CheckerComparison(
         scenario_id=scenario.scenario_id,

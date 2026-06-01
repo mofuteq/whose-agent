@@ -314,6 +314,11 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
             scenario,
             checker_observation,
             misreader_skill_fired=misreader_skill_fired,
+            comparison_mode=(
+                "prompt_observability"
+                if state.get("loop_source") == "prompt_contract"
+                else "fixed_benchmark"
+            ),
         )
 
         loop_iteration = int(state.get("loop_iteration", 0)) + 1
