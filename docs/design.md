@@ -455,6 +455,26 @@ A `run-loop` does not emit classification or fixed benchmark artifacts.
 `detect-contract` does not emit `.loop_trace.json`.
 `run-prompt-loop` does not emit benchmark artifacts.
 
+## Non-Mock Integration Coverage
+
+Non-mock integration tests validate causal shape and artifact boundaries for
+the `run-prompt-loop` path without a real LLM mock.  They are gated on
+`OPENROUTER_API_KEY` and use the `integration` pytest marker.
+
+These tests assert:
+
+- The correct artifact set is emitted (`.prompt_contract.json` and
+  `.loop_trace.json` only; no fixed benchmark artifacts).
+- `loop_source = "prompt_contract"` and a valid `prompt_contract_status`.
+- For `contract_detected` with a selected skill: `checker_ran=True`,
+  `checker_comparison` is present, and
+  `expected_checker_observed_bypass` derives from `misreader_skill_fired`
+  (not from `PromptContract.status` or `contract_detected`).
+- For `no_contract_detected` or `unsupported`: no synthetic drift is fabricated.
+
+They do not validate model quality, checker generality, or exact LLM output.
+Exact generated text is intentionally not asserted.
+
 ## Future Work
 
 The following are out of scope for the current version:
