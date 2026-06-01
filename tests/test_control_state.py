@@ -111,9 +111,13 @@ def test_step_trace_defaults_are_deterministic() -> None:
 
     assert trace.misreader_skill_fired is False
     assert trace.selected_skill_id is None
+    assert trace.generation_used_skill is False
+    assert trace.generation_skill_id is None
     assert trace.checker_ran is False
     assert trace.checker_observed_bypass is False
     assert trace.trigger_evidence == []
+    assert trace.drift_evidence is None
+    assert trace.drift_artifact_kind is None
     assert trace.substituted is None
     assert trace.boundary_flags == []
     assert trace.divergence_point is None
@@ -129,9 +133,16 @@ def test_step_trace_explicit_construction_and_json_serialization() -> None:
         agent="coding-agent",
         misreader_skill_fired=False,
         selected_skill_id="safety_framework_escape_hatch",
+        generation_used_skill=True,
+        generation_skill_id="safety_framework_escape_hatch",
         checker_ran=True,
         checker_observed_bypass=True,
         trigger_evidence=["The response keeps TypeScript but replaces the guard with any."],
+        drift_evidence=(
+            "Generated output that preserved the requested TypeScript surface while "
+            "bypassing the delegated guarantee: explicit modeling without any."
+        ),
+        drift_artifact_kind="prompt_derived_poor_e2e",
         substituted="instruction",
         boundary_flags=["constraint_override"],
         divergence_point="The guarantee is bypassed while the named framework remains.",
@@ -146,11 +157,18 @@ def test_step_trace_explicit_construction_and_json_serialization() -> None:
         "agent": "coding-agent",
         "misreader_skill_fired": False,
         "selected_skill_id": "safety_framework_escape_hatch",
+        "generation_used_skill": True,
+        "generation_skill_id": "safety_framework_escape_hatch",
         "checker_ran": True,
         "checker_observed_bypass": True,
         "trigger_evidence": [
             "The response keeps TypeScript but replaces the guard with any.",
         ],
+        "drift_evidence": (
+            "Generated output that preserved the requested TypeScript surface while "
+            "bypassing the delegated guarantee: explicit modeling without any."
+        ),
+        "drift_artifact_kind": "prompt_derived_poor_e2e",
         "substituted": "instruction",
         "boundary_flags": ["constraint_override"],
         "divergence_point": "The guarantee is bypassed while the named framework remains.",

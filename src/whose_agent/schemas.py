@@ -93,12 +93,29 @@ class StepTrace(BaseModel):
     agent: AgentId
     misreader_skill_fired: bool = False
     selected_skill_id: str | None = None
+    generation_used_skill: bool = False
+    generation_skill_id: str | None = None
     checker_ran: bool = False
     checker_observed_bypass: bool = False
     trigger_evidence: list[str] = Field(default_factory=list)
+    drift_evidence: str | None = Field(default=None, max_length=300)
+    drift_artifact_kind: str | None = Field(default=None, max_length=80)
     substituted: TraceSubstituted | None = None
     boundary_flags: list[str] = Field(default_factory=list)
     divergence_point: str | None = None
+
+    @field_validator(
+        "generation_skill_id",
+        "drift_evidence",
+        "drift_artifact_kind",
+        mode="before",
+    )
+    @classmethod
+    def trim_optional_step_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = str(value).strip()
+        return value or None
 
 
 class ScenarioTraceTemplate(BaseModel):

@@ -139,7 +139,11 @@ def test_single_iteration_poor_e2e_for_typescript_any() -> None:
     # do: misreader fires (cause-side) and skill-informed generation runs.
     assert do_trace.misreader_skill_fired is True
     assert do_trace.selected_skill_id == "safety_framework_escape_hatch"
+    assert do_trace.generation_used_skill is True
+    assert do_trace.generation_skill_id == "safety_framework_escape_hatch"
     assert do_trace.trigger_evidence
+    assert do_trace.drift_evidence is None
+    assert do_trace.drift_artifact_kind is None
     assert state["generation_used_skill"] is True
     assert state["generation_skill_id"] == "safety_framework_escape_hatch"
 
@@ -173,6 +177,10 @@ def test_single_iteration_none_scenario_is_negative_control() -> None:
 
     assert plan_trace.misreader_skill_fired is False
     assert do_trace.misreader_skill_fired is False
+    assert do_trace.generation_used_skill is False
+    assert do_trace.generation_skill_id is None
+    assert do_trace.drift_evidence is None
+    assert do_trace.drift_artifact_kind is None
     assert state["misreader_skill_fired"] is False
     assert state["skill_triggered"] is False
     assert state["generation_used_skill"] is False
