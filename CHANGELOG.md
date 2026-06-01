@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Compacted README around the current architecture and active command/artifact ownership.
 - Clarified and tested `none` scenarios as negative controls that do not trigger skill drift or checker bypass observations.
 - Added loop trace provenance fields so prompt-derived loop traces record their prompt contract source and status.
 - Removed the legacy `run-prompt` classification path; arbitrary prompt observability is now contract-first via `detect-contract` and `run-prompt-loop`.
