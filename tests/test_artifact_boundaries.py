@@ -19,6 +19,7 @@ ARTIFACT_SUFFIXES = [
     ".trace.json",
     ".checker_comparison.json",
     ".checker.json",
+    ".generated.md",
 ]
 
 
@@ -46,6 +47,7 @@ def test_cli_commands_have_exact_artifact_ownership(tmp_path: Path) -> None:
         {
             ".prompt_contract.json": 1,
             ".loop_trace.json": 1,
+            ".generated.md": 1,
         },
     )
 

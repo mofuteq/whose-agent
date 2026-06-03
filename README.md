@@ -89,7 +89,7 @@ contract-first.
 | `run` | fixed scenario benchmark | benchmark artifacts |
 | `detect-contract` | arbitrary prompt contract detection | `.prompt_contract.json` |
 | `run-loop` | fixed scenario minimal loop observability | `.loop_trace.json` |
-| `run-prompt-loop` | experimental arbitrary prompt loop observability | `.prompt_contract.json`, `.loop_trace.json` |
+| `run-prompt-loop` | experimental arbitrary prompt loop observability | `.prompt_contract.json`, `.loop_trace.json`, conditionally `prompt_loop.generated.md` |
 
 ## Artifact Ownership
 
@@ -103,6 +103,7 @@ contract-first.
 | `.checker_comparison.json` | `run` | expected-vs-actual checker comparison |
 | `.prompt_contract.json` | `detect-contract`, `run-prompt-loop` | arbitrary prompt contract |
 | `.loop_trace.json` | `run-loop`, `run-prompt-loop` | minimal loop projection |
+| `prompt_loop.generated.md` | `run-prompt-loop` | prompt-derived do-step generated output observed by the checker |
 
 Each CLI invocation writes generated files into a timestamped run directory
 under the requested output root.
@@ -184,9 +185,16 @@ Prompt contract status values:
 `detect-contract` does not run a loop. It emits only `.prompt_contract.json`.
 
 `run-prompt-loop` detects the contract and then runs the controlled minimal loop
-as a synthetic `prompt_loop` run. It emits `.prompt_contract.json` and
-`.loop_trace.json`, but it does not emit classification, response, benchmark
-trace, state trace, checker, or checker comparison artifacts.
+as a synthetic `prompt_loop` run. It emits `.prompt_contract.json`,
+`.loop_trace.json`, and, for supported detected contracts only,
+`prompt_loop.generated.md`, but it does not emit classification, benchmark
+response, benchmark trace, state trace, checker, or checker comparison
+artifacts.
+
+`prompt_loop.generated.md` is the human-readable projection of the
+prompt-derived do-step generated output. It is the exact output observed by the
+checker. It is not fixed benchmark `.response.md` and does not turn arbitrary
+prompts into benchmark scenarios.
 
 Prompt-derived loop traces carry provenance, including
 `loop_source = "prompt_contract"`, the prompt contract status, and the prompt
@@ -231,8 +239,8 @@ The resulting `prompt_loop.loop_trace.json` artifact is synthetic arbitrary
 prompt observability, not a benchmark scenario result. There is no scenario
 YAML, no scenario-grounded checker expectation, and no emitted `.checker.json`
 or `.checker_comparison.json` artifact. Prompt-derived poor-e2e evidence stays
-inside the loop trace; human-readable `.response.md` remains owned by the fixed
-`run` benchmark path.
+inside the loop trace; fixed benchmark `.response.md` remains owned by the
+fixed `run` benchmark path.
 
 ## Core Design Rules
 

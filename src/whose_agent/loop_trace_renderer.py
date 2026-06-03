@@ -26,6 +26,10 @@ def render_loop_trace(state: WhoseAgentState) -> LoopTrace:
             "prompt_contract_delegated_guarantee"
         ),
         prompt_contract_artifact=state.get("prompt_contract_artifact"),
+        prompt_loop_generated_artifact=state.get("prompt_loop_generated_artifact"),
+        prompt_loop_generated_step_index=state.get(
+            "prompt_loop_generated_step_index"
+        ),
         principal=state.get("principal", "user"),
         agent=state.get("agent", "assistant"),
         max_iterations=int(state.get("max_iterations", 1)),

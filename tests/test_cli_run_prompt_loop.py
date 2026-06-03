@@ -10,9 +10,13 @@ import pytest
 
 from tests.helpers import single_run_dir
 from whose_agent.checker import CheckerEmissionResult
+from whose_agent.loop_artifacts import PROMPT_LOOP_GENERATED_FILENAME
 from whose_agent.loop_trace_renderer import render_loop_trace
 from whose_agent.minimal_loop_graph import compile_minimal_loop_graph
-from whose_agent.prompt_loop import initial_loop_state_from_prompt_contract
+from whose_agent.prompt_loop import (
+    initial_loop_state_from_prompt_contract,
+    run_prompt_loop_to_artifact,
+)
 from whose_agent.schemas import CheckerComparison, CheckerObservation, PromptContract
 
 
@@ -38,13 +42,18 @@ def test_run_prompt_loop_positive_mock_defaults_to_non_fired_happy_path(
     run_dir = single_run_dir(tmp_path)
 
     assert f"Wrote outputs to {run_dir}" in completed.stdout
-    assert "Wrote 1 prompt contract file and 1 loop trace file." in completed.stdout
+    assert (
+        "Wrote 1 prompt contract file, 1 loop trace file, and 1 generated file."
+        in completed.stdout
+    )
     assert sorted(path.name for path in run_dir.iterdir()) == [
         "prompt_contract.prompt_contract.json",
+        PROMPT_LOOP_GENERATED_FILENAME,
         "prompt_loop.loop_trace.json",
     ]
     assert len(list(run_dir.glob("*.prompt_contract.json"))) == 1
     assert len(list(run_dir.glob("*.loop_trace.json"))) == 1
+    assert len(list(run_dir.glob("*.generated.md"))) == 1
     for suffix in BENCHMARK_ARTIFACT_SUFFIXES:
         assert list(run_dir.glob(f"*{suffix}")) == []
 
@@ -60,6 +69,7 @@ def test_run_prompt_loop_positive_mock_defaults_to_non_fired_happy_path(
     assert loop_trace["prompt_contract_candidate_framework"] == "TypeScript"
     assert loop_trace["prompt_contract_delegated_guarantee"] is not None
     assert loop_trace["prompt_contract_artifact"] == "prompt_contract.prompt_contract.json"
+    assert loop_trace["prompt_loop_generated_artifact"] == PROMPT_LOOP_GENERATED_FILENAME
     assert "available_skill_ids" not in loop_trace
     assert "skill_selection_reason" not in loop_trace
     assert "detection_reason" not in loop_trace
@@ -81,6 +91,7 @@ def test_run_prompt_loop_positive_mock_defaults_to_non_fired_happy_path(
     assert do_step["generation_skill_id"] is None
     assert do_step["drift_evidence"] is None
     assert do_step["drift_artifact_kind"] is None
+    assert loop_trace["prompt_loop_generated_step_index"] == do_step["step_index"]
     check_step = loop_trace["step_traces"][2]
     assert check_step["checker_ran"] is True
     assert check_step["checker_observed_bypass"] is False
@@ -110,6 +121,90 @@ def test_run_prompt_loop_positive_mock_max_iterations_2(
         "do",
         "check",
     ]
+    assert loop_trace["prompt_loop_generated_artifact"] == PROMPT_LOOP_GENERATED_FILENAME
+    assert loop_trace["prompt_loop_generated_step_index"] == 4
+
+
+@pytest.mark.skipif(
+    not os.environ.get("OPENROUTER_API_KEY"),
+    reason="OPENROUTER_API_KEY is required for non-mock integration.",
+)
+@pytest.mark.integration
+def test_run_prompt_loop_non_mock_supported_artifact_set_if_credentials_exist(
+    tmp_path: Path,
+) -> None:
+    run_prompt_loop_cli(POSITIVE_PROMPT, tmp_path, mock=False)
+    run_dir = single_run_dir(tmp_path)
+
+    assert sorted(path.name for path in run_dir.iterdir()) == [
+        "prompt_contract.prompt_contract.json",
+        PROMPT_LOOP_GENERATED_FILENAME,
+        "prompt_loop.loop_trace.json",
+    ]
+
+    generated_output = (run_dir / PROMPT_LOOP_GENERATED_FILENAME).read_text(
+        encoding="utf-8"
+    )
+    assert generated_output
+
+    loop_trace = read_json(run_dir / "prompt_loop.loop_trace.json")
+    assert loop_trace["prompt_contract_status"] == "contract_detected"
+    assert loop_trace["selected_skill_id"] is not None
+    assert loop_trace["prompt_loop_generated_artifact"] == PROMPT_LOOP_GENERATED_FILENAME
+    assert loop_trace["prompt_loop_generated_step_index"] is not None
+
+
+@pytest.mark.parametrize(
+    ("misreader_firing_decision", "expected_fired"),
+    [(True, True), (False, False)],
+)
+def test_run_prompt_loop_supported_generated_artifact_matches_checker_input(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    misreader_firing_decision: bool,
+    expected_fired: bool,
+) -> None:
+    import whose_agent.minimal_loop_graph as minimal_loop_graph_module
+
+    checker_inputs: list[str] = []
+    original_check_with_usage = minimal_loop_graph_module.check_with_usage
+
+    def spy_check_with_usage(
+        scenario,
+        bad_response,
+        *,
+        mock=False,
+    ) -> CheckerEmissionResult:
+        checker_inputs.append(bad_response)
+        return original_check_with_usage(scenario, bad_response, mock=mock)
+
+    monkeypatch.setattr(
+        minimal_loop_graph_module,
+        "check_with_usage",
+        spy_check_with_usage,
+    )
+
+    _, _, generated_path = run_prompt_loop_to_artifact(
+        POSITIVE_PROMPT,
+        tmp_path,
+        mock=True,
+        misreader_firing_decision=misreader_firing_decision,
+    )
+
+    assert generated_path is not None
+    assert generated_path.name == PROMPT_LOOP_GENERATED_FILENAME
+    assert checker_inputs
+    generated_output = generated_path.read_text(encoding="utf-8")
+    assert generated_output == checker_inputs[-1]
+
+    loop_trace = read_json(tmp_path / "prompt_loop.loop_trace.json")
+    do_step = loop_trace["step_traces"][1]
+    assert do_step["step_kind"] == "do"
+    assert do_step["misreader_skill_fired"] is expected_fired
+    assert loop_trace["prompt_loop_generated_artifact"] == PROMPT_LOOP_GENERATED_FILENAME
+    assert loop_trace["prompt_loop_generated_step_index"] == do_step["step_index"]
+    assert loop_trace["checker_ran"] is True
+    assert loop_trace["checker_observed_bypass"] is expected_fired
 
 
 def test_run_prompt_loop_contract_detected_fired_path_uses_skill_and_records_drift() -> None:
@@ -322,6 +417,7 @@ def test_run_prompt_loop_negative_mock_does_not_fire_misreader(
 
     assert (run_dir / "prompt_contract.prompt_contract.json").exists()
     assert (run_dir / "prompt_loop.loop_trace.json").exists()
+    assert not (run_dir / PROMPT_LOOP_GENERATED_FILENAME).exists()
 
     contract = read_json(run_dir / "prompt_contract.prompt_contract.json")
     assert contract["framework_specified"] is False
@@ -334,6 +430,8 @@ def test_run_prompt_loop_negative_mock_does_not_fire_misreader(
     assert loop_trace["prompt_contract_candidate_framework"] is None
     assert loop_trace["prompt_contract_delegated_guarantee"] is None
     assert loop_trace["prompt_contract_artifact"] == "prompt_contract.prompt_contract.json"
+    assert loop_trace["prompt_loop_generated_artifact"] is None
+    assert loop_trace["prompt_loop_generated_step_index"] is None
     assert loop_trace["framework_specified"] is False
     assert loop_trace["selected_skill_id"] is None
     do_step = loop_trace["step_traces"][1]
@@ -373,6 +471,8 @@ def test_run_prompt_loop_unsupported_contract_does_not_fabricate_skill_drift() -
     assert loop_trace.prompt_contract_candidate_framework is not None
     assert loop_trace.prompt_contract_delegated_guarantee is not None
     assert loop_trace.prompt_contract_artifact is None
+    assert loop_trace.prompt_loop_generated_artifact is None
+    assert loop_trace.prompt_loop_generated_step_index is None
     assert loop_trace.framework_specified is True
     assert loop_trace.selected_skill_id is None
     assert loop_trace.generation_used_skill is False
@@ -392,6 +492,32 @@ def test_run_prompt_loop_unsupported_contract_does_not_fabricate_skill_drift() -
     assert loop_trace.observation_outcome == "not_applicable"
     assert all(step.drift_evidence is None for step in loop_trace.step_traces)
     assert all(step.drift_artifact_kind is None for step in loop_trace.step_traces)
+
+
+def test_run_prompt_loop_unsupported_contract_does_not_emit_generated_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "whose_agent.prompt_loop.detect_prompt_contract",
+        lambda prompt, *, mock=False: unsupported_contract(),
+    )
+
+    _, _, generated_path = run_prompt_loop_to_artifact(
+        "Use a formal proof system and preserve all invariants.",
+        tmp_path,
+        mock=True,
+        misreader_firing_decision=True,
+    )
+
+    assert generated_path is None
+    assert not (tmp_path / PROMPT_LOOP_GENERATED_FILENAME).exists()
+
+    loop_trace = read_json(tmp_path / "prompt_loop.loop_trace.json")
+    assert loop_trace["prompt_contract_status"] == "unsupported"
+    assert loop_trace["selected_skill_id"] is None
+    assert loop_trace["prompt_loop_generated_artifact"] is None
+    assert loop_trace["prompt_loop_generated_step_index"] is None
 
 
 def test_run_prompt_loop_contract_detected_long_guarantee_uses_concise_fallback() -> None:
@@ -497,8 +623,11 @@ def test_existing_commands_keep_artifact_boundaries(tmp_path: Path) -> None:
 
     assert list(single_run_dir(fixed_outputs).glob("*.prompt_contract.json")) == []
     assert list(single_run_dir(fixed_outputs).glob("*.loop_trace.json")) == []
+    assert list(single_run_dir(fixed_outputs).glob("*.generated.md")) == []
     assert list(single_run_dir(loop_outputs).glob("*.prompt_contract.json")) == []
+    assert list(single_run_dir(loop_outputs).glob("*.generated.md")) == []
     assert list(single_run_dir(contract_outputs).glob("*.loop_trace.json")) == []
+    assert list(single_run_dir(contract_outputs).glob("*.generated.md")) == []
 
 
 def test_run_prompt_loop_runtime_boundaries() -> None:
@@ -542,6 +671,7 @@ def run_prompt_loop_cli(
     outputs: Path,
     *,
     max_iterations: int | None = None,
+    mock: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     command = [
         sys.executable,
@@ -552,8 +682,9 @@ def run_prompt_loop_cli(
         prompt,
         "--outputs",
         str(outputs),
-        "--mock",
     ]
+    if mock:
+        command.append("--mock")
     if max_iterations is not None:
         command += ["--max-iterations", str(max_iterations)]
     return run_cli(command)
