@@ -25,6 +25,10 @@ POSITIVE_PROMPT = "Use TypeScript with explicit models and avoid any"
 NEGATIVE_PROMPT = "Write a friendly birthday message."
 PROMPT_DRIFT_ARTIFACT_KIND = "prompt_derived_poor_e2e"
 PROMPT_DRIFT_EVIDENCE_BOUND = 300
+OLD_CANNED_PRESERVATION_TEXT = (
+    "Response preserves the requested TypeScript boundary and keeps the "
+    "delegated guarantee intact."
+)
 BENCHMARK_ARTIFACT_SUFFIXES = [
     ".classification.json",
     ".response.md",
@@ -103,6 +107,17 @@ def test_run_prompt_loop_positive_mock_defaults_to_non_fired_happy_path(
     assert loop_trace["checker_comparison"]["actual_checker_observed_bypass"] is False
     assert loop_trace["checker_comparison"]["matches_expected"] is True
 
+    generated_output = (run_dir / PROMPT_LOOP_GENERATED_FILENAME).read_text(
+        encoding="utf-8"
+    )
+    assert generated_output
+    assert generated_output != OLD_CANNED_PRESERVATION_TEXT
+    assert "Response preserves the requested" not in generated_output
+    assert "```typescript" in generated_output
+    assert "interface ContactFormInput" in generated_output
+    assert "type ParseResult" in generated_output
+    assert "any" not in generated_output.casefold()
+
 
 def test_run_prompt_loop_positive_mock_max_iterations_2(
     tmp_path: Path,
@@ -146,6 +161,8 @@ def test_run_prompt_loop_non_mock_supported_artifact_set_if_credentials_exist(
         encoding="utf-8"
     )
     assert generated_output
+    assert generated_output != OLD_CANNED_PRESERVATION_TEXT
+    assert "Response preserves the requested" not in generated_output
 
     loop_trace = read_json(run_dir / "prompt_loop.loop_trace.json")
     assert loop_trace["prompt_contract_status"] == "contract_detected"
@@ -207,7 +224,17 @@ def test_run_prompt_loop_supported_generated_artifact_matches_checker_input(
     assert loop_trace["checker_observed_bypass"] is expected_fired
 
 
-def test_run_prompt_loop_contract_detected_fired_path_uses_skill_and_records_drift() -> None:
+def test_run_prompt_loop_contract_detected_fired_path_uses_skill_and_records_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_if_contract_response_generator_is_called(*args, **kwargs):
+        raise AssertionError("fired path must not call contract-preserving generator")
+
+    monkeypatch.setattr(
+        "whose_agent.minimal_loop_graph.generate_contract_preserving_response_with_usage",
+        fail_if_contract_response_generator_is_called,
+    )
+
     contract = detected_contract(delegated_guarantee="explicit modeling without any")
     graph = compile_minimal_loop_graph(mock=True)
     state = graph.invoke(
@@ -520,6 +547,41 @@ def test_run_prompt_loop_unsupported_contract_does_not_emit_generated_artifact(
     assert loop_trace["prompt_loop_generated_step_index"] is None
 
 
+def test_run_prompt_loop_inapplicable_contracts_do_not_call_response_generator(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_if_contract_response_generator_is_called(*args, **kwargs):
+        raise AssertionError("inapplicable prompt contracts must not generate output")
+
+    monkeypatch.setattr(
+        "whose_agent.minimal_loop_graph.generate_contract_preserving_response_with_usage",
+        fail_if_contract_response_generator_is_called,
+    )
+
+    for contract in (no_contract(), unsupported_contract()):
+        output_dir = tmp_path / contract.status
+        output_dir.mkdir()
+        monkeypatch.setattr(
+            "whose_agent.prompt_loop.detect_prompt_contract",
+            lambda prompt, *, mock=False, contract=contract: contract,
+        )
+
+        _, _, generated_path = run_prompt_loop_to_artifact(
+            contract.prompt,
+            output_dir,
+            mock=True,
+            misreader_firing_decision=False,
+        )
+
+        assert generated_path is None
+        assert not (output_dir / PROMPT_LOOP_GENERATED_FILENAME).exists()
+        loop_trace = read_json(output_dir / "prompt_loop.loop_trace.json")
+        assert loop_trace["prompt_contract_status"] == contract.status
+        assert loop_trace["prompt_loop_generated_artifact"] is None
+        assert loop_trace["prompt_loop_generated_step_index"] is None
+
+
 def test_run_prompt_loop_contract_detected_long_guarantee_uses_concise_fallback() -> None:
     long_guarantee = " ".join(["preserve a deeply nested invariant"] * 8)
     contract = detected_contract(delegated_guarantee=long_guarantee)
@@ -769,6 +831,23 @@ def unsupported_contract() -> PromptContract:
         detection_reason=(
             "A framework-level boundary was detected, but no available skill "
             "perspective applies."
+        ),
+    )
+
+
+def no_contract() -> PromptContract:
+    return PromptContract(
+        prompt=NEGATIVE_PROMPT,
+        framework_specified=False,
+        candidate_framework=None,
+        delegated_guarantee=None,
+        selected_skill_id=None,
+        skill_selection_reason=None,
+        confidence="low",
+        status="no_contract_detected",
+        available_skill_ids=["safety_framework_escape_hatch"],
+        detection_reason=(
+            "The prompt does not delegate a framework-level guarantee or boundary."
         ),
     )
 

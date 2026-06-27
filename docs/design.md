@@ -320,9 +320,12 @@ Human-readable fixed benchmark `.response.md` remains owned by fixed `run`.
 For `contract_detected` prompt contracts with `selected_skill_id != null`,
 `run-prompt-loop` also emits `prompt_loop.generated.md`.
 `prompt_loop.generated.md` is the human-readable projection of the
-prompt-derived do-step generated output. It is the exact output observed by the
-checker. It is not fixed benchmark `.response.md` and does not turn arbitrary
-prompts into benchmark scenarios.
+prompt-derived do-step output. In supported non-fired prompt loops, it is a
+contract-preserving candidate response to the principal. In fired prompt loops,
+it is an intentionally drifted candidate response. In both cases, it is the
+exact output observed by the checker. It is not fixed benchmark `.response.md`
+and does not turn arbitrary prompts into benchmark scenarios or a general
+production agent runtime.
 
 Prompt-derived `drift_evidence` is contract-field-derived. It is generated from
 `PromptContract` fields such as `candidate_framework` and

@@ -103,7 +103,7 @@ contract-first.
 | `.checker_comparison.json` | `run` | expected-vs-actual checker comparison |
 | `.prompt_contract.json` | `detect-contract`, `run-prompt-loop` | arbitrary prompt contract |
 | `.loop_trace.json` | `run-loop`, `run-prompt-loop` | minimal loop projection |
-| `prompt_loop.generated.md` | `run-prompt-loop` | prompt-derived do-step generated output observed by the checker |
+| `prompt_loop.generated.md` | `run-prompt-loop` | prompt-derived candidate response observed exactly by the checker |
 
 Each CLI invocation writes generated files into a timestamped run directory
 under the requested output root.
@@ -192,9 +192,12 @@ response, benchmark trace, state trace, checker, or checker comparison
 artifacts.
 
 `prompt_loop.generated.md` is the human-readable projection of the
-prompt-derived do-step generated output. It is the exact output observed by the
-checker. It is not fixed benchmark `.response.md` and does not turn arbitrary
-prompts into benchmark scenarios.
+prompt-derived do-step output. In supported non-fired prompt loops, it is a
+contract-preserving candidate response to the principal. In fired prompt loops,
+it is an intentionally drifted candidate response. In both cases, it is the
+exact output observed by the checker. It is not fixed benchmark `.response.md`
+and does not turn arbitrary prompts into benchmark scenarios or a general
+production agent runtime.
 
 Prompt-derived loop traces carry provenance, including
 `loop_source = "prompt_contract"`, the prompt contract status, and the prompt
