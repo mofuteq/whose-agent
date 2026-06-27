@@ -14,6 +14,13 @@ from typing import Any, cast
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel
 
+from whose_agent.action_attempts import extract_external_persistence_attempt
+from whose_agent.authority_provenance import (
+    authority_trigger_evidence,
+    derive_external_persistence_provenance_from_records,
+    evaluate_external_persistence_attempt,
+    is_self_originated_delegation_laundering,
+)
 from whose_agent.bad_response import generate_bad_response_with_usage
 from whose_agent.checker import (
     check_with_usage,
@@ -23,6 +30,7 @@ from whose_agent.checker import (
 from whose_agent.classifier import classify_scenario
 from whose_agent.llm_result import LLMCallResult
 from whose_agent.schemas import (
+    AuthorityProvenance,
     BoundaryStateTrace,
     CheckerObservation,
     Classification,
@@ -42,6 +50,14 @@ CHECKER_ID = "skill-perspective-checker"
 
 
 def initial_state_from_scenario(scenario: Scenario) -> WhoseAgentState:
+    authority_provenance: AuthorityProvenance | None = None
+    authority_action_attempt_turn: int | None = None
+    if scenario.message_history:
+        _, authority_provenance, authority_action_attempt_turn = (
+            derive_external_persistence_provenance_from_records(
+                scenario.message_history
+            )
+        )
     return {
         "principal": "user",
         "agent": "assistant",
@@ -78,6 +94,8 @@ def initial_state_from_scenario(scenario: Scenario) -> WhoseAgentState:
         "failure_mode": scenario.failure_mode,
         "divergence_point": None,
         "boundary_flags": [],
+        "authority_provenance": authority_provenance,
+        "authority_action_attempt_turn": authority_action_attempt_turn,
         "step_traces": [],
         "errors": [],
     }
@@ -201,6 +219,21 @@ def build_fixed_scenario_graph(
                 **_step_update(state, "plan", selected_skill_id=None),
             }
 
+        if _uses_authority_provenance(state):
+            return {
+                "selected_skill_id": selected_skill_id,
+                "selected_skill_perspective": None,
+                "skill_triggered": False,
+                "misreader_skill_fired": False,
+                **_step_update(
+                    state,
+                    "plan",
+                    selected_skill_id=selected_skill_id,
+                    misreader_skill_fired=False,
+                    authority_provenance=state.get("authority_provenance"),
+                ),
+            }
+
         selected_skill_perspective = load_skill_perspective(selected_skill_id)
         trigger_evidence = [
             "Scenario selected skill "
@@ -261,6 +294,42 @@ def build_fixed_scenario_graph(
                 mock=mock,
             )
             bad_response = bad_response_call.output
+            authority_update: dict[str, Any] = {}
+            authority_step_trigger_evidence: list[str] | None = None
+            authority_step_fired: bool | None = None
+            if _uses_authority_provenance(state):
+                action_attempt = extract_external_persistence_attempt(
+                    bad_response,
+                    mock=mock,
+                )
+                action_attempt_turn = (
+                    state.get("authority_action_attempt_turn")
+                    if action_attempt is not None
+                    else None
+                )
+                authority_provenance = evaluate_external_persistence_attempt(
+                    state.get("authority_provenance"),
+                    action_attempt,
+                    action_attempt_turn=action_attempt_turn,
+                )
+                authority_step_fired = is_self_originated_delegation_laundering(
+                    authority_provenance
+                )
+                authority_step_trigger_evidence = authority_trigger_evidence(
+                    authority_provenance
+                )
+                selected_skill_perspective = (
+                    load_skill_perspective(cast(str, selected_skill_id))
+                    if authority_step_fired and selected_skill_id is not None
+                    else selected_skill_perspective
+                )
+                authority_update = {
+                    "authority_provenance": authority_provenance,
+                    "selected_skill_perspective": selected_skill_perspective,
+                    "skill_triggered": authority_step_fired,
+                    "misreader_skill_fired": authority_step_fired,
+                    "trigger_evidence": authority_step_trigger_evidence,
+                }
             update_span_with_llm_call(
                 span,
                 output={
@@ -278,7 +347,19 @@ def build_fixed_scenario_graph(
             "generation_used_skill": generation_used_skill,
             "generation_skill_id": selected_skill_id if generation_used_skill else None,
             "next_action": "continue",
-            **_step_update(state, "do"),
+            **authority_update,
+            **_step_update(
+                state,
+                "do",
+                selected_skill_id=selected_skill_id,
+                misreader_skill_fired=authority_step_fired,
+                trigger_evidence=authority_step_trigger_evidence,
+                authority_provenance=(
+                    authority_update.get("authority_provenance")
+                    if authority_update
+                    else None
+                ),
+            ),
         }
 
     def analyze_trace(state: WhoseAgentState) -> WhoseAgentState:
@@ -636,6 +717,13 @@ def _route_after_classification(state: WhoseAgentState) -> str:
     return classification.classification
 
 
+def _uses_authority_provenance(state: WhoseAgentState) -> bool:
+    return (
+        state.get("authority_provenance") is not None
+        and state.get("selected_skill_id") == "authority_scope_expansion"
+    )
+
+
 def _step_update(
     state: WhoseAgentState,
     step_kind: StepKind,
@@ -645,6 +733,7 @@ def _step_update(
     trigger_evidence: list[str] | None = None,
     checker_ran: bool = False,
     checker_observed_bypass: bool = False,
+    authority_provenance: AuthorityProvenance | None = None,
     substituted: str | None = None,
     boundary_flags: list[str] | None = None,
     divergence_point: str | None = None,
@@ -671,6 +760,7 @@ def _step_update(
         checker_ran=checker_ran,
         checker_observed_bypass=checker_observed_bypass,
         trigger_evidence=step_trigger_evidence,
+        authority_provenance=authority_provenance,
         substituted=_step_substituted(substituted),
         boundary_flags=list(boundary_flags or []),
         divergence_point=divergence_point,

@@ -9,6 +9,15 @@ from whose_agent.bad_response import BadResponseError
 from whose_agent.checker import CheckerError
 from whose_agent.env_loader import load_env_file
 from whose_agent.firing_signals import FiringSignals, QuotaSignal
+from whose_agent.authority_provenance import (
+    derive_external_persistence_provenance,
+    next_agent_turn_index,
+)
+from whose_agent.history_adapter import (
+    MessageHistoryError,
+    current_principal_prompt,
+    load_message_history_file,
+)
 from whose_agent.loop_artifacts import run_minimal_loop_to_artifact
 from whose_agent.prompt_contract_artifacts import write_prompt_contract
 from whose_agent.prompt_contract_detector import (
@@ -19,6 +28,7 @@ from whose_agent.prompt_loop import run_prompt_loop_to_artifact
 from whose_agent.reflection import ReflectionError
 from whose_agent.run_directory import create_run_directory
 from whose_agent.scenario_loader import load_scenario, load_scenarios
+from whose_agent.schemas import AuthorityProvenance
 from whose_agent.state_graph import compile_fixed_scenario_graph, initial_state_from_scenario
 from whose_agent.tracing import create_observability_tracer
 
@@ -105,7 +115,12 @@ def detect_contract_command(args: argparse.Namespace) -> int:
     load_env_file(Path(args.env_file))
 
     run_dir = create_run_directory(Path(args.outputs))
-    contract = detect_prompt_contract(args.prompt, mock=args.mock)
+    prompt, authority_provenance, _ = _prompt_input_from_args(args)
+    contract = detect_prompt_contract(
+        prompt,
+        mock=args.mock,
+        authority_provenance=authority_provenance,
+    )
     write_prompt_contract(contract, run_dir)
 
     print(f"Wrote outputs to {run_dir}")
@@ -118,16 +133,24 @@ def run_prompt_loop_command(args: argparse.Namespace) -> int:
 
     run_dir = create_run_directory(Path(args.outputs))
     try:
-        firing_signals = _firing_signals_from_args(args)
-    except ValueError as exc:
+        prompt, authority_provenance, authority_action_attempt_turn = (
+            _prompt_input_from_args(args)
+        )
+        parsed_firing_signals = _firing_signals_from_args(args)
+        firing_signals = (
+            None if authority_provenance is not None else parsed_firing_signals
+        )
+    except (MessageHistoryError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     _, _, generated_path = run_prompt_loop_to_artifact(
-        args.prompt,
+        prompt,
         run_dir,
         mock=args.mock,
         max_iterations=args.max_iterations,
         firing_signals=firing_signals,
+        authority_provenance=authority_provenance,
+        authority_action_attempt_turn=authority_action_attempt_turn,
     )
 
     print(f"Wrote outputs to {run_dir}")
@@ -161,7 +184,12 @@ def build_parser() -> argparse.ArgumentParser:
         "detect-contract",
         help="Detect a prompt contract for one arbitrary principal prompt.",
     )
-    contract_parser.add_argument("--prompt", required=True, help="Principal prompt text to inspect.")
+    contract_input_group = contract_parser.add_mutually_exclusive_group(required=True)
+    contract_input_group.add_argument("--prompt", help="Principal prompt text to inspect.")
+    contract_input_group.add_argument(
+        "--messages-file",
+        help="JSON array of OpenAI-compatible role/content messages.",
+    )
     contract_parser.add_argument("--outputs", required=True, help="Directory for generated output files.")
     contract_parser.add_argument("--env-file", default=".env", help="Path to a dotenv file.")
     contract_parser.add_argument("--mock", action="store_true", help="Use deterministic local contract detection.")
@@ -171,7 +199,12 @@ def build_parser() -> argparse.ArgumentParser:
         "run-prompt-loop",
         help="Run experimental loop observability for one arbitrary prompt.",
     )
-    prompt_loop_parser.add_argument("--prompt", required=True, help="Principal prompt text to inspect and loop.")
+    prompt_loop_input_group = prompt_loop_parser.add_mutually_exclusive_group(required=True)
+    prompt_loop_input_group.add_argument("--prompt", help="Principal prompt text to inspect and loop.")
+    prompt_loop_input_group.add_argument(
+        "--messages-file",
+        help="JSON array of OpenAI-compatible role/content messages.",
+    )
     prompt_loop_parser.add_argument("--outputs", required=True, help="Directory for generated output files.")
     prompt_loop_parser.add_argument("--env-file", default=".env", help="Path to a dotenv file.")
     prompt_loop_parser.add_argument("--mock", action="store_true", help="Use deterministic local contract detection and loop responses.")
@@ -228,6 +261,19 @@ def _firing_signals_from_args(args: argparse.Namespace) -> FiringSignals:
     )
 
 
+def _prompt_input_from_args(
+    args: argparse.Namespace,
+) -> tuple[str, AuthorityProvenance | None, int | None]:
+    messages_file = getattr(args, "messages_file", None)
+    if messages_file is None:
+        return args.prompt, None, None
+
+    messages = load_message_history_file(Path(messages_file))
+    prompt = current_principal_prompt(messages)
+    authority_provenance = derive_external_persistence_provenance(messages)
+    return prompt, authority_provenance, next_agent_turn_index(messages)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -236,6 +282,7 @@ def main(argv: list[str] | None = None) -> int:
     except (
         BadResponseError,
         CheckerError,
+        MessageHistoryError,
         PromptContractDetectorError,
         ReflectionError,
     ) as exc:

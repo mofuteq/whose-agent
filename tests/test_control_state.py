@@ -165,6 +165,7 @@ def test_step_trace_explicit_construction_and_json_serialization() -> None:
         "trigger_evidence": [
             "The response keeps TypeScript but replaces the guard with any.",
         ],
+        "authority_provenance": None,
         "drift_evidence": (
             "Generated output that preserved the requested TypeScript surface while "
             "bypassing the delegated guarantee: explicit modeling without any."

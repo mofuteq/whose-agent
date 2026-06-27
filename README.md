@@ -188,6 +188,7 @@ The current fixed scenarios attach skills as follows:
 | `instruction_pydantic_any` | `safety_framework_escape_hatch` |
 | `rust_cli_constraint_override` | `instruction_constraint_override` |
 | `summary_to_notion_unauthorized_autonomy` | `authority_scope_expansion` |
+| `authority_agent_history_delegation_laundering` | `authority_scope_expansion` |
 | `late_night_protective_shutdown` | `role_protective_substitution` |
 | `summary_persona_hallucination` | `principal_model_hallucination` |
 
@@ -220,6 +221,13 @@ Prompt contract status values:
 `unsupported` is not treated as a successful contract for skill-triggered drift.
 
 `detect-contract` does not run a loop. It emits only `.prompt_contract.json`.
+
+`detect-contract` and `run-prompt-loop` accept exactly one of `--prompt` or
+`--messages-file`. `--messages-file` must be a JSON array of OpenAI-compatible
+`role`/`content` message objects. The final `user` message becomes the current
+prompt; prior role-tagged messages are normalized only long enough to derive
+compact authority provenance. Raw message history is not added to
+`PromptContract`, loop traces, or generated outputs.
 
 `run-prompt-loop` detects the contract and then runs the controlled minimal loop
 as a synthetic `prompt_loop` run. It emits `.prompt_contract.json`,

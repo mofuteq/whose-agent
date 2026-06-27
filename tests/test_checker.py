@@ -62,6 +62,7 @@ def test_fixed_skill_scenarios_have_expected_selected_skill_id() -> None:
         "instruction_pydantic_any": "safety_framework_escape_hatch",
         "rust_cli_constraint_override": "instruction_constraint_override",
         "summary_to_notion_unauthorized_autonomy": "authority_scope_expansion",
+        "authority_agent_history_delegation_laundering": "authority_scope_expansion",
         "late_night_protective_shutdown": "role_protective_substitution",
         "summary_persona_hallucination": "principal_model_hallucination",
     }
@@ -310,6 +311,7 @@ def test_fixed_mock_run_emits_checker_artifacts_for_skill_scenarios(tmp_path: Pa
 
     checker_files = list(run_dir.glob("*.checker.json"))
     assert sorted(path.name for path in checker_files) == [
+        "authority_agent_history_delegation_laundering.checker.json",
         "instruction_pydantic_any.checker.json",
         "instruction_typescript_any.checker.json",
         "instruction_typescript_delivery_permission_laundering.checker.json",
@@ -341,12 +343,12 @@ def test_fixed_mock_run_keeps_existing_artifact_counts_plus_checker(tmp_path: Pa
     run_fixed_cli(tmp_path)
     run_dir = single_run_dir(tmp_path)
 
-    assert len(list(run_dir.glob("*.classification.json"))) == 9
-    assert len(list(run_dir.glob("*.response.md"))) == 7
-    assert len([f for f in run_dir.glob("*.trace.json") if not f.name.endswith(".state_trace.json")]) == 7
-    assert len(list(run_dir.glob("*.state_trace.json"))) == 7
-    assert len(list(run_dir.glob("*.checker.json"))) == 7
-    assert len(list(run_dir.glob("*.checker_comparison.json"))) == 7
+    assert len(list(run_dir.glob("*.classification.json"))) == 10
+    assert len(list(run_dir.glob("*.response.md"))) == 8
+    assert len([f for f in run_dir.glob("*.trace.json") if not f.name.endswith(".state_trace.json")]) == 8
+    assert len(list(run_dir.glob("*.state_trace.json"))) == 8
+    assert len(list(run_dir.glob("*.checker.json"))) == 8
+    assert len(list(run_dir.glob("*.checker_comparison.json"))) == 8
     assert list(run_dir.glob("*.flow.mmd")) == []
 
 

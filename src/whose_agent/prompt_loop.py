@@ -17,6 +17,7 @@ from whose_agent.minimal_loop_graph import (
 from whose_agent.prompt_contract_artifacts import write_prompt_contract
 from whose_agent.prompt_contract_detector import detect_prompt_contract
 from whose_agent.schemas import (
+    AuthorityProvenance,
     EXPECTED_FAILURE_BY_SUBSTITUTED,
     PromptContract,
     Scenario,
@@ -35,6 +36,8 @@ def initial_loop_state_from_prompt_contract(
     max_iterations: int,
     misreader_firing_decision: bool | None = None,
     firing_signals: FiringSignals | None = None,
+    authority_provenance: AuthorityProvenance | None = None,
+    authority_action_attempt_turn: int | None = None,
     clock: Callable[[], datetime] | None = None,
 ) -> WhoseAgentState:
     """Convert a prompt contract into the existing minimal-loop state shape."""
@@ -49,11 +52,12 @@ def initial_loop_state_from_prompt_contract(
     state["framework_specified"] = contract.framework_specified
     state["selected_skill_id"] = contract.selected_skill_id
     state["misreader_firing_decision"] = misreader_firing_decision
-    state["firing_signals"] = (
-        firing_signals
-        if firing_signals is not None
-        else production_firing_signals(clock=clock)
-    )
+    if firing_signals is not None:
+        state["firing_signals"] = firing_signals
+    elif authority_provenance is not None:
+        state["firing_signals"] = None
+    else:
+        state["firing_signals"] = production_firing_signals(clock=clock)
     state["firing_reason"] = None
     state["loop_source"] = "prompt_contract"
     state["prompt_contract_status"] = contract.status
@@ -65,6 +69,8 @@ def initial_loop_state_from_prompt_contract(
     state["prompt_contract_artifact"] = None
     state["prompt_loop_generated_artifact"] = None
     state["prompt_loop_generated_step_index"] = None
+    state["authority_provenance"] = authority_provenance
+    state["authority_action_attempt_turn"] = authority_action_attempt_turn
     return state
 
 
@@ -76,10 +82,19 @@ def run_prompt_loop_to_artifact(
     max_iterations: int = 1,
     misreader_firing_decision: bool | None = None,
     firing_signals: FiringSignals | None = None,
+    authority_provenance: AuthorityProvenance | None = None,
+    authority_action_attempt_turn: int | None = None,
     clock: Callable[[], datetime] | None = None,
 ) -> tuple[Path, Path, Path | None]:
     """Detect a prompt contract, run the minimal loop, and write artifacts."""
-    contract = detect_prompt_contract(prompt, mock=mock)
+    if authority_provenance is None:
+        contract = detect_prompt_contract(prompt, mock=mock)
+    else:
+        contract = detect_prompt_contract(
+            prompt,
+            mock=mock,
+            authority_provenance=authority_provenance,
+        )
     contract_path = write_prompt_contract(contract, output_dir)
 
     graph = compile_minimal_loop_graph(mock=mock)
@@ -88,6 +103,8 @@ def run_prompt_loop_to_artifact(
         max_iterations=max_iterations,
         misreader_firing_decision=misreader_firing_decision,
         firing_signals=firing_signals,
+        authority_provenance=authority_provenance,
+        authority_action_attempt_turn=authority_action_attempt_turn,
         clock=clock,
     )
     initial_state["prompt_contract_artifact"] = contract_path.name
