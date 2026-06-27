@@ -20,6 +20,14 @@ from whose_agent.tracing import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
+FORBIDDEN_TRACER_KEYS = {"messages", "message_id", "initial_messages", "message_history"}
+FORBIDDEN_TRACER_TOKENS = [
+    "ConversationView",
+    "MessageView",
+    "message_id",
+    "initial_messages",
+    "message_history",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -387,6 +395,8 @@ def test_run_command_tracer_spans_have_sanitized_input_and_output(tmp_path: Path
         assert span.output is not None, span.name
         _assert_no_large_strings(span.input)
         _assert_no_large_strings(span.output)
+        _assert_no_forbidden_tracer_tokens(span.input)
+        _assert_no_forbidden_tracer_tokens(span.output)
 
     classify_span = next(s for s in tracer.spans if s.name == "classify_scenario")
     assert "principal_prompt_length" in classify_span.input
@@ -418,6 +428,23 @@ def test_tracer_does_not_receive_full_bad_response(tmp_path: Path) -> None:
     for s in tracer.spans:
         _assert_no_large_strings(s.input)
         _assert_no_large_strings(s.output)
+        _assert_no_forbidden_tracer_tokens(s.input)
+        _assert_no_forbidden_tracer_tokens(s.output)
+
+
+def _assert_no_forbidden_tracer_tokens(value: Any) -> None:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            assert key not in FORBIDDEN_TRACER_KEYS
+            _assert_no_forbidden_tracer_tokens(item)
+        return
+    if isinstance(value, list):
+        for item in value:
+            _assert_no_forbidden_tracer_tokens(item)
+        return
+    if isinstance(value, str):
+        for token in FORBIDDEN_TRACER_TOKENS:
+            assert token not in value
 
 
 def _assert_no_large_strings(value: Any) -> None:

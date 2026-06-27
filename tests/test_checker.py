@@ -114,6 +114,9 @@ def test_authority_checker_prompt_uses_bounded_context_without_raw_history() -> 
     assert "Summarize this project concept so I can revisit it later." not in prompt
     assert "I can also organize it in Notion later if useful." not in prompt
     assert '"messages"' not in prompt
+    assert "ConversationView" not in prompt
+    assert "MessageView" not in prompt
+    assert "message_id" not in prompt
     assert "initial_messages" not in prompt
     assert "message_history" not in prompt
     assert "AuthorityCauseRecord" not in prompt

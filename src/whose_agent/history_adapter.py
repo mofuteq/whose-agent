@@ -3,42 +3,15 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Literal
+from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
-
-from whose_agent.schemas import ConversationMessage, ConversationRole
-
-
-Speaker = Literal["principal", "agent", "tool", "system"]
+from whose_agent.schemas import ConversationMessage
 
 
 class MessageHistoryError(ValueError):
     pass
 
 
-class MessageView(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    turn_index: int = Field(ge=1)
-    speaker: Speaker
-    content: str
-
-    @field_validator("content", mode="before")
-    @classmethod
-    def require_content(cls, value: str) -> str:
-        content = str(value).strip()
-        if not content:
-            raise ValueError("content must not be empty")
-        return content
-
-
-ROLE_TO_SPEAKER: dict[str, Speaker] = {
-    "user": "principal",
-    "assistant": "agent",
-    "tool": "tool",
-    "system": "system",
-}
 SUPPORTED_ROLES: set[str] = {"user", "assistant", "tool", "system"}
 
 
@@ -77,33 +50,21 @@ def normalize_role_tagged_messages(records: object) -> list[ConversationMessage]
             )
         if not isinstance(content_value, str):
             raise MessageHistoryError(f"message {index} content must be a string.")
+        message_id_value = record.get("message_id")
+        if message_id_value is not None and not isinstance(message_id_value, str):
+            raise MessageHistoryError(f"message {index} message_id must be a string.")
+        message_payload = {
+            "role": role,
+            "content": content_value,
+        }
+        if message_id_value is not None:
+            message_payload["message_id"] = message_id_value
         try:
-            messages.append(
-                ConversationMessage(
-                    role=role,
-                    content=content_value,
-                )
-            )
+            messages.append(ConversationMessage(**message_payload))
         except ValueError as exc:
             raise MessageHistoryError(f"message {index} is invalid: {exc}") from exc
+    require_unique_message_ids(messages)
     return messages
-
-
-def normalize_role_tagged_history(records: object) -> list[MessageView]:
-    return project_message_views(normalize_role_tagged_messages(records))
-
-
-def project_message_views(messages: Sequence[ConversationMessage]) -> list[MessageView]:
-    views: list[MessageView] = []
-    for index, message in enumerate(messages, start=1):
-        views.append(
-            MessageView(
-                turn_index=index,
-                speaker=ROLE_TO_SPEAKER[message.role],
-                content=message.content,
-            )
-        )
-    return views
 
 
 def conversation_from_prompt(prompt: str) -> list[ConversationMessage]:
@@ -124,7 +85,15 @@ def append_assistant_message(
     messages: Sequence[ConversationMessage],
     content: str,
 ) -> list[ConversationMessage]:
-    return [*messages, ConversationMessage(role="assistant", content=content)]
+    existing_ids = {message.message_id for message in messages}
+    while True:
+        message = ConversationMessage(
+            message_id=f"msg_{uuid4().hex}",
+            role="assistant",
+            content=content,
+        )
+        if message.message_id not in existing_ids:
+            return [*messages, message]
 
 
 def current_principal_prompt(messages: Sequence[ConversationMessage]) -> str:
@@ -138,16 +107,23 @@ def current_principal_prompt(messages: Sequence[ConversationMessage]) -> str:
     return final.content
 
 
+def require_unique_message_ids(messages: Sequence[ConversationMessage]) -> None:
+    seen: set[str] = set()
+    for index, message in enumerate(messages, start=1):
+        if message.message_id in seen:
+            raise MessageHistoryError(
+                f"duplicate message_id {message.message_id!r} at message {index}."
+            )
+        seen.add(message.message_id)
+
+
 __all__ = [
     "MessageHistoryError",
-    "MessageView",
-    "Speaker",
     "append_assistant_message",
     "conversation_from_prompt",
     "current_principal_prompt",
     "initial_conversation_messages",
     "load_message_history_file",
-    "normalize_role_tagged_history",
     "normalize_role_tagged_messages",
-    "project_message_views",
+    "require_unique_message_ids",
 ]

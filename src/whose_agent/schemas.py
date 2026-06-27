@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from operator import add
 from typing import Annotated, Final, Literal, TypedDict
+from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -106,8 +107,17 @@ class ControlState(BaseModel):
 class ConversationMessage(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    message_id: str = Field(default_factory=lambda: f"msg_{uuid4().hex}")
     role: ConversationRole
     content: str
+
+    @field_validator("message_id", mode="before")
+    @classmethod
+    def require_message_id(cls, value: str) -> str:
+        message_id = str(value).strip()
+        if not message_id:
+            raise ValueError("message_id must not be empty")
+        return message_id
 
     @field_validator("content", mode="before")
     @classmethod

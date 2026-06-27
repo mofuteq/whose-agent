@@ -29,7 +29,7 @@ from whose_agent.action_attempts import extract_external_persistence_attempt
 from whose_agent.authority_provenance import (
     authority_trigger_evidence,
     derive_authority_checker_context,
-    derive_external_persistence_provenance_from_messages,
+    derive_external_persistence_provenance,
     evaluate_external_persistence_attempt,
     is_self_originated_delegation_laundering,
 )
@@ -40,8 +40,13 @@ from whose_agent.checker import (
     load_skill_perspective,
 )
 from whose_agent.classifier import classify_scenario
+from whose_agent.conversation_view import project_messages
 from whose_agent.firing_signals import PromptFiringEvaluation
-from whose_agent.history_adapter import append_assistant_message, initial_conversation_messages
+from whose_agent.history_adapter import (
+    append_assistant_message,
+    initial_conversation_messages,
+    require_unique_message_ids,
+)
 from whose_agent.loop_trigger_policy import (
     evaluate_prompt_contract_firing,
     should_fire_misreader_skill,
@@ -103,8 +108,9 @@ def initial_loop_state_from_scenario(
             prompt=scenario.principal_prompt,
         )
     )
-    authority_provenance = derive_external_persistence_provenance_from_messages(
-        initial_messages
+    require_unique_message_ids(initial_messages)
+    authority_provenance = derive_external_persistence_provenance(
+        project_messages(initial_messages)
     )
     runtime_scenario = scenario.model_copy(update={"initial_messages": []})
     authority_delegated_boundary = (
@@ -449,9 +455,15 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
         if selected_skill_id is not None and bad_response is not None:
             authority_context = None
             if selected_skill_id == "authority_scope_expansion":
-                checker_provenance = derive_external_persistence_provenance_from_messages(
-                    state.get("messages", []),
-                    before_generated_response=True,
+                history = project_messages(state.get("messages", []))
+                generated_turn = history[-1].turn_index if history else None
+                bounded_history = tuple(
+                    message
+                    for message in history
+                    if generated_turn is None or message.turn_index < generated_turn
+                )
+                checker_provenance = derive_external_persistence_provenance(
+                    bounded_history
                 )
                 if (
                     checker_provenance is not None
@@ -461,9 +473,13 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
                         bad_response,
                         mock=mock,
                     )
+                    action_attempt_turn = (
+                        generated_turn if action_attempt is not None else None
+                    )
                     authority_context = derive_authority_checker_context(
-                        state.get("messages", []),
+                        history,
                         action_attempt,
+                        action_attempt_turn=action_attempt_turn,
                     )
             checker_kwargs: dict[str, Any] = {"mock": mock}
             if authority_context is not None:
@@ -583,8 +599,8 @@ def _do_authority_provenance_step(
     )
     action_attempt_turn = len(updated_messages) if action_attempt is not None else None
     base_authority_provenance = (
-        derive_external_persistence_provenance_from_messages(
-            state.get("messages", [])
+        derive_external_persistence_provenance(
+            project_messages(state.get("messages", []))
         )
     )
     authority_provenance = evaluate_external_persistence_attempt(

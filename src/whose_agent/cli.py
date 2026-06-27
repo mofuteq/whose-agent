@@ -10,8 +10,9 @@ from whose_agent.checker import CheckerError
 from whose_agent.env_loader import load_env_file
 from whose_agent.firing_signals import FiringSignals, QuotaSignal
 from whose_agent.authority_provenance import (
-    derive_external_persistence_provenance_from_messages,
+    derive_external_persistence_provenance,
 )
+from whose_agent.conversation_view import project_messages
 from whose_agent.history_adapter import (
     MessageHistoryError,
     conversation_from_prompt,
@@ -116,8 +117,8 @@ def detect_contract_command(args: argparse.Namespace) -> int:
 
     run_dir = create_run_directory(Path(args.outputs))
     prompt, messages = _prompt_input_from_args(args)
-    authority_provenance = derive_external_persistence_provenance_from_messages(
-        messages
+    authority_provenance = derive_external_persistence_provenance(
+        project_messages(messages)
     )
     contract = detect_prompt_contract(
         prompt,

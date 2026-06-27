@@ -15,9 +15,10 @@ from whose_agent.minimal_loop_graph import (
     initial_loop_state_from_scenario,
 )
 from whose_agent.authority_provenance import (
-    derive_external_persistence_provenance_from_messages,
+    derive_external_persistence_provenance,
 )
-from whose_agent.history_adapter import conversation_from_prompt
+from whose_agent.conversation_view import project_messages
+from whose_agent.history_adapter import conversation_from_prompt, require_unique_message_ids
 from whose_agent.prompt_contract_artifacts import write_prompt_contract
 from whose_agent.prompt_contract_detector import detect_prompt_contract
 from whose_agent.schemas import (
@@ -48,6 +49,7 @@ def initial_loop_state_from_prompt_contract(
     canonical_messages = (
         list(messages) if messages is not None else conversation_from_prompt(contract.prompt)
     )
+    require_unique_message_ids(canonical_messages)
     state = initial_loop_state_from_scenario(
         scenario,
         max_iterations=max_iterations,
@@ -76,7 +78,7 @@ def initial_loop_state_from_prompt_contract(
     state["prompt_loop_generated_artifact"] = None
     state["prompt_loop_generated_step_index"] = None
     state["authority_provenance"] = (
-        derive_external_persistence_provenance_from_messages(canonical_messages)
+        derive_external_persistence_provenance(project_messages(canonical_messages))
     )
     return state
 
@@ -96,8 +98,9 @@ def run_prompt_loop_to_artifact(
     canonical_messages = (
         list(messages) if messages is not None else conversation_from_prompt(prompt)
     )
-    authority_provenance = derive_external_persistence_provenance_from_messages(
-        canonical_messages
+    require_unique_message_ids(canonical_messages)
+    authority_provenance = derive_external_persistence_provenance(
+        project_messages(canonical_messages)
     )
     if authority_provenance is None:
         contract = detect_prompt_contract(prompt, mock=mock)

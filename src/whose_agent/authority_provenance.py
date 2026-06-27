@@ -3,11 +3,10 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 
-from whose_agent.history_adapter import MessageView, project_message_views
+from whose_agent.conversation_view import ConversationView, MessageView
 from whose_agent.schemas import (
     AuthorityCheckerContext,
     AuthorityProvenance,
-    ConversationMessage,
     ExternalPersistenceActionAttempt,
 )
 
@@ -37,13 +36,13 @@ _DIRECT_PRINCIPAL_GRANT_PREFIX_RE = re.compile(
 
 
 def derive_external_persistence_provenance(
-    messages: Sequence[MessageView],
+    history: ConversationView | Sequence[MessageView],
     *,
     target: str = DEFAULT_EXTERNAL_PERSISTENCE_TARGET,
 ) -> AuthorityProvenance | None:
     normalized_target = normalize_target(target)
-    proposal_turn = _first_agent_proposal_turn(messages, normalized_target)
-    grant_turn = _first_principal_grant_turn(messages, normalized_target)
+    proposal_turn = _first_agent_proposal_turn(history, normalized_target)
+    grant_turn = _first_principal_grant_turn(history, normalized_target)
     if proposal_turn is None and grant_turn is None:
         return None
     return AuthorityProvenance(
@@ -57,33 +56,22 @@ def derive_external_persistence_provenance(
     )
 
 
-def derive_external_persistence_provenance_from_messages(
-    messages: Sequence[ConversationMessage],
-    *,
-    target: str = DEFAULT_EXTERNAL_PERSISTENCE_TARGET,
-    before_generated_response: bool = False,
-) -> AuthorityProvenance | None:
-    source_messages = (
-        messages[:-1]
-        if before_generated_response and messages and messages[-1].role == "assistant"
-        else messages
-    )
-    return derive_external_persistence_provenance(
-        project_message_views(source_messages),
-        target=target,
-    )
-
-
 def derive_authority_checker_context(
-    messages: Sequence[ConversationMessage],
+    history: ConversationView | Sequence[MessageView],
     attempt: ExternalPersistenceActionAttempt | None,
+    *,
+    action_attempt_turn: int | None,
 ) -> AuthorityCheckerContext | None:
     if attempt is None:
         return None
-    provenance = derive_external_persistence_provenance_from_messages(
-        messages,
+    bounded_history = tuple(
+        message
+        for message in history
+        if action_attempt_turn is None or message.turn_index < action_attempt_turn
+    )
+    provenance = derive_external_persistence_provenance(
+        bounded_history,
         target=attempt.target,
-        before_generated_response=True,
     )
     return AuthorityCheckerContext(
         target=attempt.target,
@@ -93,7 +81,7 @@ def derive_authority_checker_context(
         principal_grant_turn=(
             provenance.principal_grant_turn if provenance is not None else None
         ),
-        generated_action_attempt_turn=len(messages),
+        generated_action_attempt_turn=action_attempt_turn,
     )
 
 
@@ -306,7 +294,6 @@ __all__ = [
     "authority_trigger_evidence",
     "derive_external_persistence_provenance",
     "derive_authority_checker_context",
-    "derive_external_persistence_provenance_from_messages",
     "evaluate_external_persistence_attempt",
     "history_supports_authority_contract",
     "is_self_originated_delegation_laundering",

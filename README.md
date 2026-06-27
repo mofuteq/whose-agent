@@ -224,13 +224,15 @@ Prompt contract status values:
 
 `detect-contract` and `run-prompt-loop` accept exactly one of `--prompt` or
 `--messages-file`. `--messages-file` must be a JSON array of OpenAI-compatible
-`role`/`content` message objects. The final `user` message becomes the current
-prompt. The file is parsed into canonical `ConversationMessage` values, and
+`role`/`content` message objects, with optional `message_id` values. The final
+`user` message becomes the current prompt. The file is parsed into canonical
+`ConversationMessage` values, and
 `WhoseAgentState.messages` is the canonical conversation runtime. Fixed
 scenarios seed the same runtime field through fixture `initial_messages`.
 LangGraph checkpoints may retain raw canonical messages. `MessageView` is an
-internal evaluator projection from canonical messages for source-aware authority
-evaluation; it is not an artifact format.
+ephemeral evaluator-facing projection from canonical runtime messages for
+source-aware authority evaluation; it is not a second message store, checkpoint
+value, or serialized adapter artifact.
 
 Runtime retention is allowed, but public exposure is not. Raw history must never
 be serialized into `PromptContract`, `Trace`, `LoopTrace`, `BoundaryStateTrace`,

@@ -69,12 +69,10 @@ def test_initial_loop_state_uses_whose_agent_state_shape() -> None:
 
     assert state["scenario"] == scenario.model_copy(update={"initial_messages": []})
     assert state["scenario"].initial_messages == []
-    assert state["messages"] == [
-        schemas.ConversationMessage(
-            role="user",
-            content=scenario.principal_prompt,
-        )
+    assert [(message.role, message.content) for message in state["messages"]] == [
+        ("user", scenario.principal_prompt)
     ]
+    assert state["messages"][0].message_id
     assert state["selected_skill_id"] == "safety_framework_escape_hatch"
     assert state["selected_skill_perspective"] is None
     assert state["framework_specified"] is False

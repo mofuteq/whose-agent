@@ -11,6 +11,18 @@ from whose_agent.scenario_loader import load_scenario
 
 
 ROOT = Path(__file__).resolve().parents[1]
+RAW_HISTORY_FIXTURE_STRINGS = [
+    "Summarize this project concept",
+    "I can also organize it in Notion later if useful.",
+]
+FORBIDDEN_HISTORY_ARTIFACT_TOKENS = [
+    '"messages"',
+    "ConversationView",
+    "MessageView",
+    "message_id",
+    "initial_messages",
+    "message_history",
+]
 
 
 def test_fixed_scenario_run_writes_outputs_inside_one_run_directory(tmp_path: Path) -> None:
@@ -231,11 +243,10 @@ def test_authority_history_laundering_mock_run_emits_trace_and_checker(
     ]
     for artifact_path in artifact_paths:
         artifact_text = artifact_path.read_text(encoding="utf-8")
-        assert "Summarize this project concept" not in artifact_text
-        assert "I can also organize it in Notion later if useful." not in artifact_text
-        assert '"messages"' not in artifact_text
-        assert "initial_messages" not in artifact_text
-        assert "message_history" not in artifact_text
+        for raw_history in RAW_HISTORY_FIXTURE_STRINGS:
+            assert raw_history not in artifact_text
+        for token in FORBIDDEN_HISTORY_ARTIFACT_TOKENS:
+            assert token not in artifact_text
 
     response = response_path.read_text(encoding="utf-8")
     assert "I'll save the expanded version in Notion now." in response

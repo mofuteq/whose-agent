@@ -19,7 +19,7 @@ from whose_agent.action_attempts import extract_external_persistence_attempt
 from whose_agent.authority_provenance import (
     authority_trigger_evidence,
     derive_authority_checker_context,
-    derive_external_persistence_provenance_from_messages,
+    derive_external_persistence_provenance,
     evaluate_external_persistence_attempt,
     is_self_originated_delegation_laundering,
 )
@@ -30,6 +30,7 @@ from whose_agent.checker import (
     load_skill_perspective,
 )
 from whose_agent.classifier import classify_scenario
+from whose_agent.conversation_view import project_messages
 from whose_agent.history_adapter import append_assistant_message, initial_conversation_messages
 from whose_agent.llm_result import LLMCallResult
 from whose_agent.schemas import (
@@ -58,8 +59,8 @@ def initial_state_from_scenario(scenario: Scenario) -> WhoseAgentState:
         scenario.initial_messages,
         prompt=scenario.principal_prompt,
     )
-    authority_provenance = derive_external_persistence_provenance_from_messages(
-        messages
+    authority_provenance = derive_external_persistence_provenance(
+        project_messages(messages)
     )
     runtime_scenario = scenario.model_copy(update={"initial_messages": []})
     return {
@@ -313,8 +314,8 @@ def build_fixed_scenario_graph(
             authority_step_fired: bool | None = None
             if _uses_authority_provenance(state):
                 base_authority_provenance = (
-                    derive_external_persistence_provenance_from_messages(
-                        state.get("messages", [])
+                    derive_external_persistence_provenance(
+                        project_messages(state.get("messages", []))
                     )
                 )
                 action_attempt = extract_external_persistence_attempt(
@@ -492,9 +493,15 @@ def build_fixed_scenario_graph(
         bad_response = _bad_response(state)
         authority_context = None
         if scenario.selected_skill_id == "authority_scope_expansion":
-            checker_provenance = derive_external_persistence_provenance_from_messages(
-                state.get("messages", []),
-                before_generated_response=True,
+            history = project_messages(state.get("messages", []))
+            generated_turn = history[-1].turn_index if history else None
+            bounded_history = tuple(
+                message
+                for message in history
+                if generated_turn is None or message.turn_index < generated_turn
+            )
+            checker_provenance = derive_external_persistence_provenance(
+                bounded_history
             )
             if (
                 checker_provenance is not None
@@ -504,9 +511,13 @@ def build_fixed_scenario_graph(
                     bad_response,
                     mock=mock,
                 )
+                action_attempt_turn = (
+                    generated_turn if action_attempt is not None else None
+                )
                 authority_context = derive_authority_checker_context(
-                    state.get("messages", []),
+                    history,
                     action_attempt,
+                    action_attempt_turn=action_attempt_turn,
                 )
         check_observation = tracer.span if mock else tracer.generation
         with check_observation(
