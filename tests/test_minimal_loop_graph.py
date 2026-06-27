@@ -86,6 +86,26 @@ def test_derive_framework_specified_is_scenario_grounded() -> None:
     assert derive_framework_specified_for_scenario(_rust_cli()) is False
 
 
+def test_fixed_scenario_non_fired_path_does_not_use_prompt_response_generator(
+    monkeypatch,
+) -> None:
+    def fail_if_contract_response_generator_is_called(*args, **kwargs):
+        raise AssertionError("fixed scenarios must not call prompt_response generator")
+
+    monkeypatch.setattr(
+        "whose_agent.minimal_loop_graph.generate_contract_preserving_response_with_usage",
+        fail_if_contract_response_generator_is_called,
+    )
+
+    scenario = _rust_cli()
+    graph = compile_minimal_loop_graph(mock=True)
+    state = graph.invoke(initial_loop_state_from_scenario(scenario, max_iterations=1))
+
+    assert state["loop_source"] == "fixed_scenario"
+    assert state["misreader_skill_fired"] is False
+    assert state["bad_response"] == mock_bad_response(state["classification"])
+
+
 def test_none_initial_loop_state_stops_before_skill_trigger() -> None:
     scenario = _none_general_explanation()
     classification = classify_scenario(scenario)

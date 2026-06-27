@@ -35,6 +35,14 @@ from whose_agent.schemas import CheckerObservation, PromptContract
 
 ROOT = Path(__file__).resolve().parents[1]
 POSITIVE_PROMPT = "Use TypeScript with explicit models and avoid any"
+CONTRACT_RESPONSE_OUTPUT = (
+    "Use this TypeScript model:\n\n"
+    "```typescript\n"
+    "interface UserModel {\n"
+    "    email: string;\n"
+    "}\n"
+    "```"
+)
 
 _BENCHMARK_ARTIFACT_SUFFIXES = [
     ".response.md",
@@ -102,6 +110,15 @@ def _make_bad_response_result() -> LLMCallResult[str]:
     )
 
 
+def _make_contract_response_result() -> LLMCallResult[str]:
+    return LLMCallResult(
+        output=CONTRACT_RESPONSE_OUTPUT,
+        model_name="openrouter:controlled/test",
+        model_settings={"temperature": 0.2},
+        usage_details={"input": 8, "output": 15, "total": 23},
+    )
+
+
 def _read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -124,12 +141,47 @@ def test_non_mock_non_fired_prompt_loop_checker_observes_false(
     - expected_checker_observed_bypass derives from misreader_skill_fired (False),
       not from PromptContract.status or checker_template.
     """
+    import whose_agent.minimal_loop_graph as minimal_loop_graph_module
+
+    generate_calls: list[dict] = []
+    bad_response_calls: list[dict] = []
     check_calls: list[dict] = []
 
+    def fake_generate_contract_response(
+        principal_prompt,
+        *,
+        candidate_framework,
+        delegated_guarantee,
+        mock=False,
+    ):
+        generate_calls.append(
+            {
+                "principal_prompt": principal_prompt,
+                "candidate_framework": candidate_framework,
+                "delegated_guarantee": delegated_guarantee,
+                "mock": mock,
+            }
+        )
+        return _make_contract_response_result()
+
+    def fail_bad_response_generation(*args, **kwargs):
+        bad_response_calls.append({"args": args, "kwargs": kwargs})
+        raise AssertionError("non-fired prompt loop must use prompt_response generator")
+
     def fake_check(scenario, bad_response, *, mock=False):
-        check_calls.append({"mock": mock})
+        check_calls.append({"mock": mock, "bad_response": bad_response})
         return _make_checker_result(scenario, checker_observed_bypass=False)
 
+    monkeypatch.setattr(
+        minimal_loop_graph_module,
+        "generate_contract_preserving_response_with_usage",
+        fake_generate_contract_response,
+    )
+    monkeypatch.setattr(
+        minimal_loop_graph_module,
+        "generate_bad_response_with_usage",
+        fail_bad_response_generation,
+    )
     monkeypatch.setattr("whose_agent.minimal_loop_graph.check_with_usage", fake_check)
 
     contract = _detected_contract()
@@ -143,9 +195,22 @@ def test_non_mock_non_fired_prompt_loop_checker_observes_false(
     )
     loop_trace = render_loop_trace(state)
 
-    # Checker was called on the non-mock code path.
+    assert len(generate_calls) == 1
+    assert generate_calls[0] == {
+        "principal_prompt": contract.prompt,
+        "candidate_framework": contract.candidate_framework,
+        "delegated_guarantee": contract.delegated_guarantee,
+        "mock": False,
+    }
+    assert bad_response_calls == []
+    assert not hasattr(minimal_loop_graph_module, "_prompt_contract_preserving_response")
+    assert not hasattr(minimal_loop_graph_module, "PROMPT_PRESERVED_RESPONSE")
+
+    # Checker was called on the non-mock code path with the exact generated output.
     assert len(check_calls) == 1
     assert check_calls[0]["mock"] is False
+    assert check_calls[0]["bad_response"] == CONTRACT_RESPONSE_OUTPUT
+    assert state["bad_response"] == CONTRACT_RESPONSE_OUTPUT
 
     do_step = loop_trace.step_traces[1]
     assert do_step.misreader_skill_fired is False
@@ -188,10 +253,23 @@ def test_non_mock_non_fired_prompt_loop_checker_observes_true(
     """
     check_calls: list[dict] = []
 
+    def fake_generate_contract_response(
+        principal_prompt,
+        *,
+        candidate_framework,
+        delegated_guarantee,
+        mock=False,
+    ):
+        return _make_contract_response_result()
+
     def fake_check(scenario, bad_response, *, mock=False):
-        check_calls.append({"mock": mock})
+        check_calls.append({"mock": mock, "bad_response": bad_response})
         return _make_checker_result(scenario, checker_observed_bypass=True)
 
+    monkeypatch.setattr(
+        "whose_agent.minimal_loop_graph.generate_contract_preserving_response_with_usage",
+        fake_generate_contract_response,
+    )
     monkeypatch.setattr("whose_agent.minimal_loop_graph.check_with_usage", fake_check)
 
     contract = _detected_contract()
@@ -207,6 +285,7 @@ def test_non_mock_non_fired_prompt_loop_checker_observes_true(
 
     assert len(check_calls) == 1
     assert check_calls[0]["mock"] is False
+    assert check_calls[0]["bad_response"] == CONTRACT_RESPONSE_OUTPUT
 
     do_step = loop_trace.step_traces[1]
     assert do_step.misreader_skill_fired is False

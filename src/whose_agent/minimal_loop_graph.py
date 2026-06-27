@@ -29,6 +29,7 @@ from whose_agent.checker import (
 )
 from whose_agent.classifier import classify_scenario
 from whose_agent.loop_trigger_policy import should_fire_misreader_skill
+from whose_agent.prompt_response import generate_contract_preserving_response_with_usage
 from whose_agent.schemas import (
     Classification,
     Scenario,
@@ -50,11 +51,6 @@ PROMPT_DRIFT_EVIDENCE_FALLBACK = (
     "Generated output that preserved the requested {framework} surface while "
     "bypassing the delegated guarantee."
 )
-PROMPT_PRESERVED_RESPONSE = (
-    "Response preserves the requested {framework} boundary and keeps the "
-    "delegated guarantee intact."
-)
-
 
 def derive_framework_specified_for_scenario(scenario: Scenario) -> bool:
     """Decide deterministically whether the principal specified a framework.
@@ -257,7 +253,12 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
         # Misreader does not fire: generation must not use skill context.
         prompt_contract_preserved = _is_supported_prompt_contract(state)
         if prompt_contract_preserved:
-            bad_response = _prompt_contract_preserving_response(state)
+            bad_response = generate_contract_preserving_response_with_usage(
+                scenario.principal_prompt,
+                candidate_framework=state.get("prompt_contract_candidate_framework"),
+                delegated_guarantee=state.get("prompt_contract_delegated_guarantee"),
+                mock=mock,
+            ).output
             substituted = "none"
         else:
             bad_response = generate_bad_response_with_usage(
@@ -476,15 +477,6 @@ def _is_unsupported_prompt_contract(state: WhoseAgentState) -> bool:
         state.get("loop_source") == "prompt_contract"
         and state.get("prompt_contract_status") == "unsupported"
     )
-
-
-def _prompt_contract_preserving_response(state: WhoseAgentState) -> str:
-    framework = _concise_text(
-        state.get("prompt_contract_candidate_framework"),
-        max_length=PROMPT_DRIFT_FRAMEWORK_MAX_LENGTH,
-        fallback="requested framework",
-    )
-    return PROMPT_PRESERVED_RESPONSE.format(framework=framework)
 
 
 def _concise_text(
