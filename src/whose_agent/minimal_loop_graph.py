@@ -9,7 +9,9 @@ is not wired in as a nested runtime object; the loop fields live directly on
 WhoseAgentState.
 
 Causal rule: misreader_skill_fired is the cause-side event. It is set in the do
-step from cause-side conditions only (framework_specified + selected_skill_id).
+step from cause-side conditions only. Fixed scenarios use
+framework_specified + selected_skill_id. Prompt-derived loops use
+boundary_detected + selected_skill_id.
 checker_observed_bypass and guarantee_bypass_observed are observation-side events
 set in the check step. Checker observation is never a precondition for misreader
 firing.
@@ -41,29 +43,27 @@ from whose_agent.schemas import (
 
 CHECKER_ID = "skill-perspective-checker"
 PROMPT_DERIVED_DRIFT_ARTIFACT_KIND = "prompt_derived_poor_e2e"
-PROMPT_DRIFT_FRAMEWORK_MAX_LENGTH = 40
-PROMPT_DRIFT_GUARANTEE_MAX_LENGTH = 120
-PROMPT_DRIFT_EVIDENCE_WITH_GUARANTEE = (
-    "Generated output that preserved the requested {framework} surface while "
-    "bypassing the delegated guarantee: {guarantee}."
+PROMPT_DRIFT_AXIS_MAX_LENGTH = 40
+PROMPT_DRIFT_BOUNDARY_MAX_LENGTH = 160
+PROMPT_DRIFT_EVIDENCE_WITH_BOUNDARY = (
+    "Generated output that crossed the prompt-derived {axis} boundary: {boundary}."
 )
 PROMPT_DRIFT_EVIDENCE_FALLBACK = (
-    "Generated output that preserved the requested {framework} surface while "
-    "bypassing the delegated guarantee."
+    "Generated output that crossed the prompt-derived delegated boundary."
 )
 
 def derive_framework_specified_for_scenario(scenario: Scenario) -> bool:
     """Decide deterministically whether the principal specified a framework.
 
-    Fixed scenarios can use deterministic metadata: a scenario that selects a
-    misreader skill on the instruction axis is one where the principal named a
-    surface framework plus a guarantee that a misreader skill could bypass.
+    Fixed scenarios can use deterministic metadata: the safety-framework skill
+    is the framework-surface guarantee path. Other instruction-axis skills are
+    not treated as framework guarantees.
 
     Arbitrary prompt loop support gets framework detection from a
     PromptContract before it reaches this helper. This helper stays fixed
     scenario-only.
     """
-    return scenario.selected_skill_id is not None and scenario.expected_substituted == "instruction"
+    return scenario.selected_skill_id == "safety_framework_escape_hatch"
 
 
 def initial_loop_state_from_scenario(
@@ -113,6 +113,9 @@ def initial_loop_state_from_scenario(
         "failure_mode": scenario.failure_mode,
         "divergence_point": None,
         "boundary_flags": [],
+        "boundary_detected": False,
+        "substitution_axis": None,
+        "delegated_boundary": None,
         "framework_specified": False,
         "loop_iteration": 0,
         "loop_phase": "plan",
@@ -121,9 +124,14 @@ def initial_loop_state_from_scenario(
         "loop_stop_reason": None,
         "loop_source": "fixed_scenario",
         "prompt_contract_status": None,
+        "prompt_contract_boundary_detected": None,
+        "prompt_contract_substitution_axis": None,
+        "prompt_contract_delegated_boundary": None,
         "prompt_contract_candidate_framework": None,
         "prompt_contract_delegated_guarantee": None,
         "prompt_contract_artifact": None,
+        "prompt_loop_generated_artifact": None,
+        "prompt_loop_generated_step_index": None,
         "step_traces": [],
         "errors": [],
     }
@@ -142,12 +150,16 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
         framework_specified = bool(
             state.get("framework_specified", False)
         ) or derive_framework_specified_for_scenario(scenario)
+        boundary_detected = bool(state.get("boundary_detected", False)) or (
+            state.get("loop_source") == "fixed_scenario" and framework_specified
+        )
         # Re-planning resets the cause-side misreader flag at the start of each
         # iteration so the loop can demonstrate intermittent drift.
         return {
             "classification": classification,
             "substituted": classification.substituted,
             "framework_specified": framework_specified,
+            "boundary_detected": boundary_detected,
             "misreader_skill_fired": False,
             "skill_triggered": False,
             "loop_phase": "plan",
@@ -210,8 +222,8 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
                     cast(str, selected_skill_id)
                 )
             trigger_evidence = [
-                f"framework_specified with selected skill {selected_skill_id!r} on the do "
-                "step; the misreader skill fires and the artifact drifts past the guarantee."
+                f"cause-side boundary with selected skill {selected_skill_id!r} on the do "
+                "step; the misreader skill fires and the artifact crosses the delegated boundary."
             ]
             bad_response = generate_bad_response_with_usage(
                 scenario,
@@ -255,6 +267,8 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
         if prompt_contract_preserved:
             bad_response = generate_contract_preserving_response_with_usage(
                 scenario.principal_prompt,
+                substitution_axis=state.get("prompt_contract_substitution_axis"),
+                delegated_boundary=state.get("prompt_contract_delegated_boundary"),
                 candidate_framework=state.get("prompt_contract_candidate_framework"),
                 delegated_guarantee=state.get("prompt_contract_delegated_guarantee"),
                 mock=mock,
@@ -444,23 +458,23 @@ def _prompt_derived_drift_evidence(
         return None, None
     if state.get("prompt_contract_status") != "contract_detected":
         return None, None
-    framework = _concise_text(
-        state.get("prompt_contract_candidate_framework"),
-        max_length=PROMPT_DRIFT_FRAMEWORK_MAX_LENGTH,
-        fallback="framework",
+    axis = _concise_text(
+        state.get("prompt_contract_substitution_axis"),
+        max_length=PROMPT_DRIFT_AXIS_MAX_LENGTH,
+        fallback="delegated",
     )
-    guarantee = _concise_text(
-        state.get("prompt_contract_delegated_guarantee"),
-        max_length=PROMPT_DRIFT_GUARANTEE_MAX_LENGTH,
+    boundary = _concise_text(
+        state.get("prompt_contract_delegated_boundary"),
+        max_length=PROMPT_DRIFT_BOUNDARY_MAX_LENGTH,
         fallback=None,
     )
-    if guarantee is not None:
-        evidence = PROMPT_DRIFT_EVIDENCE_WITH_GUARANTEE.format(
-            framework=framework,
-            guarantee=guarantee,
+    if boundary is not None:
+        evidence = PROMPT_DRIFT_EVIDENCE_WITH_BOUNDARY.format(
+            axis=axis,
+            boundary=boundary,
         )
     else:
-        evidence = PROMPT_DRIFT_EVIDENCE_FALLBACK.format(framework=framework)
+        evidence = PROMPT_DRIFT_EVIDENCE_FALLBACK
     return evidence, PROMPT_DERIVED_DRIFT_ARTIFACT_KIND
 
 

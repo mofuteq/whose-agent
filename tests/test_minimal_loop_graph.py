@@ -332,11 +332,11 @@ def test_loop_does_not_use_checker_observation_as_misreader_precondition() -> No
     assert "checker_observed_bypass" not in do_block
     assert "guarantee_bypass_observed" not in do_block
     assert "checker_comparison" not in do_block
-    assert "framework_specified" in do_block
+    assert "should_fire_misreader_skill(state)" in do_block
 
 
 def test_loop_without_selected_skill_does_not_fire_or_check() -> None:
-    scenario = _rust_cli()
+    scenario = _none_general_explanation()
     graph = compile_minimal_loop_graph(mock=True)
 
     state = graph.invoke(initial_loop_state_from_scenario(scenario, max_iterations=1))

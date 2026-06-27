@@ -84,6 +84,7 @@ def test_control_state_explicit_construction_and_json_serialization() -> None:
         "selected_skill_perspective": (
             "Watch for a surface framework with a bypassed guarantee."
         ),
+        "boundary_detected": False,
         "framework_specified": True,
         "guarantee_bypass_observed": True,
         "guarantee_bypass_evidence": [

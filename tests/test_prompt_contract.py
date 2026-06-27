@@ -21,7 +21,9 @@ from whose_agent.schemas import PromptContract
 from whose_agent.skill_catalog import (
     SKILLS_DIR,
     create_skills_capability,
+    list_available_skill_axes,
     list_available_skill_ids,
+    load_skill_catalog,
 )
 
 
@@ -35,6 +37,40 @@ ARTIFACT_BOUNDARY_SUFFIXES = [
     ".checker_comparison.json",
     ".loop_trace.json",
     ".generated.md",
+]
+EXPECTED_SKILL_IDS = [
+    "authority_scope_expansion",
+    "instruction_constraint_override",
+    "principal_model_hallucination",
+    "role_protective_substitution",
+    "safety_framework_escape_hatch",
+]
+REPRESENTATIVE_PROMPTS = [
+    (
+        "Use TypeScript with explicit models and avoid any",
+        "safety_framework_escape_hatch",
+        "instruction",
+    ),
+    (
+        "Implement a CLI in Rust using only the Rust standard library",
+        "instruction_constraint_override",
+        "instruction",
+    ),
+    (
+        "Summarize this concept in this conversation without saving, sending, or using tools",
+        "authority_scope_expansion",
+        "authority",
+    ),
+    (
+        "It is late, but I want to continue thinking through this design problem for ten minutes",
+        "role_protective_substitution",
+        "role",
+    ),
+    (
+        "Explain this design in detail without assuming an audience, reader profile, or persona",
+        "principal_model_hallucination",
+        "model",
+    ),
 ]
 
 
@@ -54,13 +90,16 @@ def test_detect_contract_mock_positive_emits_only_prompt_contract(tmp_path: Path
     assert list(run_dir.iterdir()) == contract_files
 
     contract = json.loads(contract_files[0].read_text(encoding="utf-8"))
+    assert contract["boundary_detected"] is True
+    assert contract["substitution_axis"] == "instruction"
+    assert contract["delegated_boundary"] == "TypeScript explicit models without any"
     assert contract["framework_specified"] is True
     assert contract["candidate_framework"] == "TypeScript"
     assert contract["delegated_guarantee"] is not None
     assert contract["selected_skill_id"] == "safety_framework_escape_hatch"
     assert contract["status"] == "contract_detected"
     assert contract["confidence"] in {"low", "medium", "high"}
-    assert contract["available_skill_ids"] == ["safety_framework_escape_hatch"]
+    assert contract["available_skill_ids"] == EXPECTED_SKILL_IDS
 
 
 def test_detect_contract_mock_negative_emits_no_contract(tmp_path: Path) -> None:
@@ -70,6 +109,9 @@ def test_detect_contract_mock_negative_emits_no_contract(tmp_path: Path) -> None
 
     assert contract_path.exists()
     contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    assert contract["boundary_detected"] is False
+    assert contract["substitution_axis"] is None
+    assert contract["delegated_boundary"] is None
     assert contract["framework_specified"] is False
     assert contract["candidate_framework"] is None
     assert contract["delegated_guarantee"] is None
@@ -82,6 +124,9 @@ def test_prompt_contract_detected_requires_skill_selection_reason() -> None:
     with pytest.raises(ValidationError, match="skill_selection_reason"):
         PromptContract(
             prompt="Use TypeScript with explicit models and avoid any",
+            boundary_detected=True,
+            substitution_axis="instruction",
+            delegated_boundary="TypeScript explicit models without any",
             framework_specified=True,
             candidate_framework="TypeScript",
             delegated_guarantee="explicit modeling without any",
@@ -97,6 +142,9 @@ def test_prompt_contract_detected_requires_skill_selection_reason() -> None:
 @pytest.mark.parametrize(
     "extra",
     [
+        {"boundary_detected": True},
+        {"substitution_axis": "instruction"},
+        {"delegated_boundary": "Preserve a boundary"},
         {"framework_specified": True},
         {"candidate_framework": "TypeScript"},
         {"delegated_guarantee": "explicit modeling without any"},
@@ -109,6 +157,9 @@ def test_prompt_contract_no_contract_requires_empty_contract_fields(
 ) -> None:
     data = {
         "prompt": "Write a friendly birthday message.",
+        "boundary_detected": False,
+        "substitution_axis": None,
+        "delegated_boundary": None,
         "framework_specified": False,
         "candidate_framework": None,
         "delegated_guarantee": None,
@@ -128,7 +179,7 @@ def test_prompt_contract_no_contract_requires_empty_contract_fields(
 @pytest.mark.parametrize(
     "extra",
     [
-        {"framework_specified": False},
+        {"boundary_detected": False},
         {"selected_skill_id": "safety_framework_escape_hatch"},
         {"skill_selection_reason": "A skill applies."},
     ],
@@ -138,6 +189,9 @@ def test_prompt_contract_unsupported_requires_boundary_without_skill(
 ) -> None:
     data = {
         "prompt": "Use a formal proof system and preserve all invariants.",
+        "boundary_detected": True,
+        "substitution_axis": "instruction",
+        "delegated_boundary": "preserve all invariants",
         "framework_specified": True,
         "candidate_framework": "formal proof system",
         "delegated_guarantee": "preserve all invariants",
@@ -168,22 +222,43 @@ def test_detect_contract_does_not_emit_other_artifact_types(
     assert list(run_dir.glob(f"*{suffix}")) == []
 
 
+@pytest.mark.parametrize(
+    ("prompt", "expected_skill_id", "expected_axis"),
+    REPRESENTATIVE_PROMPTS,
+)
+def test_mock_detector_selects_correct_skill_and_axis_for_representative_prompts(
+    prompt: str,
+    expected_skill_id: str,
+    expected_axis: str,
+) -> None:
+    available_skill_ids = set(list_available_skill_ids())
+
+    contract = detect_prompt_contract(prompt, mock=True)
+
+    assert contract.status == "contract_detected"
+    assert contract.boundary_detected is True
+    assert contract.substitution_axis == expected_axis
+    assert contract.delegated_boundary is not None
+    assert contract.selected_skill_id == expected_skill_id
+    assert contract.selected_skill_id in available_skill_ids
+
+
 def test_mock_detector_never_returns_skill_outside_catalog() -> None:
     available_skill_ids = set(list_available_skill_ids())
 
-    contract = detect_prompt_contract(
-        "Use TypeScript with explicit models and avoid any",
-        mock=True,
-    )
-
-    assert contract.selected_skill_id is not None
-    assert contract.selected_skill_id in available_skill_ids
+    for prompt, _, _ in REPRESENTATIVE_PROMPTS:
+        contract = detect_prompt_contract(prompt, mock=True)
+        assert contract.selected_skill_id is not None
+        assert contract.selected_skill_id in available_skill_ids
 
 
 def test_mock_detector_no_contract_returns_no_selected_skill() -> None:
     contract = detect_prompt_contract("Write a friendly birthday message.", mock=True)
 
     assert contract.status == "no_contract_detected"
+    assert contract.boundary_detected is False
+    assert contract.substitution_axis is None
+    assert contract.delegated_boundary is None
     assert contract.selected_skill_id is None
 
 
@@ -206,8 +281,35 @@ def test_skills_capability_loads_repo_skills_directory() -> None:
     assert "Do not treat surface compliance as sufficient." in skill.content
 
 
+def test_every_skill_file_declares_valid_substitution_axis() -> None:
+    catalog = load_skill_catalog()
+
+    assert sorted(catalog) == EXPECTED_SKILL_IDS
+    assert {metadata.axis for metadata in catalog.values()} == {
+        "instruction",
+        "authority",
+        "role",
+        "model",
+    }
+    for metadata in catalog.values():
+        assert f"Substitution axis: {metadata.axis}" in metadata.content
+
+
+def test_skill_catalog_reads_axis_metadata_from_markdown() -> None:
+    axes = list_available_skill_axes()
+
+    assert axes == {
+        "authority_scope_expansion": "authority",
+        "instruction_constraint_override": "instruction",
+        "principal_model_hallucination": "model",
+        "role_protective_substitution": "role",
+        "safety_framework_escape_hatch": "instruction",
+    }
+
+
 def test_detection_prompt_points_to_agent_skills_without_embedding_skill_markdown() -> None:
     available_skill_ids = list_available_skill_ids()
+    available_skill_axes = list_available_skill_axes()
     skill_text = (SKILLS_DIR / "safety_framework_escape_hatch.md").read_text(
         encoding="utf-8"
     )
@@ -215,9 +317,12 @@ def test_detection_prompt_points_to_agent_skills_without_embedding_skill_markdow
     prompt = build_prompt_contract_detection_prompt(
         "Use TypeScript with explicit models and avoid any",
         available_skill_ids,
+        available_skill_axes=available_skill_axes,
     )
 
     assert "safety_framework_escape_hatch" in prompt
+    assert "safety_framework_escape_hatch: instruction" in prompt
+    assert "authority_scope_expansion: authority" in prompt
     assert "Use the Agent Skills capability" in prompt
     assert "skill discovery" in prompt
     assert "skill instruction loading" in prompt
@@ -247,6 +352,9 @@ def test_non_mock_detector_uses_pydantic_ai_agent(monkeypatch: pytest.MonkeyPatc
             return SimpleNamespace(
                 output={
                     "prompt": "model echo should be replaced",
+                    "boundary_detected": True,
+                    "substitution_axis": "instruction",
+                    "delegated_boundary": "TypeScript explicit models without any",
                     "framework_specified": True,
                     "candidate_framework": " TypeScript ",
                     "delegated_guarantee": " explicit modeling without any ",
@@ -272,8 +380,11 @@ def test_non_mock_detector_uses_pydantic_ai_agent(monkeypatch: pytest.MonkeyPatc
     )
 
     assert contract.prompt == "Use TypeScript with explicit models and avoid any"
+    assert contract.boundary_detected is True
+    assert contract.substitution_axis == "instruction"
+    assert contract.delegated_boundary == "TypeScript explicit models without any"
     assert contract.selected_skill_id == "safety_framework_escape_hatch"
-    assert contract.available_skill_ids == ["safety_framework_escape_hatch"]
+    assert contract.available_skill_ids == EXPECTED_SKILL_IDS
     assert calls["model_name"] == "openrouter:test/model"
     assert calls["output_type"] is PromptContract
     assert len(calls["capabilities"]) == 1
@@ -308,6 +419,9 @@ def test_non_mock_detector_rejects_unknown_skill_id(monkeypatch: pytest.MonkeyPa
             return SimpleNamespace(
                 output={
                     "prompt": "Use TypeScript with explicit models and avoid any",
+                    "boundary_detected": True,
+                    "substitution_axis": "instruction",
+                    "delegated_boundary": "TypeScript explicit models without any",
                     "framework_specified": True,
                     "candidate_framework": "TypeScript",
                     "delegated_guarantee": "explicit modeling without any",
@@ -329,6 +443,51 @@ def test_non_mock_detector_rejects_unknown_skill_id(monkeypatch: pytest.MonkeyPa
     with pytest.raises(PromptContractDetectorError, match="unknown selected_skill_id"):
         detect_prompt_contract(
             "Use TypeScript with explicit models and avoid any",
+            mock=False,
+        )
+
+
+def test_non_mock_detector_rejects_selected_skill_axis_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeAgent:
+        def __init__(
+            self,
+            model_name: str,
+            *,
+            output_type: type[PromptContract],
+            capabilities: list[object],
+        ) -> None:
+            pass
+
+        def run_sync(self, prompt: str, *, model_settings: dict[str, float | int]):
+            return SimpleNamespace(
+                output={
+                    "prompt": "Summarize this without using tools.",
+                    "boundary_detected": True,
+                    "substitution_axis": "authority",
+                    "delegated_boundary": "Stay in conversation without external action",
+                    "framework_specified": False,
+                    "candidate_framework": None,
+                    "delegated_guarantee": None,
+                    "selected_skill_id": "safety_framework_escape_hatch",
+                    "skill_selection_reason": "Wrong skill for this axis.",
+                    "confidence": "high",
+                    "status": "contract_detected",
+                    "available_skill_ids": [],
+                    "detection_reason": "Authority boundary.",
+                }
+            )
+
+    import pydantic_ai
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("WHOSE_AGENT_MODEL", "openrouter:test/model")
+    monkeypatch.setattr(pydantic_ai, "Agent", FakeAgent)
+
+    with pytest.raises(PromptContractDetectorError, match="axis mismatch"):
+        detect_prompt_contract(
+            "Summarize this without using tools.",
             mock=False,
         )
 

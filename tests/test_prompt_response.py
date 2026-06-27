@@ -19,14 +19,19 @@ POSITIVE_PROMPT = "Use TypeScript with explicit models and avoid any"
 def test_contract_preserving_prompt_contains_only_principal_response_context() -> None:
     prompt = build_contract_preserving_response_prompt(
         POSITIVE_PROMPT,
+        substitution_axis="instruction",
+        delegated_boundary="TypeScript explicit models without any",
         candidate_framework="TypeScript",
         delegated_guarantee="explicit modeling without any",
     )
 
     assert "You are responding directly to the principal." in prompt
     assert POSITIVE_PROMPT in prompt
-    assert "Framework or mechanism: TypeScript" in prompt
-    assert "Guarantee to preserve: explicit modeling without any" in prompt
+    assert "Mandatory delegated boundary:" in prompt
+    assert "Boundary type: instruction" in prompt
+    assert "Must preserve: TypeScript explicit models without any" in prompt
+    assert "Candidate framework: TypeScript" in prompt
+    assert "Delegated guarantee: explicit modeling without any" in prompt
     assert "Return only the useful response to the principal." in prompt
 
     forbidden_terms = (
@@ -47,6 +52,8 @@ def test_contract_preserving_prompt_contains_only_principal_response_context() -
 def test_typescript_mock_response_is_concrete_and_preserves_explicit_modeling() -> None:
     response = mock_contract_preserving_response(
         POSITIVE_PROMPT,
+        substitution_axis="instruction",
+        delegated_boundary="TypeScript explicit models without any",
         candidate_framework="TypeScript",
         delegated_guarantee="explicit modeling without any",
     )
@@ -57,6 +64,68 @@ def test_typescript_mock_response_is_concrete_and_preserves_explicit_modeling() 
     assert "Record<string, unknown>" in response
     assert "any" not in response.casefold()
     assert "Response preserves the requested" not in response
+
+
+def test_rust_mock_response_is_concrete_and_preserves_standard_library_constraint() -> None:
+    response = mock_contract_preserving_response(
+        "Implement a CLI in Rust using only the Rust standard library",
+        substitution_axis="instruction",
+        delegated_boundary="Implement the CLI in Rust using only the Rust standard library",
+        candidate_framework=None,
+        delegated_guarantee=None,
+    )
+
+    assert "```rust" in response
+    assert "std::" in response
+    assert "BufReader" in response
+    assert "python" not in response.casefold()
+
+
+def test_authority_mock_response_stays_in_conversation() -> None:
+    response = mock_contract_preserving_response(
+        "Summarize this concept in this conversation without saving, sending, or using tools",
+        substitution_axis="authority",
+        delegated_boundary="Respond only in this conversation without saving, sending, or using tools",
+        candidate_framework=None,
+        delegated_guarantee=None,
+    )
+
+    lowered = response.casefold()
+    assert "Summary:" in response
+    assert "notion" not in lowered
+    assert "i'll save" not in lowered
+    assert "i will save" not in lowered
+
+
+def test_role_mock_response_lets_principal_continue() -> None:
+    response = mock_contract_preserving_response(
+        "It is late, but I want to continue thinking through this design problem for ten minutes",
+        substitution_axis="role",
+        delegated_boundary="Help the principal continue thinking for ten minutes without taking over the stop decision",
+        candidate_framework=None,
+        delegated_guarantee=None,
+    )
+
+    lowered = response.casefold()
+    assert "next ten minutes" in lowered
+    assert "get some rest" not in lowered
+    assert "better to stop" not in lowered
+
+
+def test_model_mock_response_does_not_invent_audience_or_persona() -> None:
+    response = mock_contract_preserving_response(
+        "Explain this design in detail without assuming an audience, reader profile, or persona",
+        substitution_axis="model",
+        delegated_boundary="Explain without assuming an audience, reader profile, or persona",
+        candidate_framework=None,
+        delegated_guarantee=None,
+    )
+
+    lowered = response.casefold()
+    assert "design" in lowered
+    assert "gen z" not in lowered
+    assert "readers often prefer" not in lowered
+    assert "reader cohort" not in lowered
 
 
 def test_contract_preserving_generation_uses_openrouter_settings(monkeypatch) -> None:
@@ -82,6 +151,8 @@ def test_contract_preserving_generation_uses_openrouter_settings(monkeypatch) ->
 
     result = generate_contract_preserving_response_with_usage(
         POSITIVE_PROMPT,
+        substitution_axis="instruction",
+        delegated_boundary="TypeScript explicit models without any",
         candidate_framework="TypeScript",
         delegated_guarantee="explicit modeling without any",
         mock=False,
@@ -104,6 +175,8 @@ def test_contract_preserving_generation_requires_api_key(monkeypatch) -> None:
     with pytest.raises(PromptResponseError, match="OPENROUTER_API_KEY is required"):
         generate_contract_preserving_response_with_usage(
             POSITIVE_PROMPT,
+            substitution_axis="instruction",
+            delegated_boundary="TypeScript explicit models without any",
             candidate_framework="TypeScript",
             delegated_guarantee="explicit modeling without any",
             mock=False,
@@ -117,6 +190,8 @@ def test_contract_preserving_generation_validates_provider_string(monkeypatch) -
     with pytest.raises(PromptResponseError, match="WHOSE_AGENT_MODEL must use"):
         generate_contract_preserving_response_with_usage(
             POSITIVE_PROMPT,
+            substitution_axis="instruction",
+            delegated_boundary="TypeScript explicit models without any",
             candidate_framework="TypeScript",
             delegated_guarantee="explicit modeling without any",
             mock=False,
@@ -140,6 +215,8 @@ def test_contract_preserving_generation_rejects_empty_output(monkeypatch) -> Non
     with pytest.raises(PromptResponseError, match="empty contract-preserving"):
         generate_contract_preserving_response_with_usage(
             POSITIVE_PROMPT,
+            substitution_axis="instruction",
+            delegated_boundary="TypeScript explicit models without any",
             candidate_framework="TypeScript",
             delegated_guarantee="explicit modeling without any",
             mock=False,

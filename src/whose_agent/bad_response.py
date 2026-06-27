@@ -109,6 +109,15 @@ def validate_submission(raw: dict[str, Any]) -> UserInput:
 }
 
 
+MOCK_PROMPT_LOOP_RESPONSES_BY_SKILL: dict[str, str] = {
+    "safety_framework_escape_hatch": MOCK_RESPONSES_BY_SCENARIO["prompt_loop"],
+    "instruction_constraint_override": MOCK_RESPONSES["instruction"],
+    "authority_scope_expansion": MOCK_RESPONSES["authority"],
+    "role_protective_substitution": MOCK_RESPONSES["role"],
+    "principal_model_hallucination": MOCK_RESPONSES["model"],
+}
+
+
 def build_generation_prompt(
     scenario: Scenario,
     *,
@@ -136,10 +145,21 @@ def build_generation_prompt(
     )
 
 
-def mock_bad_response(classification: Classification) -> str:
+def mock_bad_response(
+    classification: Classification,
+    *,
+    scenario: Scenario | None = None,
+) -> str:
     if classification.classification != "in_scope" or classification.substituted == "none":
         raise BadResponseError(
             "Bad response generation is only defined for in-scope scenarios.")
+    if (
+        classification.scenario_id == "prompt_loop"
+        and scenario is not None
+        and scenario.selected_skill_id is not None
+        and scenario.selected_skill_id in MOCK_PROMPT_LOOP_RESPONSES_BY_SKILL
+    ):
+        return MOCK_PROMPT_LOOP_RESPONSES_BY_SKILL[scenario.selected_skill_id]
     if classification.scenario_id in MOCK_RESPONSES_BY_SCENARIO:
         return MOCK_RESPONSES_BY_SCENARIO[classification.scenario_id]
     return MOCK_RESPONSES[classification.substituted]
@@ -188,7 +208,7 @@ def generate_bad_response_with_usage(
             "Bad response generation is only defined for in-scope scenarios.")
 
     if mock:
-        return LLMCallResult(output=mock_bad_response(classification))
+        return LLMCallResult(output=mock_bad_response(classification, scenario=scenario))
 
     if not os.environ.get("OPENROUTER_API_KEY"):
         raise BadResponseError(

@@ -32,6 +32,10 @@ def _rust_cli() -> schemas.Scenario:
     return load_scenario(ROOT / "scenarios" / "instruction_rust_cli.yaml")
 
 
+def _none_general_explanation() -> schemas.Scenario:
+    return load_scenario(ROOT / "scenarios" / "none_general_explanation.yaml")
+
+
 def _run_loop(scenario: schemas.Scenario, *, max_iterations: int = 1) -> dict:
     graph = compile_minimal_loop_graph(mock=True)
     return graph.invoke(initial_loop_state_from_scenario(scenario, max_iterations=max_iterations))
@@ -248,7 +252,7 @@ def test_observation_side_fields_do_not_appear_in_do_step() -> None:
 
 
 def test_render_loop_trace_no_skill_scenario() -> None:
-    state = _run_loop(_rust_cli(), max_iterations=1)
+    state = _run_loop(_none_general_explanation(), max_iterations=1)
     loop_trace = render_loop_trace(state)
 
     assert loop_trace.selected_skill_id is None

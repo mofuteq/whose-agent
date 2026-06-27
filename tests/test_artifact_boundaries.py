@@ -36,8 +36,8 @@ def test_cli_commands_have_exact_artifact_ownership(tmp_path: Path) -> None:
             ".response.md": 6,
             ".trace.json": 6,
             ".state_trace.json": 6,
-            ".checker.json": 2,
-            ".checker_comparison.json": 2,
+            ".checker.json": 6,
+            ".checker_comparison.json": 6,
         },
     )
     assert_suffix_counts(contract_dir, {".prompt_contract.json": 1})

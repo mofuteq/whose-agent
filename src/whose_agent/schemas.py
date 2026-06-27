@@ -10,8 +10,9 @@ Principal = str
 AgentId = str
 StepKind = Literal["plan", "do", "check"]
 NextAction = Literal["continue", "stop", "handoff"]
+SubstitutionAxis = Literal["instruction", "authority", "role", "model"]
 Substituted = Literal["instruction", "authority", "role", "model", "none"]
-TraceSubstituted = Literal["instruction", "authority", "role", "model"]
+TraceSubstituted = SubstitutionAxis
 FailureMode = Literal[
     "constraint_override",
     "unauthorized_autonomy",
@@ -77,6 +78,7 @@ class ControlState(BaseModel):
     handoff_ready: bool = False
     selected_skill_id: str | None = None
     selected_skill_perspective: str | None = None
+    boundary_detected: bool = False
     framework_specified: bool = False
     guarantee_bypass_observed: bool = False
     guarantee_bypass_evidence: list[str] = Field(default_factory=list)
@@ -220,6 +222,9 @@ class PromptContract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     prompt: str
+    boundary_detected: bool
+    substitution_axis: SubstitutionAxis | None = None
+    delegated_boundary: str | None = Field(default=None, max_length=500)
     framework_specified: bool
     candidate_framework: str | None = Field(default=None, max_length=200)
     delegated_guarantee: str | None = Field(default=None, max_length=500)
@@ -232,6 +237,7 @@ class PromptContract(BaseModel):
 
     @field_validator(
         "candidate_framework",
+        "delegated_boundary",
         "delegated_guarantee",
         "selected_skill_id",
         "skill_selection_reason",
@@ -263,13 +269,23 @@ class PromptContract(BaseModel):
     @model_validator(mode="after")
     def validate_status_consistency(self) -> "PromptContract":
         if self.status == "contract_detected":
-            if not self.framework_specified:
-                raise ValueError("contract_detected requires framework_specified=true")
+            if not self.boundary_detected:
+                raise ValueError("contract_detected requires boundary_detected=true")
+            if self.substitution_axis is None:
+                raise ValueError("contract_detected requires substitution_axis")
+            if self.delegated_boundary is None:
+                raise ValueError("contract_detected requires delegated_boundary")
             if self.selected_skill_id is None:
                 raise ValueError("contract_detected requires selected_skill_id")
             if self.skill_selection_reason is None:
                 raise ValueError("contract_detected requires skill_selection_reason")
         if self.status == "no_contract_detected":
+            if self.boundary_detected:
+                raise ValueError("no_contract_detected requires boundary_detected=false")
+            if self.substitution_axis is not None:
+                raise ValueError("no_contract_detected requires substitution_axis=null")
+            if self.delegated_boundary is not None:
+                raise ValueError("no_contract_detected requires delegated_boundary=null")
             if self.framework_specified:
                 raise ValueError("no_contract_detected requires framework_specified=false")
             if self.selected_skill_id is not None:
@@ -281,12 +297,16 @@ class PromptContract(BaseModel):
             if self.delegated_guarantee is not None:
                 raise ValueError("no_contract_detected requires delegated_guarantee=null")
         if self.status == "unsupported":
-            if not self.framework_specified:
-                raise ValueError("unsupported requires framework_specified=true")
+            if not self.boundary_detected:
+                raise ValueError("unsupported requires boundary_detected=true")
             if self.selected_skill_id is not None:
                 raise ValueError("unsupported requires selected_skill_id=null")
             if self.skill_selection_reason is not None:
                 raise ValueError("unsupported requires skill_selection_reason=null")
+            if self.delegated_boundary is not None and self.substitution_axis is None:
+                raise ValueError(
+                    "unsupported with delegated_boundary requires substitution_axis"
+                )
         return self
 
 
@@ -376,7 +396,13 @@ class LoopTrace(BaseModel):
 
     scenario_id: str
     loop_source: LoopSource = "fixed_scenario"
+    boundary_detected: bool = False
+    substitution_axis: SubstitutionAxis | None = None
+    delegated_boundary: str | None = None
     prompt_contract_status: PromptContractStatus | None = None
+    prompt_contract_boundary_detected: bool | None = None
+    prompt_contract_substitution_axis: SubstitutionAxis | None = None
+    prompt_contract_delegated_boundary: str | None = None
     prompt_contract_candidate_framework: str | None = None
     prompt_contract_delegated_guarantee: str | None = None
     prompt_contract_artifact: str | None = None
@@ -432,7 +458,13 @@ class WhoseAgentState(TypedDict, total=False):
     loop_completed: bool
     loop_stop_reason: str | None
     loop_source: LoopSource
+    boundary_detected: bool
+    substitution_axis: SubstitutionAxis | None
+    delegated_boundary: str | None
     prompt_contract_status: PromptContractStatus | None
+    prompt_contract_boundary_detected: bool | None
+    prompt_contract_substitution_axis: SubstitutionAxis | None
+    prompt_contract_delegated_boundary: str | None
     prompt_contract_candidate_framework: str | None
     prompt_contract_delegated_guarantee: str | None
     prompt_contract_artifact: str | None
@@ -491,6 +523,7 @@ __all__ = [
     "ScenarioCheckerTemplate",
     "ScenarioTraceTemplate",
     "StepKind",
+    "SubstitutionAxis",
     "StepTrace",
     "Substituted",
     "TRACE_FAILURE_MODES",
