@@ -115,6 +115,11 @@ This pattern generalizes across frameworks.
 The checker is not looking for `any` specifically.
 It is asking whether the response preserves the surface while bypassing the guarantee.
 
+The safety-framework skill remains an instruction-axis perspective. It is
+distinct from the broader `instruction_constraint_override` skill, which covers
+explicit language, library, method, format, or scope replacement when the core
+failure is not framework-surface compliance plus guarantee hollowing.
+
 ## Skill Perspective and Checker
 
 The benchmark uses a three-way split:
@@ -125,6 +130,16 @@ The benchmark uses a three-way split:
 
 The checker does not own detection patterns.
 It receives the skill perspective and reads the generated artifact through that perspective.
+
+The repository `skills/` directory is the source of truth for available skill
+perspectives. Each markdown skill declares exactly one stable metadata line:
+
+```text
+Substitution axis: instruction
+```
+
+Allowed axis values are `instruction`, `authority`, `role`, and `model`. `none`
+is a negative control, not a skill and not a fifth failure axis.
 
 > Do not let the misreader skill self-certify the boundary event.
 
@@ -231,7 +246,8 @@ It is not generated or rewritten by the model.
 
 Arbitrary prompt observability is now contract-first.
 Free prompts first go through prompt contract detection before they are used
-for loop observability.
+for loop observability. Detection covers the same four principal-substitution
+axes as the fixed benchmark: instruction, authority, role, and model.
 The legacy `run-prompt` classification path was removed because free prompts
 should not be interpreted as benchmark-like traces before their delegated
 contract is made explicit.
@@ -256,8 +272,9 @@ Free prompts first go through prompt contract detection before they are used
 for loop observability.
 
 `detect-contract` is contract detection only.
-It records whether an arbitrary prompt names a framework-level guarantee or
-boundary and whether an available skill perspective applies.
+It records whether an arbitrary prompt names a principal delegation boundary,
+which substitution axis applies, and whether an available skill perspective
+applies.
 It does not run the minimal loop.
 
 `run-prompt-loop` detects a contract and runs the minimal loop.
@@ -268,9 +285,15 @@ Arbitrary prompt artifacts are not scenario-grounded benchmark artifacts.
 
 ## Prompt Contract Detection
 
-Arbitrary prompts first go through prompt contract detection when the goal is to inspect whether the principal specified a framework-level guarantee or boundary.
+Arbitrary prompts first go through prompt contract detection when the goal is to
+inspect whether the principal specified a boundary on one of the four
+principal-substitution axes.
 
-This path emits a `.prompt_contract.json` artifact. The artifact records whether a framework or boundary was specified, what guarantee was delegated, which available skill perspective was selected, why that skill was selected, confidence, status, and the available skill IDs considered.
+This path emits a `.prompt_contract.json` artifact. The artifact records
+`boundary_detected`, `substitution_axis`, `delegated_boundary`, legacy
+framework-specific fields when applicable, which available skill perspective was
+selected, why that skill was selected, confidence, status, and the available
+skill IDs considered.
 
 Non-mock detection uses Pydantic AI Agent Skills backed by the repository `skills/` directory. The detector gives the agent access to skill discovery and skill loading through `SkillsCapability`; it does not treat a manually injected skill catalog as the semantic source of skill selection.
 
@@ -282,9 +305,9 @@ Prompt contract status values are part of the boundary contract:
 
 | status | meaning | required fields |
 |---|---|---|
-| `contract_detected` | A framework-level guarantee or boundary was detected, and an available skill perspective applies. | `framework_specified=true`, `selected_skill_id != null`, `skill_selection_reason != null`; `candidate_framework` and `delegated_guarantee` are recorded when known. |
-| `no_contract_detected` | No framework-level guarantee or boundary was detected. | `framework_specified=false`, `selected_skill_id=null`, `skill_selection_reason=null`, `candidate_framework=null`, `delegated_guarantee=null` |
-| `unsupported` | A framework-level guarantee or boundary was detected, but no available skill perspective applies. | `framework_specified=true`, `selected_skill_id=null`, `skill_selection_reason=null` |
+| `contract_detected` | A principal boundary was detected, an axis was identified, and an available skill perspective applies. | `boundary_detected=true`, `substitution_axis != null`, `delegated_boundary != null`, `selected_skill_id != null`, `skill_selection_reason != null` |
+| `no_contract_detected` | No principal boundary was detected. | `boundary_detected=false`, `substitution_axis=null`, `delegated_boundary=null`, `selected_skill_id=null`, `skill_selection_reason=null` |
+| `unsupported` | A principal boundary was detected, but no available skill perspective applies. | `boundary_detected=true`, `selected_skill_id=null`, `skill_selection_reason=null`; `substitution_axis` is set when the dominant axis is identifiable |
 
 `unsupported` must not be treated as a successful contract for skill-triggered
 drift.
@@ -307,7 +330,9 @@ scenario YAML, no scenario-grounded checker expectation, and no emitted
 `.checker.json` or `.checker_comparison.json` artifact.
 It is synthetic arbitrary prompt observability. It references concise prompt
 contract provenance, including `loop_source = "prompt_contract"` and the prompt
-contract status, but does not embed the full prompt contract artifact.
+contract status. It also projects `boundary_detected`, `substitution_axis`,
+`delegated_boundary`, and `selected_skill_id`, but does not embed the full prompt
+contract artifact.
 Contract detection alone does not mean the principal was substituted; it only
 identifies the boundary where substitution could happen. When the prompt-derived
 contract triggers the misreader, the `do` step may also include concise
@@ -328,39 +353,38 @@ and does not turn arbitrary prompts into benchmark scenarios or a general
 production agent runtime.
 
 Prompt-derived `drift_evidence` is contract-field-derived. It is generated from
-`PromptContract` fields such as `candidate_framework` and
-`delegated_guarantee`, so it can be exercised with Pydantic, SQL
-parameterization, Zod, TypeScript, or other framework examples without
-hard-coding a TypeScript evidence sentence. This does not mean prompt-derived
-checker observation is framework-agnostic. The current `prompt_loop` mock
-checker is a bounded test double that uses narrow markers sufficient for the
-current tests, and it should not be treated as a general semantic checker for
-Pydantic, SQL, Zod, or other framework bypasses. Generalizing checker
-observation across frameworks is separate scope.
+`PromptContract` fields such as `substitution_axis` and `delegated_boundary`, so
+it can be exercised across instruction, authority, role, and model boundaries
+without hard-coding a TypeScript evidence sentence. This does not mean the
+prompt-derived mock checker is a general semantic checker. The current
+`prompt_loop` mock checker is a bounded test double that uses narrow per-skill
+fixture markers sufficient for deterministic tests.
 
-The fixed-scenario cause-side firing rule remains deterministic:
-
-```
-framework_specified and selected_skill_id is not None
-```
+Fixed-scenario benchmark skill firing remains deterministic from scenario
+metadata: selected-skill fixed scenarios fire the misreader skill in the fixed
+benchmark path. The fixed-scenario minimal loop keeps its safety-framework
+framework flag for the older loop fixture and does not use checker output as a
+precondition.
 
 For prompt-derived loops, `contract_detected` plus an applicable skill is only
-the boundary. The misreader fires only when the cause-side deterministic firing
-decision says it fired; without that decision, the prompt-derived path remains a
-non-fired observed happy path.
+the boundary. Prompt-derived firing depends on `boundary_detected +
+selected_skill_id` plus the deterministic firing decision; without that
+decision, the prompt-derived path remains a non-fired observed happy path.
 
 Checker observations remain observation-side and are recorded after the `do`
 step has already decided whether the misreader skill fired.
 
 Status-specific behavior is explicit:
 
-- `contract_detected`: `framework_specified=true`, `selected_skill_id != null`,
-  and the checker runs whether or not the cause-side misreader fired. If no
-  bypass is observed on a non-fired path, `observation_outcome=matched_no_boundary_event`.
-- `no_contract_detected`: `framework_specified=false`, `selected_skill_id=null`,
+- `contract_detected`: `boundary_detected=true`, `substitution_axis != null`,
+  `delegated_boundary != null`, `selected_skill_id != null`, and the checker
+  runs whether or not the cause-side misreader fired. If no bypass is observed
+  on a non-fired path, `observation_outcome=matched_no_boundary_event`.
+- `no_contract_detected`: `boundary_detected=false`, `substitution_axis=null`,
+  `delegated_boundary=null`, `selected_skill_id=null`,
   no meaningful prompt-contract observation target exists, and
   `observation_outcome=not_applicable`.
-- `unsupported`: `framework_specified=true`, `selected_skill_id=null`, no
+- `unsupported`: `boundary_detected=true`, `selected_skill_id=null`, no
   skill-triggered drift occurs, no applicable checker target exists, and
   `observation_outcome=not_applicable`.
 
@@ -371,6 +395,9 @@ prompt-derived paths, the observed happy path is:
 
 ```
 prompt_contract_status=contract_detected
+boundary_detected=true
+substitution_axis != null
+delegated_boundary != null
 selected_skill_id != null
 misreader_skill_fired=false
 checker_ran=true
@@ -396,7 +423,7 @@ These invariants define that separation:
 |---|---|
 | Fixed scenario equals benchmark. | Fixed scenario `run` is the benchmark path. It owns scenario-grounded classification, response, trace, state trace, checker, and checker comparison artifacts. |
 | Arbitrary prompt equals contract-first observability. | Arbitrary prompts are not classified as benchmark scenarios. They first emit a `PromptContract`, and only then may run the synthetic prompt loop. |
-| `PromptContract` detection identifies a boundary, not a bypass. | Contract detection records the delegated framework-level guarantee or boundary where drift could happen. It does not assert that drift happened. |
+| `PromptContract` detection identifies a boundary, not a bypass. | Contract detection records the delegated boundary where drift could happen. It does not assert that drift happened. |
 | `contract_detected` does not imply principal substitution. | A detected, supported contract means an applicable skill perspective exists. Principal substitution is only present when the cause-side misreader actually fires and the artifact drifts. |
 | `misreader_skill_fired` is the cause-side event. | It is decided in `do` from cause-side state. Checker results must never be read to decide this value. |
 | `checker_observed_bypass` is the observation-side event. | It is produced in `check` after generation. It observes the artifact; it does not cause the drift. |
@@ -428,7 +455,8 @@ plan -> do -> check -> plan
 
 It is a controlled poor-e2e fixture, not a general autonomous runtime.
 
-- `plan` sets `framework_specified`
+- `plan` projects cause-side boundary state such as `framework_specified` for
+  safety-framework fixed-loop fixtures and `boundary_detected` for prompt-derived loops
 - `do` calls `should_fire_misreader_skill(state)` — a cause-side policy helper in `loop_trigger_policy.py` — to decide whether the misreader skill fires
 - `check` runs the observation-side checker
 - The loop stops deterministically via `max_iterations`

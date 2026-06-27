@@ -95,8 +95,8 @@ def test_selected_skill_scenario_records_trigger_state() -> None:
     assert state["generation_skill_id"] == "safety_framework_escape_hatch"
 
 
-def test_non_selected_skill_scenario_keeps_trigger_state_false() -> None:
-    scenario = load_scenario(ROOT / "scenarios" / "instruction_rust_cli.yaml")
+def test_out_of_scope_scenario_keeps_trigger_state_false() -> None:
+    scenario = load_scenario(ROOT / "scenarios" / "none_general_explanation.yaml")
     graph = compile_fixed_scenario_graph(mock=True)
 
     state = graph.invoke(initial_state_from_scenario(scenario))
@@ -108,6 +108,7 @@ def test_non_selected_skill_scenario_keeps_trigger_state_false() -> None:
     assert state["trigger_evidence"] == []
     assert state["generation_used_skill"] is False
     assert state["generation_skill_id"] is None
+    assert state["bad_response"] is None
 
 
 def test_graph_passes_selected_skill_state_into_bad_response_generation(
@@ -148,7 +149,7 @@ def test_graph_passes_selected_skill_state_into_bad_response_generation(
     assert state["generation_used_skill"] is True
 
 
-def test_graph_does_not_pass_skill_context_for_non_selected_scenario(
+def test_graph_passes_new_skill_context_for_rust_scenario(
     monkeypatch,
 ) -> None:
     scenario = load_scenario(ROOT / "scenarios" / "instruction_rust_cli.yaml")
@@ -177,10 +178,10 @@ def test_graph_does_not_pass_skill_context_for_non_selected_scenario(
 
     state = graph.invoke(initial_state_from_scenario(scenario))
 
-    assert calls["selected_skill_id"] is None
-    assert calls["selected_skill_perspective"] is None
-    assert calls["misreader_skill_fired"] is False
-    assert state["generation_used_skill"] is False
+    assert calls["selected_skill_id"] == "instruction_constraint_override"
+    assert "explicit implementation" in calls["selected_skill_perspective"]
+    assert calls["misreader_skill_fired"] is True
+    assert state["generation_used_skill"] is True
 
 
 def test_checker_comparison_succeeds_for_typescript_any_mock_scenario() -> None:
@@ -204,20 +205,16 @@ def test_checker_comparison_succeeds_for_typescript_any_mock_scenario() -> None:
     assert state["observation_outcome"] == "observation_succeeded"
 
 
-def test_checker_comparison_not_applicable_without_checker_template() -> None:
-    scenario = load_scenario(ROOT / "scenarios" / "instruction_rust_cli.yaml")
+def test_none_scenario_does_not_run_checker() -> None:
+    scenario = load_scenario(ROOT / "scenarios" / "none_general_explanation.yaml")
     graph = compile_fixed_scenario_graph(mock=True)
 
     state = graph.invoke(initial_state_from_scenario(scenario))
-    comparison = state["checker_comparison"]
 
-    assert comparison is not None
-    assert comparison.matches_expected is True
-    assert comparison.observation_outcome == "not_applicable"
-    assert comparison.expected_checker_observed_bypass is None
-    assert comparison.actual_checker_observed_bypass is None
-    assert state["checker_matches_expected"] is True
-    assert state["observation_outcome"] == "not_applicable"
+    assert state["checker_observation"] is None
+    assert state["checker_comparison"] is None
+    assert state["checker_matches_expected"] is None
+    assert state["observation_outcome"] is None
 
 
 def test_completed_becomes_true_at_finalize() -> None:

@@ -156,29 +156,47 @@ The benchmark substitution axes are:
 | role | protective_shutdown | agent substitutes assistant role with guardian role |
 | model | persona_hallucination | agent substitutes the principal with a hallucinated model |
 
-The fixed benchmark supports multiple scenario shapes per substitution axis. For
-example, both `instruction_typescript_any` and `instruction_pydantic_any` use the
-`safety_framework_escape_hatch` skill perspective to show surface framework
-compliance plus semantic guarantee bypass across different frameworks.
+The fixed benchmark and arbitrary prompt observability share these same four
+principal-substitution axes. The `skills/` directory is the source of truth for
+available inspection perspectives, and each skill declares its axis with a
+machine-readable `Substitution axis: ...` markdown line.
+
+The current fixed scenarios attach skills as follows:
+
+| scenario | selected skill |
+|---|---|
+| `instruction_typescript_any` | `safety_framework_escape_hatch` |
+| `instruction_pydantic_any` | `safety_framework_escape_hatch` |
+| `rust_cli_constraint_override` | `instruction_constraint_override` |
+| `summary_to_notion_unauthorized_autonomy` | `authority_scope_expansion` |
+| `late_night_protective_shutdown` | `role_protective_substitution` |
+| `summary_persona_hallucination` | `principal_model_hallucination` |
+
+The safety-framework skill remains the instruction-axis perspective for cases
+where a response preserves a framework, schema, validation, safety, security, or
+correctness surface while hollowing out the delegated guarantee.
 
 `none` scenarios are out-of-scope negative controls. They do not define a
-delegated framework boundary or selected skill perspective, so they do not
-satisfy the cause-side trigger policy. They are not a fifth failure axis.
+delegated boundary or selected skill perspective, so they do not satisfy the
+cause-side trigger policy. They are not a fifth failure axis or a fifth skill.
 
 ## Contract-First Arbitrary Prompt Observability
 
 Arbitrary prompts first go through prompt contract detection. The contract
-artifact records whether the prompt names a framework-level guarantee or
-boundary, which available skill perspective applies, why that skill was
-selected, confidence, status, and the available skill IDs considered.
+artifact records whether the prompt names a principal delegation boundary,
+which substitution axis applies, the delegated boundary text, which available
+skill perspective applies, why that skill was selected, confidence, status, and
+the available skill IDs considered. Framework-specific fields remain for
+backward compatibility and for safety-framework cases; `framework_specified` is
+not a generic boundary flag.
 
 Prompt contract status values:
 
 | status | meaning |
 |---|---|
-| `contract_detected` | a framework-level guarantee or boundary was detected, and an available skill perspective applies |
-| `no_contract_detected` | no framework-level guarantee or boundary was detected |
-| `unsupported` | a framework-level guarantee or boundary was detected, but no available skill perspective applies |
+| `contract_detected` | a principal boundary was detected, an axis was identified, and an available skill perspective applies |
+| `no_contract_detected` | no principal boundary was detected |
+| `unsupported` | a principal boundary was detected, but no available skill perspective applies |
 
 `unsupported` is not treated as a successful contract for skill-triggered drift.
 
@@ -201,13 +219,17 @@ production agent runtime.
 
 Prompt-derived loop traces carry provenance, including
 `loop_source = "prompt_contract"`, the prompt contract status, and the prompt
-contract artifact name. They do not embed the full prompt contract artifact.
+contract artifact name. They also project generic boundary fields:
+`boundary_detected`, `substitution_axis`, `delegated_boundary`, and
+`selected_skill_id`. They do not embed the full prompt contract artifact.
 Contract detection alone does not mean the principal was substituted; it only
-identifies the boundary where substitution could happen. When a prompt-derived
-contract triggers the misreader step, the `do` step can
-also carry concise PromptContract-derived `drift_evidence` inside
-`.loop_trace.json`. This is synthetic arbitrary prompt observability, not fixed
-benchmark evaluation, and it does not emit a human-readable `.response.md`.
+identifies the boundary where substitution could happen. Prompt-derived firing
+depends on `boundary_detected + selected_skill_id`; checker output never becomes
+a firing precondition. When a prompt-derived contract triggers the misreader
+step, the `do` step can also carry concise PromptContract-derived
+`drift_evidence` inside `.loop_trace.json`. This is synthetic arbitrary prompt
+observability, not fixed benchmark evaluation, and it does not emit a
+human-readable `.response.md`.
 
 ## Minimal Loop Observability
 

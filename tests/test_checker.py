@@ -55,12 +55,23 @@ def test_typescript_any_has_selected_skill_id() -> None:
     assert scenario.checker_template is not None
 
 
-def test_other_existing_scenarios_do_not_require_selected_skill_id() -> None:
-    skill_scenarios = {"instruction_typescript_any", "instruction_pydantic_any"}
+def test_fixed_skill_scenarios_have_expected_selected_skill_id() -> None:
+    expected = {
+        "instruction_typescript_any": "safety_framework_escape_hatch",
+        "instruction_pydantic_any": "safety_framework_escape_hatch",
+        "rust_cli_constraint_override": "instruction_constraint_override",
+        "summary_to_notion_unauthorized_autonomy": "authority_scope_expansion",
+        "late_night_protective_shutdown": "role_protective_substitution",
+        "summary_persona_hallucination": "principal_model_hallucination",
+    }
     for scenario in load_scenarios(ROOT / "scenarios"):
-        if scenario.scenario_id in skill_scenarios:
+        if scenario.expected_substituted == "none":
+            assert scenario.selected_skill_id is None
             continue
-        assert scenario.selected_skill_id is None
+        assert scenario.selected_skill_id == expected[scenario.scenario_id]
+        assert scenario.checker_template is not None
+        assert scenario.checker_template.substituted == scenario.expected_substituted
+        assert scenario.checker_template.failure_mode == scenario.failure_mode
 
 
 def test_checker_prompt_contains_required_context_and_boundary_instructions() -> None:
@@ -275,7 +286,7 @@ def test_prompt_observability_comparison_matches_non_fired_happy_path() -> None:
 
 
 def test_checker_comparison_not_applicable_without_checker_template() -> None:
-    scenario = load_scenario(ROOT / "scenarios" / "instruction_rust_cli.yaml")
+    scenario = load_scenario(ROOT / "scenarios" / "none_general_explanation.yaml")
 
     comparison = compare_checker_observation(
         scenario,
@@ -300,6 +311,10 @@ def test_fixed_mock_run_emits_checker_artifacts_for_skill_scenarios(tmp_path: Pa
     assert sorted(path.name for path in checker_files) == [
         "instruction_pydantic_any.checker.json",
         "instruction_typescript_any.checker.json",
+        "late_night_protective_shutdown.checker.json",
+        "rust_cli_constraint_override.checker.json",
+        "summary_persona_hallucination.checker.json",
+        "summary_to_notion_unauthorized_autonomy.checker.json",
     ]
 
     typescript_checker = run_dir / "instruction_typescript_any.checker.json"
@@ -318,7 +333,6 @@ def test_mock_checker_does_not_hard_code_single_scenario_id() -> None:
     checker_source = (ROOT / "src" / "whose_agent" / "checker.py").read_text(encoding="utf-8")
 
     assert "instruction_typescript_any" not in checker_source
-    assert "safety_framework_escape_hatch" not in checker_source
 
 
 def test_fixed_mock_run_keeps_existing_artifact_counts_plus_checker(tmp_path: Path) -> None:
@@ -329,8 +343,8 @@ def test_fixed_mock_run_keeps_existing_artifact_counts_plus_checker(tmp_path: Pa
     assert len(list(run_dir.glob("*.response.md"))) == 6
     assert len([f for f in run_dir.glob("*.trace.json") if not f.name.endswith(".state_trace.json")]) == 6
     assert len(list(run_dir.glob("*.state_trace.json"))) == 6
-    assert len(list(run_dir.glob("*.checker.json"))) == 2
-    assert len(list(run_dir.glob("*.checker_comparison.json"))) == 2
+    assert len(list(run_dir.glob("*.checker.json"))) == 6
+    assert len(list(run_dir.glob("*.checker_comparison.json"))) == 6
     assert list(run_dir.glob("*.flow.mmd")) == []
 
 

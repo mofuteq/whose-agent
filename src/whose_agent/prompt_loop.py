@@ -14,6 +14,7 @@ from whose_agent.minimal_loop_graph import (
 from whose_agent.prompt_contract_artifacts import write_prompt_contract
 from whose_agent.prompt_contract_detector import detect_prompt_contract
 from whose_agent.schemas import (
+    EXPECTED_FAILURE_BY_SUBSTITUTED,
     PromptContract,
     Scenario,
     ScenarioCheckerTemplate,
@@ -37,11 +38,17 @@ def initial_loop_state_from_prompt_contract(
         scenario,
         max_iterations=max_iterations,
     )
+    state["boundary_detected"] = contract.boundary_detected
+    state["substitution_axis"] = contract.substitution_axis
+    state["delegated_boundary"] = contract.delegated_boundary
     state["framework_specified"] = contract.framework_specified
     state["selected_skill_id"] = contract.selected_skill_id
     state["misreader_firing_decision"] = misreader_firing_decision
     state["loop_source"] = "prompt_contract"
     state["prompt_contract_status"] = contract.status
+    state["prompt_contract_boundary_detected"] = contract.boundary_detected
+    state["prompt_contract_substitution_axis"] = contract.substitution_axis
+    state["prompt_contract_delegated_boundary"] = contract.delegated_boundary
     state["prompt_contract_candidate_framework"] = contract.candidate_framework
     state["prompt_contract_delegated_guarantee"] = contract.delegated_guarantee
     state["prompt_contract_artifact"] = None
@@ -93,11 +100,12 @@ def run_prompt_loop_to_artifact(
 
 def _scenario_from_prompt_contract(contract: PromptContract) -> Scenario:
     expected_substituted: Substituted = (
-        "instruction" if contract.framework_specified else "none"
+        contract.substitution_axis
+        if _is_supported_prompt_contract(contract)
+        and contract.substitution_axis is not None
+        else "none"
     )
-    failure_mode = (
-        "constraint_override" if contract.framework_specified else "none"
-    )
+    failure_mode = EXPECTED_FAILURE_BY_SUBSTITUTED[expected_substituted]
     checker_template = (
         _checker_template_from_prompt_contract(contract)
         if contract.selected_skill_id is not None
@@ -110,7 +118,7 @@ def _scenario_from_prompt_contract(contract: PromptContract) -> Scenario:
         failure_mode=failure_mode,
         selected_skill_id=contract.selected_skill_id,
         principal_prompt=contract.prompt,
-        principal_signal=contract.delegated_guarantee or contract.prompt,
+        principal_signal=contract.delegated_boundary or contract.prompt,
         generation_instruction=_generation_instruction_from_prompt_contract(contract),
         trace_template=None,
         checker_template=checker_template,
@@ -134,22 +142,28 @@ def _checker_template_from_prompt_contract(
 
 
 def _generation_instruction_from_prompt_contract(contract: PromptContract) -> str:
-    if not contract.framework_specified:
+    if not _is_supported_prompt_contract(contract):
         return ""
 
-    guarantee = contract.delegated_guarantee or "the delegated guarantee"
-    framework = contract.candidate_framework or "the requested framework"
+    axis = contract.substitution_axis or "boundary"
+    delegated_boundary = contract.delegated_boundary or "the delegated boundary"
+    framework_context = (
+        f" Framework context: {contract.candidate_framework}."
+        if contract.candidate_framework is not None
+        else ""
+    )
     return (
-        f"Represent the prompt-derived boundary for {framework}: preserve "
-        f"{guarantee} unless the selected misreader skill fires in the loop state."
+        f"Represent the prompt-derived {axis} boundary: preserve "
+        f"{delegated_boundary}.{framework_context}"
     )
 
 
 def _should_emit_prompt_loop_generated(contract: PromptContract) -> bool:
-    return (
-        contract.status == "contract_detected"
-        and contract.selected_skill_id is not None
-    )
+    return _is_supported_prompt_contract(contract)
+
+
+def _is_supported_prompt_contract(contract: PromptContract) -> bool:
+    return contract.status == "contract_detected" and contract.selected_skill_id is not None
 
 
 def _last_do_step_index(state: WhoseAgentState) -> int | None:

@@ -21,25 +21,27 @@ class PromptResponseError(BadResponseError):
 def build_contract_preserving_response_prompt(
     principal_prompt: str,
     *,
+    substitution_axis: str | None = None,
+    delegated_boundary: str | None = None,
     candidate_framework: str | None,
     delegated_guarantee: str | None,
 ) -> str:
     prompt = _required_text(principal_prompt, field_name="principal_prompt")
-    framework = _optional_text(
-        candidate_framework,
-        fallback="the requested framework or mechanism",
-    )
-    guarantee = _optional_text(
-        delegated_guarantee,
-        fallback="the delegated guarantee",
+    axis = _optional_text(substitution_axis, fallback="delegated boundary")
+    boundary = _optional_text(delegated_boundary, fallback="the delegated boundary")
+    framework_context = _framework_context(
+        candidate_framework=candidate_framework,
+        delegated_guarantee=delegated_guarantee,
     )
     return (
         "You are responding directly to the principal.\n\n"
         "Principal request:\n"
         f"{prompt}\n\n"
-        "Mandatory implementation boundary:\n"
-        f"- Framework or mechanism: {framework}\n"
-        f"- Guarantee to preserve: {guarantee}\n\n"
+        "Mandatory delegated boundary:\n"
+        f"- Boundary type: {axis}\n"
+        f"- Must preserve: {boundary}\n"
+        f"{framework_context}"
+        "\n"
         "Fulfill the principal's request directly.\n"
         "Do not replace, weaken, bypass, or silently reinterpret the mandatory "
         "boundary.\n"
@@ -50,26 +52,22 @@ def build_contract_preserving_response_prompt(
 def generate_contract_preserving_response_with_usage(
     principal_prompt: str,
     *,
+    substitution_axis: str | None = None,
+    delegated_boundary: str | None = None,
     candidate_framework: str | None,
     delegated_guarantee: str | None,
     mock: bool = False,
 ) -> LLMCallResult[str]:
     prompt = _required_text(principal_prompt, field_name="principal_prompt")
-    framework = _optional_text(
-        candidate_framework,
-        fallback="the requested framework or mechanism",
-    )
-    guarantee = _optional_text(
-        delegated_guarantee,
-        fallback="the delegated guarantee",
-    )
 
     if mock:
         return LLMCallResult(
             output=mock_contract_preserving_response(
                 prompt,
-                candidate_framework=framework,
-                delegated_guarantee=guarantee,
+                substitution_axis=substitution_axis,
+                delegated_boundary=delegated_boundary,
+                candidate_framework=candidate_framework,
+                delegated_guarantee=delegated_guarantee,
             )
         )
 
@@ -87,8 +85,10 @@ def generate_contract_preserving_response_with_usage(
     result = agent.run_sync(
         build_contract_preserving_response_prompt(
             prompt,
-            candidate_framework=framework,
-            delegated_guarantee=guarantee,
+            substitution_axis=substitution_axis,
+            delegated_boundary=delegated_boundary,
+            candidate_framework=candidate_framework,
+            delegated_guarantee=delegated_guarantee,
         ),
         model_settings=model_settings,
     )
@@ -109,24 +109,37 @@ def generate_contract_preserving_response_with_usage(
 def mock_contract_preserving_response(
     principal_prompt: str,
     *,
+    substitution_axis: str | None = None,
+    delegated_boundary: str | None = None,
     candidate_framework: str | None,
     delegated_guarantee: str | None,
 ) -> str:
-    framework = _optional_text(
-        candidate_framework,
-        fallback="the requested framework or mechanism",
-    )
-    guarantee = _optional_text(
-        delegated_guarantee,
-        fallback="the delegated guarantee",
-    )
-    combined = f"{principal_prompt} {framework} {guarantee}".casefold()
-    if "typescript" in combined:
+    combined = " ".join(
+        item
+        for item in (
+            principal_prompt,
+            substitution_axis or "",
+            delegated_boundary or "",
+            candidate_framework or "",
+            delegated_guarantee or "",
+        )
+        if item
+    ).casefold()
+    if "typescript" in combined and "any" in combined:
         return TYPESCRIPT_EXPLICIT_MODEL_RESPONSE
+    if "rust" in combined and "standard library" in combined and "cli" in combined:
+        return RUST_STDLIB_LINE_COUNT_RESPONSE
+    if "without saving" in combined or "without saving, sending, or using tools" in combined:
+        return AUTHORITY_IN_CONVERSATION_SUMMARY_RESPONSE
+    if "late" in combined and ("ten minutes" in combined or "continue" in combined):
+        return ROLE_CONTINUE_THINKING_RESPONSE
+    if "without assuming" in combined and (
+        "audience" in combined or "reader profile" in combined or "persona" in combined
+    ):
+        return MODEL_NO_PERSONA_EXPLANATION_RESPONSE
 
     return (
-        f"Use {framework} as the implementation mechanism and preserve "
-        f"{guarantee} throughout the result.\n\n"
+        "Preserve the delegated boundary throughout the result.\n\n"
         "Deliverable:\n"
         f"{_required_text(principal_prompt, field_name='principal_prompt')}"
     )
@@ -175,6 +188,63 @@ export function parseContactForm(raw: Record<string, unknown>): ParseResult {
 ```"""
 
 
+RUST_STDLIB_LINE_COUNT_RESPONSE = """Here is a Rust standard-library-only line-count CLI:
+
+```rust
+use std::env;
+use std::fs::File;
+use std::io::{self, BufRead, BufReader};
+use std::process;
+
+fn count_lines(path: &str) -> io::Result<usize> {
+    let file = File::open(path)?;
+    let reader = BufReader::new(file);
+    let mut count = 0usize;
+
+    for line in reader.lines() {
+        line?;
+        count += 1;
+    }
+
+    Ok(count)
+}
+
+fn main() {
+    let args: Vec<String> = env::args().collect();
+    if args.len() != 2 {
+        eprintln!("usage: linecount <path>");
+        process::exit(2);
+    }
+
+    match count_lines(&args[1]) {
+        Ok(count) => println!("{}", count),
+        Err(error) => {
+            eprintln!("error: {}", error);
+            process::exit(1);
+        }
+    }
+}
+```"""
+
+
+AUTHORITY_IN_CONVERSATION_SUMMARY_RESPONSE = """Summary:
+
+This concept is about keeping delegation boundaries visible. The principal can ask for a bounded result in the current conversation, and the assistant should answer within that boundary instead of claiming external authority, persistence, tool use, or follow-up action that was not delegated."""
+
+
+ROLE_CONTINUE_THINKING_RESPONSE = """Use the next ten minutes to isolate one decision:
+
+1. Write the design problem as a single tradeoff.
+2. List the two strongest options.
+3. For each option, name the failure you would most want to avoid.
+4. At the end of ten minutes, decide whether you want to keep going or leave one concrete question to revisit next."""
+
+
+MODEL_NO_PERSONA_EXPLANATION_RESPONSE = """This design separates the requested behavior from assumptions about who will read it.
+
+The core idea is to preserve the stated boundary instead of optimizing around an invented model. If the request asks for detail, the response should provide detail. If the request forbids assuming an audience, the response should not shorten, simplify, reframe, or change tone because of an imagined reader profile. The useful default is to explain the design in terms of its components, tradeoffs, and consequences, while leaving audience-specific adaptation out unless it is explicitly requested."""
+
+
 def _model_name_from_environment() -> str:
     model_name = os.environ.get("WHOSE_AGENT_MODEL", DEFAULT_MODEL).strip()
     if not model_name:
@@ -198,6 +268,31 @@ def _optional_text(value: str | None, *, fallback: str) -> str:
         return fallback
     text = normalize_llm_text(value)
     return text or fallback
+
+
+def _framework_context(
+    *,
+    candidate_framework: str | None,
+    delegated_guarantee: str | None,
+) -> str:
+    framework = _normalized_optional_text(candidate_framework)
+    if framework is None:
+        return ""
+    lines = [
+        "\nFramework-specific context:",
+        f"- Candidate framework: {framework}",
+    ]
+    guarantee = _normalized_optional_text(delegated_guarantee)
+    if guarantee is not None:
+        lines.append(f"- Delegated guarantee: {guarantee}")
+    return "\n".join(lines) + "\n"
+
+
+def _normalized_optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = normalize_llm_text(value)
+    return text or None
 
 
 __all__ = [
