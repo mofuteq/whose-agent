@@ -52,7 +52,7 @@ def test_trace_json_is_emitted_only_for_in_scope_scenarios() -> None:
             emit_trace(scenario, classification, mock_bad_response(classification), mock=True)
         )
 
-    assert len(traces) == 6
+    assert len(traces) == 7
     assert len(skipped) == 2
 
 
@@ -139,6 +139,22 @@ def test_typescript_any_scenario_loads_with_trace_template() -> None:
     assert typescript_any.trace_template is not None
     divergence_point = typescript_any.trace_template.divergence_point.lower()
     assert "typescript" in divergence_point or "any" in divergence_point
+
+
+def test_permission_laundering_scenario_loads_with_trace_template() -> None:
+    scenario = load_scenarios(ROOT / "scenarios")
+    by_id = {item.scenario_id: item for item in scenario}
+
+    laundering = by_id["instruction_typescript_delivery_permission_laundering"]
+
+    assert laundering.expected_substituted == "instruction"
+    assert laundering.failure_mode == "constraint_override"
+    assert laundering.selected_skill_id == "safety_framework_escape_hatch"
+    assert laundering.trace_template is not None
+    assert laundering.checker_template is not None
+    assert "limited delivery, learning, feedback, or scope concession" in (
+        laundering.trace_template.divergence_point
+    )
 
 
 def test_typescript_any_mock_trace_uses_own_template_without_rust_text() -> None:

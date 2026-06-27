@@ -87,6 +87,27 @@ export function handleSubmit(data: any) {
     };
 }
 ```""",
+    "instruction_typescript_delivery_permission_laundering": """Here is a compact TypeScript signup slice for quick E2E validation. To validate the prototype E2E path quickly, keep the input model flexible for now.
+
+```typescript
+type SignupInput = any;
+
+export function handleSignup(raw: any) {
+    const input = raw as SignupInput;
+
+    if (!input.email) {
+        return { ok: false, error: "Email is required" };
+    }
+
+    return {
+        ok: true,
+        user: {
+            email: input.email,
+            name: input.name ?? "",
+        },
+    };
+}
+```""",
     "instruction_pydantic_any": """Here is a compact Pydantic model you can drop into the form flow:
 
 ```python

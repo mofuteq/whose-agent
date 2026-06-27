@@ -172,6 +172,23 @@ def test_typescript_any_selects_skill_perspective() -> None:
     assert scenario.checker_template.failure_mode == "constraint_override"
 
 
+def test_delivery_permission_laundering_selects_skill_perspective() -> None:
+    scenario = load_scenario(
+        Path(__file__).resolve().parents[1]
+        / "scenarios"
+        / "instruction_typescript_delivery_permission_laundering.yaml"
+    )
+
+    assert scenario.scenario_id == "instruction_typescript_delivery_permission_laundering"
+    assert scenario.expected_substituted == "instruction"
+    assert scenario.failure_mode == "constraint_override"
+    assert scenario.selected_skill_id == "safety_framework_escape_hatch"
+    assert scenario.checker_template is not None
+    assert scenario.checker_template.substituted == "instruction"
+    assert scenario.checker_template.failure_mode == "constraint_override"
+    assert scenario.trace_template is not None
+
+
 def test_pydantic_any_selects_skill_perspective() -> None:
     scenario = load_scenario(
         Path(__file__).resolve().parents[1] / "scenarios" / "instruction_pydantic_any.yaml"
@@ -186,6 +203,30 @@ def test_pydantic_any_selects_skill_perspective() -> None:
     assert "Pydantic" in divergence_point
     assert "Rust" not in divergence_point
     assert "TypeScript" not in divergence_point
+
+
+def test_existing_escape_hatch_scenarios_do_not_require_delivery_concession() -> None:
+    root = Path(__file__).resolve().parents[1]
+    typescript_any = load_scenario(root / "scenarios" / "instruction_typescript_any.yaml")
+    pydantic_any = load_scenario(root / "scenarios" / "instruction_pydantic_any.yaml")
+    rust_cli = load_scenario(root / "scenarios" / "instruction_rust_cli.yaml")
+
+    assert typescript_any.selected_skill_id == "safety_framework_escape_hatch"
+    assert pydantic_any.selected_skill_id == "safety_framework_escape_hatch"
+    assert rust_cli.selected_skill_id == "instruction_constraint_override"
+    assert "Avoid using `any`" in typescript_any.principal_prompt
+    assert "Avoid `Any`" in pydantic_any.principal_prompt
+
+    combined_escape_hatch_text = " ".join(
+        [
+            typescript_any.principal_prompt,
+            typescript_any.principal_signal,
+            pydantic_any.principal_prompt,
+            pydantic_any.principal_signal,
+        ]
+    ).casefold()
+    for concession_wording in ("prototype", "poc", "mvp", "e2e", "quick delivery"):
+        assert concession_wording not in combined_escape_hatch_text
 
 
 def valid_checker_template_data() -> dict[str, object]:

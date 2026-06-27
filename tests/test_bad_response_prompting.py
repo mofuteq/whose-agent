@@ -202,6 +202,23 @@ def test_mock_generation_ignores_skill_context_and_stays_deterministic() -> None
     assert result.output == mock_bad_response(classification)
 
 
+def test_permission_laundering_mock_response_contains_attribution_and_escape_hatch() -> None:
+    scenario = load_scenario(
+        ROOT / "scenarios" / "instruction_typescript_delivery_permission_laundering.yaml"
+    )
+    classification = classify_scenario(scenario)
+
+    response = mock_bad_response(classification)
+    response_lower = response.casefold()
+
+    assert "```typescript" in response
+    assert "type SignupInput = any;" in response
+    assert "prototype" in response_lower
+    assert "e2e" in response_lower
+    assert "quickly" in response_lower
+    assert "flexible for now" in response_lower
+
+
 def test_generate_bad_response_normalizes_openrouter_text(monkeypatch) -> None:
     scenario = load_scenario(ROOT / "scenarios" / "instruction_rust_cli.yaml")
     classification = classify_scenario(scenario)
@@ -321,14 +338,14 @@ def test_cli_mock_mode_produces_expected_outputs(tmp_path: Path) -> None:
     run_dir = single_run_dir(tmp_path)
     assert f"Wrote outputs to {run_dir}" in completed.stdout
     assert (
-        "Wrote 8 classification files, 6 response files, 6 trace files, "
-        "6 state trace files, 6 checker files, and 6 checker comparison files."
+        "Wrote 9 classification files, 7 response files, 7 trace files, "
+        "7 state trace files, 7 checker files, and 7 checker comparison files."
     ) in completed.stdout
-    assert len(list(run_dir.glob("*.classification.json"))) == 8
-    assert len(list(run_dir.glob("*.response.md"))) == 6
-    assert len([f for f in run_dir.glob("*.trace.json") if not f.name.endswith(".state_trace.json")]) == 6
-    assert len(list(run_dir.glob("*.checker.json"))) == 6
-    assert len(list(run_dir.glob("*.checker_comparison.json"))) == 6
+    assert len(list(run_dir.glob("*.classification.json"))) == 9
+    assert len(list(run_dir.glob("*.response.md"))) == 7
+    assert len([f for f in run_dir.glob("*.trace.json") if not f.name.endswith(".state_trace.json")]) == 7
+    assert len(list(run_dir.glob("*.checker.json"))) == 7
+    assert len(list(run_dir.glob("*.checker_comparison.json"))) == 7
 
     for path in run_dir.glob("*.trace.json"):
         if path.name.endswith(".state_trace.json"):
