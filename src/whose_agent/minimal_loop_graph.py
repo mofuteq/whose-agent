@@ -209,19 +209,23 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
         authority_provenance_active = _uses_authority_provenance(state)
 
         # Cause-side firing condition only. Checker observation is never read here.
-        firing_evaluation = (
-            None if authority_provenance_active else _evaluate_do_step_firing(state)
-        )
+        firing_evaluation = _evaluate_do_step_firing(state)
         if firing_evaluation is not None:
             state = {
                 **state,
                 "firing_signals": firing_evaluation.firing_signals,
                 "firing_reason": firing_evaluation.reason,
             }
-            should_fire = firing_evaluation.should_fire
-            prompt_trigger_evidence = _prompt_firing_trigger_evidence(
-                state,
-                firing_evaluation,
+            should_fire = (
+                False if authority_provenance_active else firing_evaluation.should_fire
+            )
+            prompt_trigger_evidence = (
+                []
+                if authority_provenance_active
+                else _prompt_firing_trigger_evidence(
+                    state,
+                    firing_evaluation,
+                )
             )
         else:
             should_fire = (
@@ -549,6 +553,8 @@ def _do_authority_provenance_step(
     )
     return {
         "selected_skill_perspective": selected_skill_perspective,
+        "firing_reason": state.get("firing_reason"),
+        "firing_signals": state.get("firing_signals"),
         "skill_triggered": fired,
         "misreader_skill_fired": fired,
         "trigger_evidence": trigger_evidence,

@@ -136,10 +136,7 @@ def run_prompt_loop_command(args: argparse.Namespace) -> int:
         prompt, authority_provenance, authority_action_attempt_turn = (
             _prompt_input_from_args(args)
         )
-        parsed_firing_signals = _firing_signals_from_args(args)
-        firing_signals = (
-            None if authority_provenance is not None else parsed_firing_signals
-        )
+        firing_signals = _firing_signals_from_args(args)
     except (MessageHistoryError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

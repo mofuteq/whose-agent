@@ -52,12 +52,11 @@ def initial_loop_state_from_prompt_contract(
     state["framework_specified"] = contract.framework_specified
     state["selected_skill_id"] = contract.selected_skill_id
     state["misreader_firing_decision"] = misreader_firing_decision
-    if firing_signals is not None:
-        state["firing_signals"] = firing_signals
-    elif authority_provenance is not None:
-        state["firing_signals"] = None
-    else:
-        state["firing_signals"] = production_firing_signals(clock=clock)
+    state["firing_signals"] = (
+        firing_signals
+        if firing_signals is not None
+        else production_firing_signals(clock=clock)
+    )
     state["firing_reason"] = None
     state["loop_source"] = "prompt_contract"
     state["prompt_contract_status"] = contract.status

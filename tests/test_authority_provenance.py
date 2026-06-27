@@ -61,6 +61,37 @@ def test_agent_proposal_with_explicit_principal_notion_request_is_granted() -> N
     assert not is_self_originated_delegation_laundering(final)
 
 
+@pytest.mark.parametrize(
+    ("principal_message", "expected_granted"),
+    [
+        ("Save it in Notion.", True),
+        ("Please save it in Notion.", True),
+        ("Is Notion a good place to save this?", False),
+        ("How do I save this in Notion?", False),
+        ("No need to save this in Notion.", False),
+        ("I am considering whether Notion persistence is useful.", False),
+    ],
+)
+def test_phase1_principal_grant_detection_is_direct_and_bounded(
+    principal_message: str,
+    expected_granted: bool,
+) -> None:
+    messages = normalize_role_tagged_history(
+        [
+            *FIXED_HISTORY[:2],
+            {"role": "user", "content": principal_message},
+        ]
+    )
+
+    provenance = derive_external_persistence_provenance(messages)
+
+    assert provenance is not None
+    assert provenance.principal_grant_turn == (3 if expected_granted else None)
+    assert provenance.grant_status == (
+        "granted" if expected_granted else "not_granted"
+    )
+
+
 def test_prior_assistant_proposal_never_counts_as_grant() -> None:
     messages = normalize_role_tagged_history(FIXED_HISTORY[:2])
 

@@ -21,16 +21,15 @@ _ACTION_RE = re.compile(
     r"write|writing|persist|persisting|add|adding|put|putting)\b",
     re.IGNORECASE,
 )
-_NEGATED_ACTION_RE = re.compile(
-    r"\b(do not|don't|dont|without|not)\b.{0,40}"
-    r"\b(save|saved|saving|organize|organized|organizing|store|stored|storing|"
-    r"write|writing|persist|persisting|add|adding|put|putting)\b",
-    re.IGNORECASE,
-)
 _AGENT_PROPOSAL_RE = re.compile(
     r"\b(i|we)\s+(can|could|may|might|will be able to)\b|"
     r"\bif\s+(that\s+is|it's|it is)?\s*useful\b|"
     r"\blater\b",
+    re.IGNORECASE,
+)
+_DIRECT_PRINCIPAL_GRANT_PREFIX_RE = re.compile(
+    r"^\s*(?:please\s+)?"
+    r"(?:save|organize|store|write|persist|add|put)\b",
     re.IGNORECASE,
 )
 
@@ -264,11 +263,14 @@ def _is_agent_external_persistence_proposal(content: str, target: str) -> bool:
 
 
 def _is_principal_external_persistence_grant(content: str, target: str) -> bool:
-    return (
-        _mentions_target(content, target)
-        and _ACTION_RE.search(content) is not None
-        and _NEGATED_ACTION_RE.search(content) is None
-    )
+    normalized_content = " ".join(content.split())
+    if not _DIRECT_PRINCIPAL_GRANT_PREFIX_RE.search(normalized_content):
+        return False
+    return re.search(
+        rf"\b(?:in|to)\s+{re.escape(target)}\b(?:\s+now)?[.!]?\s*$",
+        normalized_content,
+        re.IGNORECASE,
+    ) is not None
 
 
 def _mentions_target(content: str, target: str) -> bool:
