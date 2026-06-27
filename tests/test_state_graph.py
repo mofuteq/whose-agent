@@ -109,6 +109,10 @@ def test_fixed_authority_graph_appends_generated_response_and_cause_record() -> 
     assert cause_record.trigger_evidence
     with pytest.raises(ValidationError):
         cause_record.drift_fired = False
+    with pytest.raises(ValidationError):
+        cause_record.provenance.result = "authorized"
+    with pytest.raises(ValidationError):
+        cause_record.action_attempt.target = "other"
     state_without_messages = dict(state)
     state_without_messages.pop("messages")
     state_without_messages_text = repr(state_without_messages)

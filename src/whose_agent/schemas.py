@@ -119,7 +119,7 @@ class ConversationMessage(BaseModel):
 
 
 class ExternalPersistenceActionAttempt(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     action_kind: ExternalActionKind = "external_persistence"
     target: str = Field(max_length=80)
@@ -134,7 +134,7 @@ class ExternalPersistenceActionAttempt(BaseModel):
 
 
 class AuthorityProvenance(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     action_kind: ExternalActionKind = "external_persistence"
     target: str = Field(max_length=80)

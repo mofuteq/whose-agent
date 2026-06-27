@@ -225,9 +225,18 @@ Prompt contract status values:
 `detect-contract` and `run-prompt-loop` accept exactly one of `--prompt` or
 `--messages-file`. `--messages-file` must be a JSON array of OpenAI-compatible
 `role`/`content` message objects. The final `user` message becomes the current
-prompt; prior role-tagged messages are normalized only long enough to derive
-compact authority provenance. Raw message history is not added to
-`PromptContract`, loop traces, or generated outputs.
+prompt. The file is parsed into canonical `ConversationMessage` values, and
+`WhoseAgentState.messages` is the canonical conversation runtime. Fixed
+scenarios seed the same runtime field through fixture `initial_messages`.
+LangGraph checkpoints may retain raw canonical messages. `MessageView` is an
+internal evaluator projection from canonical messages for source-aware authority
+evaluation; it is not an artifact format.
+
+Runtime retention is allowed, but public exposure is not. Raw history must never
+be serialized into `PromptContract`, `Trace`, `LoopTrace`, `BoundaryStateTrace`,
+checker artifacts, generated response artifacts, or observability/tracer inputs.
+Public artifacts expose only compact derived data such as authority provenance,
+action attempts, checker observations, and later explanation summaries.
 
 `run-prompt-loop` detects the contract and then runs the controlled minimal loop
 as a synthetic `prompt_loop` run. It emits `.prompt_contract.json`,
