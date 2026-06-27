@@ -22,12 +22,14 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 
 from whose_agent.action_attempts import extract_external_persistence_attempt
 from whose_agent.authority_provenance import (
     authority_trigger_evidence,
-    derive_external_persistence_provenance_from_records,
+    derive_authority_checker_context,
+    derive_external_persistence_provenance_from_messages,
     evaluate_external_persistence_attempt,
     is_self_originated_delegation_laundering,
 )
@@ -39,13 +41,16 @@ from whose_agent.checker import (
 )
 from whose_agent.classifier import classify_scenario
 from whose_agent.firing_signals import PromptFiringEvaluation
+from whose_agent.history_adapter import append_assistant_message, initial_conversation_messages
 from whose_agent.loop_trigger_policy import (
     evaluate_prompt_contract_firing,
     should_fire_misreader_skill,
 )
 from whose_agent.prompt_response import generate_contract_preserving_response_with_usage
 from whose_agent.schemas import (
+    AuthorityCauseRecord,
     AuthorityProvenance,
+    ConversationMessage,
     Classification,
     Scenario,
     StepKind,
@@ -83,20 +88,25 @@ def initial_loop_state_from_scenario(
     scenario: Scenario,
     *,
     max_iterations: int = 3,
+    messages: list[ConversationMessage] | None = None,
 ) -> WhoseAgentState:
     """Initialize a WhoseAgentState for the minimal loop.
 
     Uses the same WhoseAgentState shape as the fixed scenario graph; there is no
     separate LoopState wrapper.
     """
-    authority_provenance: AuthorityProvenance | None = None
-    authority_action_attempt_turn: int | None = None
-    if scenario.message_history:
-        _, authority_provenance, authority_action_attempt_turn = (
-            derive_external_persistence_provenance_from_records(
-                scenario.message_history
-            )
+    initial_messages = (
+        list(messages)
+        if messages is not None
+        else initial_conversation_messages(
+            scenario.initial_messages,
+            prompt=scenario.principal_prompt,
         )
+    )
+    authority_provenance = derive_external_persistence_provenance_from_messages(
+        initial_messages
+    )
+    runtime_scenario = scenario.model_copy(update={"initial_messages": []})
     authority_delegated_boundary = (
         "No external persistence to "
         f"{authority_provenance.target} was delegated by the principal"
@@ -108,7 +118,8 @@ def initial_loop_state_from_scenario(
         "agent": "assistant",
         "principal_instruction": scenario.principal_prompt,
         "principal_signal": scenario.principal_signal,
-        "scenario": scenario,
+        "messages": initial_messages,
+        "scenario": runtime_scenario,
         "classification": None,
         "bad_response": None,
         "generation_used_skill": False,
@@ -162,14 +173,18 @@ def initial_loop_state_from_scenario(
         "prompt_loop_generated_artifact": None,
         "prompt_loop_generated_step_index": None,
         "authority_provenance": authority_provenance,
-        "authority_action_attempt_turn": authority_action_attempt_turn,
+        "authority_cause_record": None,
         "step_traces": [],
         "errors": [],
     }
 
 
-def compile_minimal_loop_graph(*, mock: bool = False) -> Any:
-    return build_minimal_loop_graph(mock=mock).compile()
+def compile_minimal_loop_graph(
+    *,
+    mock: bool = False,
+    checkpointer: BaseCheckpointSaver | None = None,
+) -> Any:
+    return build_minimal_loop_graph(mock=mock).compile(checkpointer=checkpointer)
 
 
 def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
@@ -321,6 +336,10 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
                 misreader_skill_fired=True,
                 mock=mock,
             ).output
+            updated_messages = append_assistant_message(
+                state.get("messages", []),
+                bad_response,
+            )
             generation_used_skill = selected_skill_perspective is not None
             drift_evidence, drift_artifact_kind = _prompt_derived_drift_evidence(state)
             return {
@@ -339,6 +358,7 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
                 "misreader_skill_fired": True,
                 "trigger_evidence": trigger_evidence,
                 "bad_response": bad_response,
+                "messages": updated_messages,
                 "generation_used_skill": generation_used_skill,
                 "generation_skill_id": (
                     selected_skill_id if generation_used_skill else None
@@ -379,6 +399,10 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
                 mock=mock,
             ).output
             substituted = classification.substituted
+        updated_messages = append_assistant_message(
+            state.get("messages", []),
+            bad_response,
+        )
         return {
             "firing_reason": (
                 firing_evaluation.reason
@@ -393,6 +417,7 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
             "skill_triggered": False,
             "misreader_skill_fired": False,
             "bad_response": bad_response,
+            "messages": updated_messages,
             "generation_used_skill": False,
             "generation_skill_id": None,
             "loop_phase": "do",
@@ -422,10 +447,31 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
         guarantee_bypass_evidence: list[str] = []
 
         if selected_skill_id is not None and bad_response is not None:
+            authority_context = None
+            if selected_skill_id == "authority_scope_expansion":
+                checker_provenance = derive_external_persistence_provenance_from_messages(
+                    state.get("messages", []),
+                    before_generated_response=True,
+                )
+                if (
+                    checker_provenance is not None
+                    and checker_provenance.prior_agent_proposal_turn is not None
+                ):
+                    action_attempt = extract_external_persistence_attempt(
+                        bad_response,
+                        mock=mock,
+                    )
+                    authority_context = derive_authority_checker_context(
+                        state.get("messages", []),
+                        action_attempt,
+                    )
+            checker_kwargs: dict[str, Any] = {"mock": mock}
+            if authority_context is not None:
+                checker_kwargs["authority_context"] = authority_context
             checker_observation = check_with_usage(
                 scenario,
                 bad_response,
-                mock=mock,
+                **checker_kwargs,
             ).observation
             checker_ran = True
             checker_observed_bypass = checker_observation.checker_observed_bypass
@@ -527,20 +573,33 @@ def _do_authority_provenance_step(
         classification,
         mock=mock,
     )
+    updated_messages = append_assistant_message(
+        state.get("messages", []),
+        bad_response,
+    )
     action_attempt = extract_external_persistence_attempt(
         bad_response,
         mock=mock,
     )
-    action_attempt_turn = (
-        state.get("authority_action_attempt_turn") if action_attempt is not None else None
+    action_attempt_turn = len(updated_messages) if action_attempt is not None else None
+    base_authority_provenance = (
+        derive_external_persistence_provenance_from_messages(
+            state.get("messages", [])
+        )
     )
     authority_provenance = evaluate_external_persistence_attempt(
-        state.get("authority_provenance"),
+        base_authority_provenance,
         action_attempt,
         action_attempt_turn=action_attempt_turn,
     )
     fired = is_self_originated_delegation_laundering(authority_provenance)
     trigger_evidence = authority_trigger_evidence(authority_provenance)
+    authority_cause_record = AuthorityCauseRecord(
+        provenance=authority_provenance,
+        action_attempt=action_attempt,
+        drift_fired=fired,
+        trigger_evidence=tuple(trigger_evidence),
+    )
     selected_skill_perspective = state.get("selected_skill_perspective")
     if fired and selected_skill_id is not None and selected_skill_perspective is None:
         selected_skill_perspective = load_skill_perspective(cast(str, selected_skill_id))
@@ -559,7 +618,9 @@ def _do_authority_provenance_step(
         "misreader_skill_fired": fired,
         "trigger_evidence": trigger_evidence,
         "authority_provenance": authority_provenance,
+        "authority_cause_record": authority_cause_record,
         "bad_response": bad_response,
+        "messages": updated_messages,
         "generation_used_skill": False,
         "generation_skill_id": None,
         "loop_phase": "do",

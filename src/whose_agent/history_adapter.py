@@ -7,6 +7,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from whose_agent.schemas import ConversationMessage, ConversationRole
+
 
 Speaker = Literal["principal", "agent", "tool", "system"]
 
@@ -37,9 +39,10 @@ ROLE_TO_SPEAKER: dict[str, Speaker] = {
     "tool": "tool",
     "system": "system",
 }
+SUPPORTED_ROLES: set[str] = {"user", "assistant", "tool", "system"}
 
 
-def load_message_history_file(path: Path) -> list[MessageView]:
+def load_message_history_file(path: Path) -> list[ConversationMessage]:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except OSError as exc:
@@ -48,16 +51,16 @@ def load_message_history_file(path: Path) -> list[MessageView]:
         raise MessageHistoryError(
             f"--messages-file must be valid JSON: {exc.msg}"
         ) from exc
-    return normalize_role_tagged_history(raw)
+    return normalize_role_tagged_messages(raw)
 
 
-def normalize_role_tagged_history(records: object) -> list[MessageView]:
+def normalize_role_tagged_messages(records: object) -> list[ConversationMessage]:
     if not isinstance(records, Sequence) or isinstance(records, (str, bytes)):
         raise MessageHistoryError("--messages-file must contain a JSON array.")
     if not records:
         raise MessageHistoryError("--messages-file must contain at least one message.")
 
-    views: list[MessageView] = []
+    messages: list[ConversationMessage] = []
     for index, record in enumerate(records, start=1):
         if not isinstance(record, Mapping):
             raise MessageHistoryError(
@@ -68,31 +71,67 @@ def normalize_role_tagged_history(records: object) -> list[MessageView]:
         if not isinstance(role_value, str):
             raise MessageHistoryError(f"message {index} role must be a string.")
         role = role_value.strip().casefold()
-        speaker = ROLE_TO_SPEAKER.get(role)
-        if speaker is None:
+        if role not in SUPPORTED_ROLES:
             raise MessageHistoryError(
                 f"message {index} has unsupported role {role_value!r}."
             )
         if not isinstance(content_value, str):
             raise MessageHistoryError(f"message {index} content must be a string.")
         try:
-            views.append(
-                MessageView(
-                    turn_index=index,
-                    speaker=speaker,
+            messages.append(
+                ConversationMessage(
+                    role=role,
                     content=content_value,
                 )
             )
         except ValueError as exc:
             raise MessageHistoryError(f"message {index} is invalid: {exc}") from exc
+    return messages
+
+
+def normalize_role_tagged_history(records: object) -> list[MessageView]:
+    return project_message_views(normalize_role_tagged_messages(records))
+
+
+def project_message_views(messages: Sequence[ConversationMessage]) -> list[MessageView]:
+    views: list[MessageView] = []
+    for index, message in enumerate(messages, start=1):
+        views.append(
+            MessageView(
+                turn_index=index,
+                speaker=ROLE_TO_SPEAKER[message.role],
+                content=message.content,
+            )
+        )
     return views
 
 
-def current_principal_prompt(views: Sequence[MessageView]) -> str:
-    if not views:
+def conversation_from_prompt(prompt: str) -> list[ConversationMessage]:
+    return [ConversationMessage(role="user", content=prompt)]
+
+
+def initial_conversation_messages(
+    initial_records: Sequence[Mapping[str, object]],
+    *,
+    prompt: str,
+) -> list[ConversationMessage]:
+    if initial_records:
+        return normalize_role_tagged_messages(initial_records)
+    return conversation_from_prompt(prompt)
+
+
+def append_assistant_message(
+    messages: Sequence[ConversationMessage],
+    content: str,
+) -> list[ConversationMessage]:
+    return [*messages, ConversationMessage(role="assistant", content=content)]
+
+
+def current_principal_prompt(messages: Sequence[ConversationMessage]) -> str:
+    if not messages:
         raise MessageHistoryError("--messages-file must contain at least one message.")
-    final = views[-1]
-    if final.speaker != "principal":
+    final = messages[-1]
+    if final.role != "user":
         raise MessageHistoryError(
             "--messages-file final message must have role 'user'."
         )
@@ -103,7 +142,12 @@ __all__ = [
     "MessageHistoryError",
     "MessageView",
     "Speaker",
+    "append_assistant_message",
+    "conversation_from_prompt",
     "current_principal_prompt",
+    "initial_conversation_messages",
     "load_message_history_file",
     "normalize_role_tagged_history",
+    "normalize_role_tagged_messages",
+    "project_message_views",
 ]

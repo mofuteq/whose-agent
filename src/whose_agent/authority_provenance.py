@@ -3,9 +3,11 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 
-from whose_agent.history_adapter import MessageView, normalize_role_tagged_history
+from whose_agent.history_adapter import MessageView, project_message_views
 from whose_agent.schemas import (
+    AuthorityCheckerContext,
     AuthorityProvenance,
+    ConversationMessage,
     ExternalPersistenceActionAttempt,
 )
 
@@ -55,23 +57,44 @@ def derive_external_persistence_provenance(
     )
 
 
-def derive_external_persistence_provenance_from_records(
-    records: object,
+def derive_external_persistence_provenance_from_messages(
+    messages: Sequence[ConversationMessage],
     *,
     target: str = DEFAULT_EXTERNAL_PERSISTENCE_TARGET,
-) -> tuple[list[MessageView], AuthorityProvenance | None, int]:
-    messages = normalize_role_tagged_history(records)
-    return (
-        messages,
-        derive_external_persistence_provenance(messages, target=target),
-        next_agent_turn_index(messages),
+    before_generated_response: bool = False,
+) -> AuthorityProvenance | None:
+    source_messages = (
+        messages[:-1]
+        if before_generated_response and messages and messages[-1].role == "assistant"
+        else messages
+    )
+    return derive_external_persistence_provenance(
+        project_message_views(source_messages),
+        target=target,
     )
 
 
-def next_agent_turn_index(messages: Sequence[MessageView]) -> int:
-    if not messages:
-        return 1
-    return max(message.turn_index for message in messages) + 1
+def derive_authority_checker_context(
+    messages: Sequence[ConversationMessage],
+    attempt: ExternalPersistenceActionAttempt | None,
+) -> AuthorityCheckerContext | None:
+    if attempt is None:
+        return None
+    provenance = derive_external_persistence_provenance_from_messages(
+        messages,
+        target=attempt.target,
+        before_generated_response=True,
+    )
+    return AuthorityCheckerContext(
+        target=attempt.target,
+        prior_agent_proposal_turn=(
+            provenance.prior_agent_proposal_turn if provenance is not None else None
+        ),
+        principal_grant_turn=(
+            provenance.principal_grant_turn if provenance is not None else None
+        ),
+        generated_action_attempt_turn=len(messages),
+    )
 
 
 def evaluate_external_persistence_attempt(
@@ -282,10 +305,10 @@ __all__ = [
     "SELF_ORIGINATED_DELEGATION_LAUNDERING",
     "authority_trigger_evidence",
     "derive_external_persistence_provenance",
-    "derive_external_persistence_provenance_from_records",
+    "derive_authority_checker_context",
+    "derive_external_persistence_provenance_from_messages",
     "evaluate_external_persistence_attempt",
     "history_supports_authority_contract",
     "is_self_originated_delegation_laundering",
-    "next_agent_turn_index",
     "normalize_target",
 ]

@@ -10,6 +10,7 @@ from whose_agent.firing_signals import FiringSignals, PromptFiringReason
 
 Principal = str
 AgentId = str
+ConversationRole = Literal["user", "assistant", "tool", "system"]
 StepKind = Literal["plan", "do", "check"]
 NextAction = Literal["continue", "stop", "handoff"]
 SubstitutionAxis = Literal["instruction", "authority", "role", "model"]
@@ -102,6 +103,21 @@ class ControlState(BaseModel):
     boundary_flags: list[str] = Field(default_factory=list)
 
 
+class ConversationMessage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role: ConversationRole
+    content: str
+
+    @field_validator("content", mode="before")
+    @classmethod
+    def require_content(cls, value: str) -> str:
+        content = str(value).strip()
+        if not content:
+            raise ValueError("content must not be empty")
+        return content
+
+
 class ExternalPersistenceActionAttempt(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -156,6 +172,33 @@ class AuthorityProvenance(BaseModel):
         if self.result == "authorized" and self.grant_status != "granted":
             raise ValueError("authorized requires grant_status=granted")
         return self
+
+
+class AuthorityCauseRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    provenance: AuthorityProvenance
+    action_attempt: ExternalPersistenceActionAttempt | None = None
+    drift_fired: bool
+    trigger_evidence: tuple[str, ...] = Field(default_factory=tuple)
+
+
+class AuthorityCheckerContext(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action_kind: ExternalActionKind = "external_persistence"
+    target: str = Field(max_length=80)
+    prior_agent_proposal_turn: int | None = None
+    principal_grant_turn: int | None = None
+    generated_action_attempt_turn: int | None = None
+
+    @field_validator("target", mode="before")
+    @classmethod
+    def normalize_target(cls, value: str) -> str:
+        target = str(value).strip().casefold()
+        if not target:
+            raise ValueError("target must not be empty")
+        return target
 
 
 class StepTrace(BaseModel):
@@ -245,7 +288,7 @@ class Scenario(BaseModel):
     principal_prompt: str
     principal_signal: str
     generation_instruction: str
-    message_history: list[dict[str, object]] = Field(default_factory=list)
+    initial_messages: list[dict[str, object]] = Field(default_factory=list)
     trace_template: ScenarioTraceTemplate | None = None
     checker_template: ScenarioCheckerTemplate | None = None
 
@@ -507,6 +550,7 @@ class LoopTrace(BaseModel):
 class WhoseAgentState(TypedDict, total=False):
     principal: str
     agent: str
+    messages: list[ConversationMessage]
     principal_instruction: str
     principal_signal: str
 
@@ -549,7 +593,7 @@ class WhoseAgentState(TypedDict, total=False):
     prompt_loop_generated_artifact: str | None
     prompt_loop_generated_step_index: int | None
     authority_provenance: AuthorityProvenance | None
-    authority_action_attempt_turn: int | None
+    authority_cause_record: AuthorityCauseRecord | None
 
     selected_skill_id: str | None
     selected_skill_perspective: str | None
@@ -580,6 +624,8 @@ class WhoseAgentState(TypedDict, total=False):
 
 __all__ = [
     "AgentId",
+    "AuthorityCauseRecord",
+    "AuthorityCheckerContext",
     "AuthorityGrantStatus",
     "AuthorityProvenance",
     "AuthorityResult",
@@ -593,6 +639,8 @@ __all__ = [
     "ClassificationKind",
     "Confidence",
     "ControlState",
+    "ConversationMessage",
+    "ConversationRole",
     "EXPECTED_FAILURE_BY_SUBSTITUTED",
     "ExternalActionKind",
     "ExternalPersistenceActionAttempt",

@@ -10,11 +10,11 @@ from whose_agent.checker import CheckerError
 from whose_agent.env_loader import load_env_file
 from whose_agent.firing_signals import FiringSignals, QuotaSignal
 from whose_agent.authority_provenance import (
-    derive_external_persistence_provenance,
-    next_agent_turn_index,
+    derive_external_persistence_provenance_from_messages,
 )
 from whose_agent.history_adapter import (
     MessageHistoryError,
+    conversation_from_prompt,
     current_principal_prompt,
     load_message_history_file,
 )
@@ -28,7 +28,7 @@ from whose_agent.prompt_loop import run_prompt_loop_to_artifact
 from whose_agent.reflection import ReflectionError
 from whose_agent.run_directory import create_run_directory
 from whose_agent.scenario_loader import load_scenario, load_scenarios
-from whose_agent.schemas import AuthorityProvenance
+from whose_agent.schemas import ConversationMessage
 from whose_agent.state_graph import compile_fixed_scenario_graph, initial_state_from_scenario
 from whose_agent.tracing import create_observability_tracer
 
@@ -115,7 +115,10 @@ def detect_contract_command(args: argparse.Namespace) -> int:
     load_env_file(Path(args.env_file))
 
     run_dir = create_run_directory(Path(args.outputs))
-    prompt, authority_provenance, _ = _prompt_input_from_args(args)
+    prompt, messages = _prompt_input_from_args(args)
+    authority_provenance = derive_external_persistence_provenance_from_messages(
+        messages
+    )
     contract = detect_prompt_contract(
         prompt,
         mock=args.mock,
@@ -133,9 +136,7 @@ def run_prompt_loop_command(args: argparse.Namespace) -> int:
 
     run_dir = create_run_directory(Path(args.outputs))
     try:
-        prompt, authority_provenance, authority_action_attempt_turn = (
-            _prompt_input_from_args(args)
-        )
+        prompt, messages = _prompt_input_from_args(args)
         firing_signals = _firing_signals_from_args(args)
     except (MessageHistoryError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -146,8 +147,7 @@ def run_prompt_loop_command(args: argparse.Namespace) -> int:
         mock=args.mock,
         max_iterations=args.max_iterations,
         firing_signals=firing_signals,
-        authority_provenance=authority_provenance,
-        authority_action_attempt_turn=authority_action_attempt_turn,
+        messages=messages,
     )
 
     print(f"Wrote outputs to {run_dir}")
@@ -260,15 +260,14 @@ def _firing_signals_from_args(args: argparse.Namespace) -> FiringSignals:
 
 def _prompt_input_from_args(
     args: argparse.Namespace,
-) -> tuple[str, AuthorityProvenance | None, int | None]:
+) -> tuple[str, list[ConversationMessage]]:
     messages_file = getattr(args, "messages_file", None)
     if messages_file is None:
-        return args.prompt, None, None
+        return args.prompt, conversation_from_prompt(args.prompt)
 
     messages = load_message_history_file(Path(messages_file))
     prompt = current_principal_prompt(messages)
-    authority_provenance = derive_external_persistence_provenance(messages)
-    return prompt, authority_provenance, next_agent_turn_index(messages)
+    return prompt, messages
 
 
 def main(argv: list[str] | None = None) -> int:

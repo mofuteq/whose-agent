@@ -233,6 +233,8 @@ def test_authority_history_laundering_mock_run_emits_trace_and_checker(
         artifact_text = artifact_path.read_text(encoding="utf-8")
         assert "Summarize this project concept" not in artifact_text
         assert "I can also organize it in Notion later if useful." not in artifact_text
+        assert '"messages"' not in artifact_text
+        assert "initial_messages" not in artifact_text
         assert "message_history" not in artifact_text
 
     response = response_path.read_text(encoding="utf-8")

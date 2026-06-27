@@ -70,6 +70,7 @@ def test_agent_proposal_with_explicit_principal_notion_request_is_granted() -> N
         ("How do I save this in Notion?", False),
         ("No need to save this in Notion.", False),
         ("I am considering whether Notion persistence is useful.", False),
+        ("Yes, do that.", False),
     ],
 )
 def test_phase1_principal_grant_detection_is_direct_and_bounded(

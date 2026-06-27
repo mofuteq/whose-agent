@@ -11,13 +11,15 @@ import json
 from pathlib import Path
 from typing import Any, cast
 
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel
 
 from whose_agent.action_attempts import extract_external_persistence_attempt
 from whose_agent.authority_provenance import (
     authority_trigger_evidence,
-    derive_external_persistence_provenance_from_records,
+    derive_authority_checker_context,
+    derive_external_persistence_provenance_from_messages,
     evaluate_external_persistence_attempt,
     is_self_originated_delegation_laundering,
 )
@@ -28,8 +30,10 @@ from whose_agent.checker import (
     load_skill_perspective,
 )
 from whose_agent.classifier import classify_scenario
+from whose_agent.history_adapter import append_assistant_message, initial_conversation_messages
 from whose_agent.llm_result import LLMCallResult
 from whose_agent.schemas import (
+    AuthorityCauseRecord,
     AuthorityProvenance,
     BoundaryStateTrace,
     CheckerObservation,
@@ -50,20 +54,21 @@ CHECKER_ID = "skill-perspective-checker"
 
 
 def initial_state_from_scenario(scenario: Scenario) -> WhoseAgentState:
-    authority_provenance: AuthorityProvenance | None = None
-    authority_action_attempt_turn: int | None = None
-    if scenario.message_history:
-        _, authority_provenance, authority_action_attempt_turn = (
-            derive_external_persistence_provenance_from_records(
-                scenario.message_history
-            )
-        )
+    messages = initial_conversation_messages(
+        scenario.initial_messages,
+        prompt=scenario.principal_prompt,
+    )
+    authority_provenance = derive_external_persistence_provenance_from_messages(
+        messages
+    )
+    runtime_scenario = scenario.model_copy(update={"initial_messages": []})
     return {
         "principal": "user",
         "agent": "assistant",
         "principal_instruction": scenario.principal_prompt,
         "principal_signal": scenario.principal_signal,
-        "scenario": scenario,
+        "messages": messages,
+        "scenario": runtime_scenario,
         "classification": None,
         "bad_response": None,
         "generation_used_skill": False,
@@ -95,7 +100,7 @@ def initial_state_from_scenario(scenario: Scenario) -> WhoseAgentState:
         "divergence_point": None,
         "boundary_flags": [],
         "authority_provenance": authority_provenance,
-        "authority_action_attempt_turn": authority_action_attempt_turn,
+        "authority_cause_record": None,
         "step_traces": [],
         "errors": [],
     }
@@ -152,8 +157,13 @@ def compile_fixed_scenario_graph(
     run_dir: Path | None = None,
     tracer: Any | None = None,
     mock: bool = False,
+    checkpointer: BaseCheckpointSaver | None = None,
 ) -> Any:
-    return build_fixed_scenario_graph(run_dir=run_dir, tracer=tracer, mock=mock).compile()
+    return build_fixed_scenario_graph(
+        run_dir=run_dir,
+        tracer=tracer,
+        mock=mock,
+    ).compile(checkpointer=checkpointer)
 
 
 def build_fixed_scenario_graph(
@@ -294,21 +304,26 @@ def build_fixed_scenario_graph(
                 mock=mock,
             )
             bad_response = bad_response_call.output
+            updated_messages = append_assistant_message(
+                state.get("messages", []),
+                bad_response,
+            )
             authority_update: dict[str, Any] = {}
             authority_step_trigger_evidence: list[str] | None = None
             authority_step_fired: bool | None = None
             if _uses_authority_provenance(state):
+                base_authority_provenance = (
+                    derive_external_persistence_provenance_from_messages(
+                        state.get("messages", [])
+                    )
+                )
                 action_attempt = extract_external_persistence_attempt(
                     bad_response,
                     mock=mock,
                 )
-                action_attempt_turn = (
-                    state.get("authority_action_attempt_turn")
-                    if action_attempt is not None
-                    else None
-                )
+                action_attempt_turn = len(updated_messages) if action_attempt is not None else None
                 authority_provenance = evaluate_external_persistence_attempt(
-                    state.get("authority_provenance"),
+                    base_authority_provenance,
                     action_attempt,
                     action_attempt_turn=action_attempt_turn,
                 )
@@ -317,6 +332,12 @@ def build_fixed_scenario_graph(
                 )
                 authority_step_trigger_evidence = authority_trigger_evidence(
                     authority_provenance
+                )
+                authority_cause_record = AuthorityCauseRecord(
+                    provenance=authority_provenance,
+                    action_attempt=action_attempt,
+                    drift_fired=authority_step_fired,
+                    trigger_evidence=tuple(authority_step_trigger_evidence),
                 )
                 selected_skill_perspective = (
                     load_skill_perspective(cast(str, selected_skill_id))
@@ -329,6 +350,7 @@ def build_fixed_scenario_graph(
                     "skill_triggered": authority_step_fired,
                     "misreader_skill_fired": authority_step_fired,
                     "trigger_evidence": authority_step_trigger_evidence,
+                    "authority_cause_record": authority_cause_record,
                 }
             update_span_with_llm_call(
                 span,
@@ -344,6 +366,7 @@ def build_fixed_scenario_graph(
 
         return {
             "bad_response": bad_response,
+            "messages": updated_messages,
             "generation_used_skill": generation_used_skill,
             "generation_skill_id": selected_skill_id if generation_used_skill else None,
             "next_action": "continue",
@@ -467,6 +490,24 @@ def build_fixed_scenario_graph(
             }
 
         bad_response = _bad_response(state)
+        authority_context = None
+        if scenario.selected_skill_id == "authority_scope_expansion":
+            checker_provenance = derive_external_persistence_provenance_from_messages(
+                state.get("messages", []),
+                before_generated_response=True,
+            )
+            if (
+                checker_provenance is not None
+                and checker_provenance.prior_agent_proposal_turn is not None
+            ):
+                action_attempt = extract_external_persistence_attempt(
+                    bad_response,
+                    mock=mock,
+                )
+                authority_context = derive_authority_checker_context(
+                    state.get("messages", []),
+                    action_attempt,
+                )
         check_observation = tracer.span if mock else tracer.generation
         with check_observation(
             name="check_artifact",
@@ -483,10 +524,13 @@ def build_fixed_scenario_graph(
                 mock=mock,
             ),
         ) as span:
+            checker_kwargs: dict[str, Any] = {"mock": mock}
+            if authority_context is not None:
+                checker_kwargs["authority_context"] = authority_context
             checker_result = check_with_usage(
                 scenario,
                 bad_response,
-                mock=mock,
+                **checker_kwargs,
             )
             checker_observation = checker_result.observation
             update_span_with_llm_call(

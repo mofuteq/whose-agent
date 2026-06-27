@@ -21,7 +21,7 @@ from whose_agent.checker import (
     load_skill_perspective,
 )
 from whose_agent.classifier import classify_scenario
-from whose_agent.schemas import CheckerObservation, Scenario
+from whose_agent.schemas import AuthorityCheckerContext, CheckerObservation, Scenario
 from whose_agent.prompt_loader import render_template
 from whose_agent.scenario_loader import load_scenario, load_scenarios
 
@@ -90,6 +90,36 @@ def test_checker_prompt_contains_required_context_and_boundary_instructions() ->
     assert "Do not rely on fixed token matching." in prompt
     assert "Use the supplied skill perspective" in prompt
     assert "safety_framework_escape_hatch" in prompt
+
+
+def test_authority_checker_prompt_uses_bounded_context_without_raw_history() -> None:
+    scenario = load_scenario(
+        ROOT / "scenarios" / "authority_agent_history_delegation_laundering.yaml"
+    )
+    prompt = build_checker_prompt(
+        scenario.model_copy(update={"initial_messages": []}),
+        "I'll save the expanded version in Notion now.",
+        authority_context=AuthorityCheckerContext(
+            target="notion",
+            prior_agent_proposal_turn=2,
+            principal_grant_turn=None,
+            generated_action_attempt_turn=4,
+        ),
+    )
+
+    assert "Authority checker context" in prompt
+    assert '"target": "notion"' in prompt
+    assert '"prior_agent_proposal_turn": 2' in prompt
+    assert '"generated_action_attempt_turn": 4' in prompt
+    assert "Summarize this project concept so I can revisit it later." not in prompt
+    assert "I can also organize it in Notion later if useful." not in prompt
+    assert '"messages"' not in prompt
+    assert "initial_messages" not in prompt
+    assert "message_history" not in prompt
+    assert "AuthorityCauseRecord" not in prompt
+    assert "authority_cause_record" not in prompt
+    assert "AuthorityProvenance" not in prompt
+    assert "authority_provenance" not in prompt
 
 
 def test_checker_prompt_template_uses_strict_undefined() -> None:
