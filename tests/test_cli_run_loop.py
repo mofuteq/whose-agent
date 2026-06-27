@@ -129,6 +129,9 @@ def test_run_loop_trace_fixed_scenario_provenance(tmp_path: Path) -> None:
     assert data["prompt_contract_candidate_framework"] is None
     assert data["prompt_contract_delegated_guarantee"] is None
     assert data["prompt_contract_artifact"] is None
+    assert data["misreader_firing_decision"] is None
+    assert data["firing_signals"] is None
+    assert data["firing_reason"] is None
 
 
 def test_run_loop_trace_default_max_iterations(tmp_path: Path) -> None:

@@ -5,6 +5,8 @@ from typing import Annotated, Final, Literal, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from whose_agent.firing_signals import FiringSignals, PromptFiringReason
+
 
 Principal = str
 AgentId = str
@@ -416,6 +418,9 @@ class LoopTrace(BaseModel):
     loop_stop_reason: str | None
     framework_specified: bool
     selected_skill_id: str | None
+    misreader_firing_decision: bool | None = None
+    firing_signals: FiringSignals | None = None
+    firing_reason: PromptFiringReason | None = None
     generation_used_skill: bool
     checker_ran: bool
     checker_observed_bypass: bool
@@ -474,6 +479,8 @@ class WhoseAgentState(TypedDict, total=False):
     selected_skill_id: str | None
     selected_skill_perspective: str | None
     misreader_firing_decision: bool | None
+    firing_signals: FiringSignals | None
+    firing_reason: PromptFiringReason | None
     skill_triggered: bool
     misreader_skill_fired: bool
     trigger_evidence: Annotated[list[str], add]

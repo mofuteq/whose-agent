@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from whose_agent.bad_response import BadResponseError
 from whose_agent.checker import CheckerError
 from whose_agent.env_loader import load_env_file
+from whose_agent.firing_signals import FiringSignals, QuotaSignal
 from whose_agent.loop_artifacts import run_minimal_loop_to_artifact
 from whose_agent.prompt_contract_artifacts import write_prompt_contract
 from whose_agent.prompt_contract_detector import (
@@ -115,11 +117,17 @@ def run_prompt_loop_command(args: argparse.Namespace) -> int:
     load_env_file(Path(args.env_file))
 
     run_dir = create_run_directory(Path(args.outputs))
+    try:
+        firing_signals = _firing_signals_from_args(args)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     _, _, generated_path = run_prompt_loop_to_artifact(
         args.prompt,
         run_dir,
         mock=args.mock,
         max_iterations=args.max_iterations,
+        firing_signals=firing_signals,
     )
 
     print(f"Wrote outputs to {run_dir}")
@@ -168,9 +176,56 @@ def build_parser() -> argparse.ArgumentParser:
     prompt_loop_parser.add_argument("--env-file", default=".env", help="Path to a dotenv file.")
     prompt_loop_parser.add_argument("--mock", action="store_true", help="Use deterministic local contract detection and loop responses.")
     prompt_loop_parser.add_argument("--max-iterations", type=int, default=1, help="Maximum loop iterations (default: 1).")
+    prompt_loop_parser.add_argument(
+        "--firing-time",
+        type=_parse_firing_time,
+        default=None,
+        help="Inject the prompt-loop firing time as an ISO-8601 datetime.",
+    )
+    prompt_loop_parser.add_argument(
+        "--quota-used",
+        type=float,
+        default=None,
+        help="Inject used quota for prompt-loop firing pressure.",
+    )
+    prompt_loop_parser.add_argument(
+        "--quota-limit",
+        type=float,
+        default=None,
+        help="Inject quota limit for prompt-loop firing pressure.",
+    )
     prompt_loop_parser.set_defaults(func=run_prompt_loop_command)
 
     return parser
+
+
+def _parse_firing_time(value: str) -> datetime:
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            "--firing-time must be an ISO-8601 datetime"
+        ) from exc
+
+
+def _firing_signals_from_args(args: argparse.Namespace) -> FiringSignals:
+    quota_used = args.quota_used
+    quota_limit = args.quota_limit
+    if (quota_used is None) != (quota_limit is None):
+        raise ValueError("--quota-used and --quota-limit must be provided together")
+    if quota_used is not None and quota_used < 0:
+        raise ValueError("--quota-used must be greater than or equal to 0")
+    if quota_limit is not None and quota_limit <= 0:
+        raise ValueError("--quota-limit must be greater than 0")
+    quota = (
+        QuotaSignal(used=quota_used, limit=quota_limit)
+        if quota_used is not None and quota_limit is not None
+        else None
+    )
+    return FiringSignals(
+        time=args.firing_time or datetime.now().astimezone(),
+        quota=quota,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
