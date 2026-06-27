@@ -239,11 +239,11 @@ def test_cli_mock_run_emits_same_artifacts_without_langfuse(tmp_path: Path, monk
     monkeypatch.delenv("LANGFUSE_SECRET_KEY", raising=False)
     _run_fixed_cli_subprocess(tmp_path)
     run_dir = single_run_dir(tmp_path)
-    assert len(list(run_dir.glob("*.classification.json"))) == 9
-    assert len(list(run_dir.glob("*.response.md"))) == 7
-    assert len([f for f in run_dir.glob("*.trace.json") if not f.name.endswith(".state_trace.json")]) == 7
-    assert len(list(run_dir.glob("*.state_trace.json"))) == 7
-    assert len(list(run_dir.glob("*.checker.json"))) == 7
+    assert len(list(run_dir.glob("*.classification.json"))) == 10
+    assert len(list(run_dir.glob("*.response.md"))) == 8
+    assert len([f for f in run_dir.glob("*.trace.json") if not f.name.endswith(".state_trace.json")]) == 8
+    assert len(list(run_dir.glob("*.state_trace.json"))) == 8
+    assert len(list(run_dir.glob("*.checker.json"))) == 8
     assert list(run_dir.glob("*.flow.mmd")) == []
 
 
@@ -350,7 +350,7 @@ def test_tracer_receives_artifact_safe_checker_metadata(tmp_path: Path) -> None:
         run_command(_make_run_args(tmp_path))
 
     checker_spans = [s for s in tracer.spans if s.name == "check_artifact"]
-    assert len(checker_spans) == 7
+    assert len(checker_spans) == 8
     span = next(
         s
         for s in checker_spans

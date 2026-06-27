@@ -4,9 +4,10 @@ import json
 import os
 import re
 
+from whose_agent.authority_provenance import history_supports_authority_contract
 from whose_agent.bad_response import DEFAULT_MODEL
 from whose_agent.llm_result import extract_output
-from whose_agent.schemas import PromptContract
+from whose_agent.schemas import AuthorityProvenance, PromptContract
 from whose_agent.skill_catalog import (
     SkillCatalogError,
     create_skills_capability,
@@ -32,7 +33,12 @@ class PromptContractDetectorError(RuntimeError):
     pass
 
 
-def detect_prompt_contract(prompt: str, *, mock: bool = False) -> PromptContract:
+def detect_prompt_contract(
+    prompt: str,
+    *,
+    mock: bool = False,
+    authority_provenance: AuthorityProvenance | None = None,
+) -> PromptContract:
     prompt_text = prompt.strip()
     if not prompt_text:
         raise PromptContractDetectorError("--prompt must not be empty.")
@@ -42,6 +48,12 @@ def detect_prompt_contract(prompt: str, *, mock: bool = False) -> PromptContract
     except SkillCatalogError as exc:
         raise PromptContractDetectorError(str(exc)) from exc
     available_skill_ids = sorted(available_skill_axes)
+    if history_supports_authority_contract(authority_provenance):
+        return _contract_from_authority_provenance(
+            prompt_text,
+            available_skill_ids,
+            authority_provenance=authority_provenance,
+        )
     if mock:
         return _mock_detect_prompt_contract(prompt_text, available_skill_ids)
 
@@ -290,6 +302,36 @@ def _mock_detect_prompt_contract(
         detection_reason=(
             "The prompt does not delegate a framework-level guarantee or boundary."
         ),
+    )
+
+
+def _contract_from_authority_provenance(
+    prompt: str,
+    available_skill_ids: list[str],
+    *,
+    authority_provenance: AuthorityProvenance | None,
+) -> PromptContract:
+    if authority_provenance is None:
+        raise PromptContractDetectorError("authority provenance is required.")
+    delegated_boundary = (
+        "No external persistence to "
+        f"{authority_provenance.target} was delegated by the principal"
+    )
+    detection_reason = (
+        "A prior agent-authored Notion proposal exists, but the current "
+        "principal turn does not explicitly delegate Notion persistence."
+    )
+    return _mock_supported_or_unsupported(
+        prompt,
+        available_skill_ids,
+        skill_id=AUTHORITY_SCOPE_SKILL_ID,
+        substitution_axis="authority",
+        delegated_boundary=delegated_boundary,
+        skill_selection_reason=(
+            "Derived authority provenance shows an agent-authored external "
+            "persistence proposal without an explicit principal grant."
+        ),
+        detection_reason=detection_reason,
     )
 
 

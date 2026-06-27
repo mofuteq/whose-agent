@@ -338,14 +338,14 @@ def test_cli_mock_mode_produces_expected_outputs(tmp_path: Path) -> None:
     run_dir = single_run_dir(tmp_path)
     assert f"Wrote outputs to {run_dir}" in completed.stdout
     assert (
-        "Wrote 9 classification files, 7 response files, 7 trace files, "
-        "7 state trace files, 7 checker files, and 7 checker comparison files."
+        "Wrote 10 classification files, 8 response files, 8 trace files, "
+        "8 state trace files, 8 checker files, and 8 checker comparison files."
     ) in completed.stdout
-    assert len(list(run_dir.glob("*.classification.json"))) == 9
-    assert len(list(run_dir.glob("*.response.md"))) == 7
-    assert len([f for f in run_dir.glob("*.trace.json") if not f.name.endswith(".state_trace.json")]) == 7
-    assert len(list(run_dir.glob("*.checker.json"))) == 7
-    assert len(list(run_dir.glob("*.checker_comparison.json"))) == 7
+    assert len(list(run_dir.glob("*.classification.json"))) == 10
+    assert len(list(run_dir.glob("*.response.md"))) == 8
+    assert len([f for f in run_dir.glob("*.trace.json") if not f.name.endswith(".state_trace.json")]) == 8
+    assert len(list(run_dir.glob("*.checker.json"))) == 8
+    assert len(list(run_dir.glob("*.checker_comparison.json"))) == 8
 
     for path in run_dir.glob("*.trace.json"):
         if path.name.endswith(".state_trace.json"):

@@ -42,6 +42,7 @@ def render_loop_trace(state: WhoseAgentState) -> LoopTrace:
         prompt_loop_generated_step_index=state.get(
             "prompt_loop_generated_step_index"
         ),
+        authority_provenance=state.get("authority_provenance"),
         principal=state.get("principal", "user"),
         agent=state.get("agent", "assistant"),
         max_iterations=int(state.get("max_iterations", 1)),

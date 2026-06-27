@@ -22,8 +22,17 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 
+from whose_agent.action_attempts import extract_external_persistence_attempt
+from whose_agent.authority_provenance import (
+    authority_trigger_evidence,
+    derive_authority_checker_context,
+    derive_external_persistence_provenance_from_messages,
+    evaluate_external_persistence_attempt,
+    is_self_originated_delegation_laundering,
+)
 from whose_agent.bad_response import generate_bad_response_with_usage
 from whose_agent.checker import (
     check_with_usage,
@@ -32,12 +41,16 @@ from whose_agent.checker import (
 )
 from whose_agent.classifier import classify_scenario
 from whose_agent.firing_signals import PromptFiringEvaluation
+from whose_agent.history_adapter import append_assistant_message, initial_conversation_messages
 from whose_agent.loop_trigger_policy import (
     evaluate_prompt_contract_firing,
     should_fire_misreader_skill,
 )
 from whose_agent.prompt_response import generate_contract_preserving_response_with_usage
 from whose_agent.schemas import (
+    AuthorityCauseRecord,
+    AuthorityProvenance,
+    ConversationMessage,
     Classification,
     Scenario,
     StepKind,
@@ -75,18 +88,38 @@ def initial_loop_state_from_scenario(
     scenario: Scenario,
     *,
     max_iterations: int = 3,
+    messages: list[ConversationMessage] | None = None,
 ) -> WhoseAgentState:
     """Initialize a WhoseAgentState for the minimal loop.
 
     Uses the same WhoseAgentState shape as the fixed scenario graph; there is no
     separate LoopState wrapper.
     """
+    initial_messages = (
+        list(messages)
+        if messages is not None
+        else initial_conversation_messages(
+            scenario.initial_messages,
+            prompt=scenario.principal_prompt,
+        )
+    )
+    authority_provenance = derive_external_persistence_provenance_from_messages(
+        initial_messages
+    )
+    runtime_scenario = scenario.model_copy(update={"initial_messages": []})
+    authority_delegated_boundary = (
+        "No external persistence to "
+        f"{authority_provenance.target} was delegated by the principal"
+        if authority_provenance is not None
+        else None
+    )
     return {
         "principal": "user",
         "agent": "assistant",
         "principal_instruction": scenario.principal_prompt,
         "principal_signal": scenario.principal_signal,
-        "scenario": scenario,
+        "messages": initial_messages,
+        "scenario": runtime_scenario,
         "classification": None,
         "bad_response": None,
         "generation_used_skill": False,
@@ -120,9 +153,9 @@ def initial_loop_state_from_scenario(
         "failure_mode": scenario.failure_mode,
         "divergence_point": None,
         "boundary_flags": [],
-        "boundary_detected": False,
-        "substitution_axis": None,
-        "delegated_boundary": None,
+        "boundary_detected": authority_provenance is not None,
+        "substitution_axis": "authority" if authority_provenance is not None else None,
+        "delegated_boundary": authority_delegated_boundary,
         "framework_specified": False,
         "loop_iteration": 0,
         "loop_phase": "plan",
@@ -139,13 +172,19 @@ def initial_loop_state_from_scenario(
         "prompt_contract_artifact": None,
         "prompt_loop_generated_artifact": None,
         "prompt_loop_generated_step_index": None,
+        "authority_provenance": authority_provenance,
+        "authority_cause_record": None,
         "step_traces": [],
         "errors": [],
     }
 
 
-def compile_minimal_loop_graph(*, mock: bool = False) -> Any:
-    return build_minimal_loop_graph(mock=mock).compile()
+def compile_minimal_loop_graph(
+    *,
+    mock: bool = False,
+    checkpointer: BaseCheckpointSaver | None = None,
+) -> Any:
+    return build_minimal_loop_graph(mock=mock).compile(checkpointer=checkpointer)
 
 
 def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
@@ -182,6 +221,7 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
         scenario = _scenario(state)
         classification = _classification(state)
         selected_skill_id = state.get("selected_skill_id")
+        authority_provenance_active = _uses_authority_provenance(state)
 
         # Cause-side firing condition only. Checker observation is never read here.
         firing_evaluation = _evaluate_do_step_firing(state)
@@ -191,13 +231,23 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
                 "firing_signals": firing_evaluation.firing_signals,
                 "firing_reason": firing_evaluation.reason,
             }
-            should_fire = firing_evaluation.should_fire
-            prompt_trigger_evidence = _prompt_firing_trigger_evidence(
-                state,
-                firing_evaluation,
+            should_fire = (
+                False if authority_provenance_active else firing_evaluation.should_fire
+            )
+            prompt_trigger_evidence = (
+                []
+                if authority_provenance_active
+                else _prompt_firing_trigger_evidence(
+                    state,
+                    firing_evaluation,
+                )
             )
         else:
-            should_fire = should_fire_misreader_skill(state)
+            should_fire = (
+                False
+                if authority_provenance_active
+                else should_fire_misreader_skill(state)
+            )
             prompt_trigger_evidence = []
 
         if classification.classification != "in_scope":
@@ -227,6 +277,15 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
                     substituted=classification.substituted,
                 ),
             }
+
+        if authority_provenance_active:
+            return _do_authority_provenance_step(
+                state,
+                scenario,
+                classification,
+                selected_skill_id=selected_skill_id,
+                mock=mock,
+            )
 
         if _is_unsupported_prompt_contract(state):
             return {
@@ -277,6 +336,10 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
                 misreader_skill_fired=True,
                 mock=mock,
             ).output
+            updated_messages = append_assistant_message(
+                state.get("messages", []),
+                bad_response,
+            )
             generation_used_skill = selected_skill_perspective is not None
             drift_evidence, drift_artifact_kind = _prompt_derived_drift_evidence(state)
             return {
@@ -295,6 +358,7 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
                 "misreader_skill_fired": True,
                 "trigger_evidence": trigger_evidence,
                 "bad_response": bad_response,
+                "messages": updated_messages,
                 "generation_used_skill": generation_used_skill,
                 "generation_skill_id": (
                     selected_skill_id if generation_used_skill else None
@@ -335,6 +399,10 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
                 mock=mock,
             ).output
             substituted = classification.substituted
+        updated_messages = append_assistant_message(
+            state.get("messages", []),
+            bad_response,
+        )
         return {
             "firing_reason": (
                 firing_evaluation.reason
@@ -349,6 +417,7 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
             "skill_triggered": False,
             "misreader_skill_fired": False,
             "bad_response": bad_response,
+            "messages": updated_messages,
             "generation_used_skill": False,
             "generation_skill_id": None,
             "loop_phase": "do",
@@ -378,10 +447,31 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
         guarantee_bypass_evidence: list[str] = []
 
         if selected_skill_id is not None and bad_response is not None:
+            authority_context = None
+            if selected_skill_id == "authority_scope_expansion":
+                checker_provenance = derive_external_persistence_provenance_from_messages(
+                    state.get("messages", []),
+                    before_generated_response=True,
+                )
+                if (
+                    checker_provenance is not None
+                    and checker_provenance.prior_agent_proposal_turn is not None
+                ):
+                    action_attempt = extract_external_persistence_attempt(
+                        bad_response,
+                        mock=mock,
+                    )
+                    authority_context = derive_authority_checker_context(
+                        state.get("messages", []),
+                        action_attempt,
+                    )
+            checker_kwargs: dict[str, Any] = {"mock": mock}
+            if authority_context is not None:
+                checker_kwargs["authority_context"] = authority_context
             checker_observation = check_with_usage(
                 scenario,
                 bad_response,
-                mock=mock,
+                **checker_kwargs,
             ).observation
             checker_ran = True
             checker_observed_bypass = checker_observation.checker_observed_bypass
@@ -469,6 +559,115 @@ def _evaluate_do_step_firing(
     return evaluate_prompt_contract_firing(state)
 
 
+def _do_authority_provenance_step(
+    state: WhoseAgentState,
+    scenario: Scenario,
+    classification: Classification,
+    *,
+    selected_skill_id: str | None,
+    mock: bool,
+) -> WhoseAgentState:
+    bad_response = _generate_authority_provenance_candidate(
+        state,
+        scenario,
+        classification,
+        mock=mock,
+    )
+    updated_messages = append_assistant_message(
+        state.get("messages", []),
+        bad_response,
+    )
+    action_attempt = extract_external_persistence_attempt(
+        bad_response,
+        mock=mock,
+    )
+    action_attempt_turn = len(updated_messages) if action_attempt is not None else None
+    base_authority_provenance = (
+        derive_external_persistence_provenance_from_messages(
+            state.get("messages", [])
+        )
+    )
+    authority_provenance = evaluate_external_persistence_attempt(
+        base_authority_provenance,
+        action_attempt,
+        action_attempt_turn=action_attempt_turn,
+    )
+    fired = is_self_originated_delegation_laundering(authority_provenance)
+    trigger_evidence = authority_trigger_evidence(authority_provenance)
+    authority_cause_record = AuthorityCauseRecord(
+        provenance=authority_provenance,
+        action_attempt=action_attempt,
+        drift_fired=fired,
+        trigger_evidence=tuple(trigger_evidence),
+    )
+    selected_skill_perspective = state.get("selected_skill_perspective")
+    if fired and selected_skill_id is not None and selected_skill_perspective is None:
+        selected_skill_perspective = load_skill_perspective(cast(str, selected_skill_id))
+
+    drift_evidence = (
+        "Generated output claimed ungranted external persistence to "
+        f"{authority_provenance.target}."
+        if fired
+        else None
+    )
+    return {
+        "selected_skill_perspective": selected_skill_perspective,
+        "firing_reason": state.get("firing_reason"),
+        "firing_signals": state.get("firing_signals"),
+        "skill_triggered": fired,
+        "misreader_skill_fired": fired,
+        "trigger_evidence": trigger_evidence,
+        "authority_provenance": authority_provenance,
+        "authority_cause_record": authority_cause_record,
+        "bad_response": bad_response,
+        "messages": updated_messages,
+        "generation_used_skill": False,
+        "generation_skill_id": None,
+        "loop_phase": "do",
+        "substituted": classification.substituted if fired else "none",
+        "failure_mode": scenario.failure_mode if fired else "none",
+        **_step_update(
+            state,
+            "do",
+            misreader_skill_fired=fired,
+            selected_skill_id=selected_skill_id,
+            generation_used_skill=False,
+            generation_skill_id=None,
+            trigger_evidence=trigger_evidence,
+            authority_provenance=authority_provenance,
+            drift_evidence=drift_evidence,
+            drift_artifact_kind=(
+                PROMPT_DERIVED_DRIFT_ARTIFACT_KIND if fired else None
+            ),
+            substituted=classification.substituted if fired else "none",
+        ),
+    }
+
+
+def _generate_authority_provenance_candidate(
+    state: WhoseAgentState,
+    scenario: Scenario,
+    classification: Classification,
+    *,
+    mock: bool,
+) -> str:
+    if mock or state.get("loop_source") != "prompt_contract":
+        return generate_bad_response_with_usage(
+            scenario,
+            classification,
+            mock=mock,
+        ).output
+
+    return generate_contract_preserving_response_with_usage(
+        scenario.principal_prompt,
+        substitution_axis=state.get("prompt_contract_substitution_axis"),
+        delegated_boundary=state.get("prompt_contract_delegated_boundary"),
+        candidate_framework=state.get("prompt_contract_candidate_framework"),
+        delegated_guarantee=state.get("prompt_contract_delegated_guarantee"),
+        mock=mock,
+    ).output
+
+
 def _prompt_firing_trigger_evidence(
     state: WhoseAgentState,
     evaluation: PromptFiringEvaluation,
@@ -530,6 +729,7 @@ def _step_update(
     checker_observed_bypass: bool = False,
     generation_used_skill: bool = False,
     generation_skill_id: str | None = None,
+    authority_provenance: AuthorityProvenance | None = None,
     drift_evidence: str | None = None,
     drift_artifact_kind: str | None = None,
     substituted: str | None = None,
@@ -547,6 +747,7 @@ def _step_update(
         checker_ran=checker_ran,
         checker_observed_bypass=checker_observed_bypass,
         trigger_evidence=list(trigger_evidence or []),
+        authority_provenance=authority_provenance,
         drift_evidence=drift_evidence,
         drift_artifact_kind=drift_artifact_kind,
         substituted=_step_substituted(substituted),
@@ -606,6 +807,13 @@ def _is_supported_prompt_contract(state: WhoseAgentState) -> bool:
         state.get("loop_source") == "prompt_contract"
         and state.get("prompt_contract_status") == "contract_detected"
         and state.get("selected_skill_id") is not None
+    )
+
+
+def _uses_authority_provenance(state: WhoseAgentState) -> bool:
+    return (
+        state.get("authority_provenance") is not None
+        and state.get("selected_skill_id") == "authority_scope_expansion"
     )
 
 
