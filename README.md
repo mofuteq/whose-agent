@@ -135,9 +135,9 @@ not, and non-fired applicable contracts are observed happy paths, not
 
 For prompt-derived loops, `misreader_firing_decision` remains the highest
 priority cause-side override. When it is not set, firing is derived
-deterministically from injected external pressure signals: the run time falling
-inside the heavy windows in `firing_signals.py`, or quota usage at or above the
-configured threshold. Missing quota signals mean no quota pressure.
+deterministically from the dedicated firing-signal policy: configured
+heavy-time windows, or quota usage at or above the configured threshold.
+Missing quota signals mean no quota pressure.
 External pressure is a prompt-loop cause-side signal, not an observation. The
 loop trace retains the evaluated `firing_signals`,
 `misreader_firing_decision`, and resolved `firing_reason` so a prompt-derived
@@ -297,6 +297,10 @@ fixed `run` benchmark path.
 - Misreader firing is cause-side.
 - Checker observation is observation-side.
 - Do not use checker observations to decide whether the misreader fires.
+- In prompt-derived loops, `misreader_firing_decision` overrides deterministic external pressure.
+- Observation is causally separate from the generation and decision path it observes.
+- The checker contract is perspective-based: the selected skill defines the delegated boundary under observation.
+- Mock checker markers are bounded deterministic fixtures, not framework-agnostic semantic checks.
 - Arbitrary prompt observability is contract-first.
 - Prompt contract detection identifies a boundary, not a bypass.
 - Prompt-derived loops are synthetic observability, not benchmark evaluation.

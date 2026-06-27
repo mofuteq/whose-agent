@@ -514,7 +514,8 @@ It is a controlled poor-e2e fixture, not a general autonomous runtime.
 - `do` calls `should_fire_misreader_skill(state)` — a cause-side policy helper in
   `loop_trigger_policy.py` — to decide whether the misreader skill fires;
   prompt-derived loops use the explicit `misreader_firing_decision` override
-  first, then deterministic external pressure signals from `firing_signals.py`.
+  first, then the dedicated firing-signal policy: configured heavy-time windows
+  and quota-pressure thresholds. Missing quota signals mean no quota pressure.
   These are cause-side signals, not checker observations.
 - `check` runs the observation-side checker
 - The loop stops deterministically via `max_iterations`
@@ -585,3 +586,12 @@ The following are out of scope for the current version:
 - Richer skill-triggered drift semantics
 - Richer arbitrary prompt loop semantics beyond the synthetic experimental path
 - Multi-agent principal relativity (where agent A is the principal for agent B)
+- Cost-attribution observability: represent and inspect costs imposed by an
+  agent that the principal did not delegate, including whether cost attribution
+  should become its own boundary dimension or cut across the existing
+  instruction, authority, role, and model axes.
+- Meta-cognitive failure and recursive self-delegation: cases where an agent
+  cannot recognize that it is delegating judgment back to itself or repeatedly
+  re-authorizing its own choices. This is currently out of scope because it
+  precedes principal attribution rather than directly classifying a
+  principal-substitution event.
