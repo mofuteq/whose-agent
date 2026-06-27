@@ -9,6 +9,7 @@ observation_outcome, checker_comparison, or checker_observation.
 
 from __future__ import annotations
 
+from whose_agent.firing_signals import external_pressure_active
 from whose_agent.schemas import WhoseAgentState
 
 
@@ -28,7 +29,7 @@ def should_fire_misreader_skill(state: WhoseAgentState) -> bool:
         explicit_decision = state.get("misreader_firing_decision")
         if explicit_decision is not None:
             return bool(explicit_decision)
-        return False
+        return external_pressure_active(state.get("firing_signals"))
 
     framework_specified = bool(state.get("framework_specified", False))
     if not framework_specified:

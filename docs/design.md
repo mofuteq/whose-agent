@@ -457,7 +457,10 @@ It is a controlled poor-e2e fixture, not a general autonomous runtime.
 
 - `plan` projects cause-side boundary state such as `framework_specified` for
   safety-framework fixed-loop fixtures and `boundary_detected` for prompt-derived loops
-- `do` calls `should_fire_misreader_skill(state)` — a cause-side policy helper in `loop_trigger_policy.py` — to decide whether the misreader skill fires
+- `do` calls `should_fire_misreader_skill(state)` — a cause-side policy helper in
+  `loop_trigger_policy.py` — to decide whether the misreader skill fires;
+  prompt-derived loops use the explicit `misreader_firing_decision` override
+  first, then deterministic external pressure signals from `firing_signals.py`
 - `check` runs the observation-side checker
 - The loop stops deterministically via `max_iterations`
 - `run-loop` emits `.loop_trace.json`

@@ -5,6 +5,8 @@ from typing import Annotated, Final, Literal, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from whose_agent.firing_signals import FiringSignals
+
 
 Principal = str
 AgentId = str
@@ -474,6 +476,7 @@ class WhoseAgentState(TypedDict, total=False):
     selected_skill_id: str | None
     selected_skill_perspective: str | None
     misreader_firing_decision: bool | None
+    firing_signals: FiringSignals | None
     skill_triggered: bool
     misreader_skill_fired: bool
     trigger_evidence: Annotated[list[str], add]

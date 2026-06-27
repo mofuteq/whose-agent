@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
+from whose_agent.firing_signals import FiringSignals, QuotaSignal
 from whose_agent.loop_trigger_policy import should_fire_misreader_skill
+
+
+HEAVY_TIME = datetime(2026, 1, 1, 7, 0)
+NON_HEAVY_TIME = datetime(2026, 1, 1, 12, 0)
 
 
 def _state(**kwargs) -> dict:
@@ -14,7 +21,7 @@ def test_returns_true_when_framework_specified_and_skill_set() -> None:
     assert should_fire_misreader_skill(state) is True
 
 
-def test_prompt_contract_defaults_to_non_firing_without_explicit_decision() -> None:
+def test_prompt_contract_without_explicit_decision_or_pressure_does_not_fire() -> None:
     state = _state(
         loop_source="prompt_contract",
         boundary_detected=True,
@@ -24,6 +31,42 @@ def test_prompt_contract_defaults_to_non_firing_without_explicit_decision() -> N
     assert should_fire_misreader_skill(state) is False
 
 
+def test_prompt_contract_heavy_time_fires_without_explicit_decision() -> None:
+    state = _state(
+        loop_source="prompt_contract",
+        boundary_detected=True,
+        framework_specified=False,
+        selected_skill_id="safety_framework_escape_hatch",
+        firing_signals=FiringSignals(time=HEAVY_TIME),
+    )
+    assert should_fire_misreader_skill(state) is True
+
+
+def test_prompt_contract_non_heavy_time_without_quota_does_not_fire() -> None:
+    state = _state(
+        loop_source="prompt_contract",
+        boundary_detected=True,
+        framework_specified=False,
+        selected_skill_id="safety_framework_escape_hatch",
+        firing_signals=FiringSignals(time=NON_HEAVY_TIME),
+    )
+    assert should_fire_misreader_skill(state) is False
+
+
+def test_prompt_contract_quota_pressure_fires_when_time_is_not_heavy() -> None:
+    state = _state(
+        loop_source="prompt_contract",
+        boundary_detected=True,
+        framework_specified=False,
+        selected_skill_id="safety_framework_escape_hatch",
+        firing_signals=FiringSignals(
+            time=NON_HEAVY_TIME,
+            quota=QuotaSignal(used=91, limit=100),
+        ),
+    )
+    assert should_fire_misreader_skill(state) is True
+
+
 def test_prompt_contract_can_force_firing_with_cause_side_decision() -> None:
     state = _state(
         loop_source="prompt_contract",
@@ -31,6 +74,7 @@ def test_prompt_contract_can_force_firing_with_cause_side_decision() -> None:
         framework_specified=False,
         selected_skill_id="safety_framework_escape_hatch",
         misreader_firing_decision=True,
+        firing_signals=FiringSignals(time=NON_HEAVY_TIME),
     )
     assert should_fire_misreader_skill(state) is True
 
@@ -42,6 +86,7 @@ def test_prompt_contract_can_force_non_firing_with_cause_side_decision() -> None
         framework_specified=False,
         selected_skill_id="safety_framework_escape_hatch",
         misreader_firing_decision=False,
+        firing_signals=FiringSignals(time=HEAVY_TIME),
     )
     assert should_fire_misreader_skill(state) is False
 
@@ -57,13 +102,29 @@ def test_prompt_contract_returns_false_when_boundary_not_detected() -> None:
         boundary_detected=False,
         framework_specified=True,
         selected_skill_id="safety_framework_escape_hatch",
-        misreader_firing_decision=True,
+        firing_signals=FiringSignals(time=HEAVY_TIME),
     )
     assert should_fire_misreader_skill(state) is False
 
 
 def test_returns_false_when_no_skill_id() -> None:
-    state = _state(framework_specified=True, selected_skill_id=None)
+    state = _state(
+        loop_source="prompt_contract",
+        boundary_detected=True,
+        framework_specified=True,
+        selected_skill_id=None,
+        firing_signals=FiringSignals(time=HEAVY_TIME),
+    )
+    assert should_fire_misreader_skill(state) is False
+
+
+def test_fixed_scenario_path_ignores_external_pressure_signals() -> None:
+    state = _state(
+        loop_source="fixed_scenario",
+        framework_specified=False,
+        selected_skill_id="safety_framework_escape_hatch",
+        firing_signals=FiringSignals(time=HEAVY_TIME),
+    )
     assert should_fire_misreader_skill(state) is False
 
 

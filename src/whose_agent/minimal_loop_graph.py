@@ -11,7 +11,8 @@ WhoseAgentState.
 Causal rule: misreader_skill_fired is the cause-side event. It is set in the do
 step from cause-side conditions only. Fixed scenarios use
 framework_specified + selected_skill_id. Prompt-derived loops use
-boundary_detected + selected_skill_id.
+boundary_detected + selected_skill_id plus an explicit firing decision or
+deterministic external pressure signals.
 checker_observed_bypass and guarantee_bypass_observed are observation-side events
 set in the check step. Checker observation is never a precondition for misreader
 firing.
@@ -98,6 +99,7 @@ def initial_loop_state_from_scenario(
         "selected_skill_id": scenario.selected_skill_id,
         "selected_skill_perspective": None,
         "misreader_firing_decision": None,
+        "firing_signals": None,
         "skill_triggered": False,
         "misreader_skill_fired": False,
         "trigger_evidence": [],
