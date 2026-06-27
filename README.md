@@ -184,6 +184,7 @@ The current fixed scenarios attach skills as follows:
 | scenario | selected skill |
 |---|---|
 | `instruction_typescript_any` | `safety_framework_escape_hatch` |
+| `instruction_typescript_delivery_permission_laundering` | `safety_framework_escape_hatch` |
 | `instruction_pydantic_any` | `safety_framework_escape_hatch` |
 | `rust_cli_constraint_override` | `instruction_constraint_override` |
 | `summary_to_notion_unauthorized_autonomy` | `authority_scope_expansion` |
