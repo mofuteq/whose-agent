@@ -31,7 +31,11 @@ from whose_agent.checker import (
     load_skill_perspective,
 )
 from whose_agent.classifier import classify_scenario
-from whose_agent.loop_trigger_policy import should_fire_misreader_skill
+from whose_agent.firing_signals import PromptFiringEvaluation
+from whose_agent.loop_trigger_policy import (
+    evaluate_prompt_contract_firing,
+    should_fire_misreader_skill,
+)
 from whose_agent.prompt_response import generate_contract_preserving_response_with_usage
 from whose_agent.schemas import (
     Classification,
@@ -100,6 +104,7 @@ def initial_loop_state_from_scenario(
         "selected_skill_perspective": None,
         "misreader_firing_decision": None,
         "firing_signals": None,
+        "firing_reason": None,
         "skill_triggered": False,
         "misreader_skill_fired": False,
         "trigger_evidence": [],
@@ -179,10 +184,34 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
         selected_skill_id = state.get("selected_skill_id")
 
         # Cause-side firing condition only. Checker observation is never read here.
-        should_fire = should_fire_misreader_skill(state)
+        firing_evaluation = _evaluate_do_step_firing(state)
+        if firing_evaluation is not None:
+            state = {
+                **state,
+                "firing_signals": firing_evaluation.firing_signals,
+                "firing_reason": firing_evaluation.reason,
+            }
+            should_fire = firing_evaluation.should_fire
+            prompt_trigger_evidence = _prompt_firing_trigger_evidence(
+                state,
+                firing_evaluation,
+            )
+        else:
+            should_fire = should_fire_misreader_skill(state)
+            prompt_trigger_evidence = []
 
         if classification.classification != "in_scope":
             return {
+                "firing_reason": (
+                    firing_evaluation.reason
+                    if firing_evaluation is not None
+                    else state.get("firing_reason")
+                ),
+                "firing_signals": (
+                    firing_evaluation.firing_signals
+                    if firing_evaluation is not None
+                    else state.get("firing_signals")
+                ),
                 "skill_triggered": False,
                 "misreader_skill_fired": False,
                 "bad_response": None,
@@ -194,12 +223,23 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
                     "do",
                     misreader_skill_fired=False,
                     selected_skill_id=selected_skill_id,
+                    trigger_evidence=prompt_trigger_evidence,
                     substituted=classification.substituted,
                 ),
             }
 
         if _is_unsupported_prompt_contract(state):
             return {
+                "firing_reason": (
+                    firing_evaluation.reason
+                    if firing_evaluation is not None
+                    else state.get("firing_reason")
+                ),
+                "firing_signals": (
+                    firing_evaluation.firing_signals
+                    if firing_evaluation is not None
+                    else state.get("firing_signals")
+                ),
                 "skill_triggered": False,
                 "misreader_skill_fired": False,
                 "bad_response": None,
@@ -213,6 +253,7 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
                     "do",
                     misreader_skill_fired=False,
                     selected_skill_id=selected_skill_id,
+                    trigger_evidence=prompt_trigger_evidence,
                     substituted="none",
                 ),
             }
@@ -227,6 +268,7 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
                 f"cause-side boundary with selected skill {selected_skill_id!r} on the do "
                 "step; the misreader skill fires and the artifact crosses the delegated boundary."
             ]
+            trigger_evidence = prompt_trigger_evidence + trigger_evidence
             bad_response = generate_bad_response_with_usage(
                 scenario,
                 classification,
@@ -239,6 +281,16 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
             drift_evidence, drift_artifact_kind = _prompt_derived_drift_evidence(state)
             return {
                 "selected_skill_perspective": selected_skill_perspective,
+                "firing_reason": (
+                    firing_evaluation.reason
+                    if firing_evaluation is not None
+                    else state.get("firing_reason")
+                ),
+                "firing_signals": (
+                    firing_evaluation.firing_signals
+                    if firing_evaluation is not None
+                    else state.get("firing_signals")
+                ),
                 "skill_triggered": True,
                 "misreader_skill_fired": True,
                 "trigger_evidence": trigger_evidence,
@@ -284,6 +336,16 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
             ).output
             substituted = classification.substituted
         return {
+            "firing_reason": (
+                firing_evaluation.reason
+                if firing_evaluation is not None
+                else state.get("firing_reason")
+            ),
+            "firing_signals": (
+                firing_evaluation.firing_signals
+                if firing_evaluation is not None
+                else state.get("firing_signals")
+            ),
             "skill_triggered": False,
             "misreader_skill_fired": False,
             "bad_response": bad_response,
@@ -297,6 +359,7 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
                 "do",
                 misreader_skill_fired=False,
                 selected_skill_id=selected_skill_id,
+                trigger_evidence=prompt_trigger_evidence,
                 substituted=substituted,
             ),
         }
@@ -396,6 +459,64 @@ def _route_after_check(state: WhoseAgentState) -> str:
     if bool(state.get("loop_completed", False)) or loop_iteration >= max_iterations:
         return "end"
     return "plan"
+
+
+def _evaluate_do_step_firing(
+    state: WhoseAgentState,
+) -> PromptFiringEvaluation | None:
+    if state.get("loop_source") != "prompt_contract":
+        return None
+    return evaluate_prompt_contract_firing(state)
+
+
+def _prompt_firing_trigger_evidence(
+    state: WhoseAgentState,
+    evaluation: PromptFiringEvaluation,
+) -> list[str]:
+    evidence = [f"Prompt-contract firing reason: {evaluation.reason}."]
+    if evaluation.reason == "not_applicable":
+        missing: list[str] = []
+        if not bool(state.get("boundary_detected", False)):
+            missing.append("boundary_detected is false")
+        if state.get("selected_skill_id") is None:
+            missing.append("selected_skill_id is missing")
+        if not missing:
+            missing.append("loop_source is not prompt_contract")
+        evidence.append(
+            "Prompt-contract firing policy did not apply: "
+            + " and ".join(missing)
+            + "."
+        )
+        return evidence
+
+    if evaluation.explicit_decision is not None:
+        evidence.append(
+            "Explicit misreader_firing_decision="
+            f"{evaluation.explicit_decision} overrides external pressure."
+        )
+
+    firing_signals = evaluation.firing_signals
+    if firing_signals is not None and firing_signals.time is not None:
+        evidence.append(
+            f"Evaluated firing time: {firing_signals.time.isoformat()}."
+        )
+
+    if firing_signals is None or firing_signals.quota is None:
+        evidence.append("Quota pressure: absent.")
+    else:
+        quota = firing_signals.quota
+        evidence.append(
+            "Quota: "
+            f"{_format_signal_number(quota.used)} / "
+            f"{_format_signal_number(quota.limit)} "
+            f"(ratio={quota.ratio:.2f})."
+        )
+
+    return evidence
+
+
+def _format_signal_number(value: float) -> str:
+    return f"{value:g}"
 
 
 def _step_update(

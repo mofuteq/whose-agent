@@ -5,11 +5,14 @@ from __future__ import annotations
 from datetime import datetime
 
 from whose_agent.firing_signals import FiringSignals, QuotaSignal
-from whose_agent.loop_trigger_policy import should_fire_misreader_skill
+from whose_agent.loop_trigger_policy import (
+    evaluate_prompt_contract_firing,
+    should_fire_misreader_skill,
+)
 
 
-HEAVY_TIME = datetime(2026, 1, 1, 7, 0)
-NON_HEAVY_TIME = datetime(2026, 1, 1, 12, 0)
+HEAVY_TIME = datetime.fromisoformat("2026-01-01T07:00:00+09:00")
+NON_HEAVY_TIME = datetime.fromisoformat("2026-01-01T12:00:00+09:00")
 
 
 def _state(**kwargs) -> dict:
@@ -28,6 +31,12 @@ def test_prompt_contract_without_explicit_decision_or_pressure_does_not_fire() -
         framework_specified=False,
         selected_skill_id="safety_framework_escape_hatch",
     )
+    evaluation = evaluate_prompt_contract_firing(state)
+
+    assert evaluation.should_fire is False
+    assert evaluation.reason == "no_pressure"
+    assert evaluation.explicit_decision is None
+    assert evaluation.firing_signals is None
     assert should_fire_misreader_skill(state) is False
 
 
@@ -39,6 +48,12 @@ def test_prompt_contract_heavy_time_fires_without_explicit_decision() -> None:
         selected_skill_id="safety_framework_escape_hatch",
         firing_signals=FiringSignals(time=HEAVY_TIME),
     )
+    evaluation = evaluate_prompt_contract_firing(state)
+
+    assert evaluation.should_fire is True
+    assert evaluation.reason == "heavy_time"
+    assert evaluation.explicit_decision is None
+    assert evaluation.firing_signals == FiringSignals(time=HEAVY_TIME)
     assert should_fire_misreader_skill(state) is True
 
 
@@ -50,6 +65,10 @@ def test_prompt_contract_non_heavy_time_without_quota_does_not_fire() -> None:
         selected_skill_id="safety_framework_escape_hatch",
         firing_signals=FiringSignals(time=NON_HEAVY_TIME),
     )
+    evaluation = evaluate_prompt_contract_firing(state)
+
+    assert evaluation.should_fire is False
+    assert evaluation.reason == "no_pressure"
     assert should_fire_misreader_skill(state) is False
 
 
@@ -64,6 +83,28 @@ def test_prompt_contract_quota_pressure_fires_when_time_is_not_heavy() -> None:
             quota=QuotaSignal(used=91, limit=100),
         ),
     )
+    evaluation = evaluate_prompt_contract_firing(state)
+
+    assert evaluation.should_fire is True
+    assert evaluation.reason == "quota_pressure"
+    assert should_fire_misreader_skill(state) is True
+
+
+def test_prompt_contract_heavy_time_and_quota_pressure_fire_together() -> None:
+    state = _state(
+        loop_source="prompt_contract",
+        boundary_detected=True,
+        framework_specified=False,
+        selected_skill_id="safety_framework_escape_hatch",
+        firing_signals=FiringSignals(
+            time=HEAVY_TIME,
+            quota=QuotaSignal(used=91, limit=100),
+        ),
+    )
+    evaluation = evaluate_prompt_contract_firing(state)
+
+    assert evaluation.should_fire is True
+    assert evaluation.reason == "heavy_time_and_quota_pressure"
     assert should_fire_misreader_skill(state) is True
 
 
@@ -76,6 +117,11 @@ def test_prompt_contract_can_force_firing_with_cause_side_decision() -> None:
         misreader_firing_decision=True,
         firing_signals=FiringSignals(time=NON_HEAVY_TIME),
     )
+    evaluation = evaluate_prompt_contract_firing(state)
+
+    assert evaluation.should_fire is True
+    assert evaluation.reason == "explicit_decision"
+    assert evaluation.explicit_decision is True
     assert should_fire_misreader_skill(state) is True
 
 
@@ -86,8 +132,16 @@ def test_prompt_contract_can_force_non_firing_with_cause_side_decision() -> None
         framework_specified=False,
         selected_skill_id="safety_framework_escape_hatch",
         misreader_firing_decision=False,
-        firing_signals=FiringSignals(time=HEAVY_TIME),
+        firing_signals=FiringSignals(
+            time=HEAVY_TIME,
+            quota=QuotaSignal(used=91, limit=100),
+        ),
     )
+    evaluation = evaluate_prompt_contract_firing(state)
+
+    assert evaluation.should_fire is False
+    assert evaluation.reason == "explicit_decision"
+    assert evaluation.explicit_decision is False
     assert should_fire_misreader_skill(state) is False
 
 
@@ -104,6 +158,10 @@ def test_prompt_contract_returns_false_when_boundary_not_detected() -> None:
         selected_skill_id="safety_framework_escape_hatch",
         firing_signals=FiringSignals(time=HEAVY_TIME),
     )
+    evaluation = evaluate_prompt_contract_firing(state)
+
+    assert evaluation.should_fire is False
+    assert evaluation.reason == "not_applicable"
     assert should_fire_misreader_skill(state) is False
 
 
@@ -115,6 +173,10 @@ def test_returns_false_when_no_skill_id() -> None:
         selected_skill_id=None,
         firing_signals=FiringSignals(time=HEAVY_TIME),
     )
+    evaluation = evaluate_prompt_contract_firing(state)
+
+    assert evaluation.should_fire is False
+    assert evaluation.reason == "not_applicable"
     assert should_fire_misreader_skill(state) is False
 
 
@@ -125,6 +187,10 @@ def test_fixed_scenario_path_ignores_external_pressure_signals() -> None:
         selected_skill_id="safety_framework_escape_hatch",
         firing_signals=FiringSignals(time=HEAVY_TIME),
     )
+    evaluation = evaluate_prompt_contract_firing(state)
+
+    assert evaluation.should_fire is False
+    assert evaluation.reason == "not_applicable"
     assert should_fire_misreader_skill(state) is False
 
 

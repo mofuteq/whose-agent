@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from datetime import datetime, time as ClockTime
-from typing import Any, Final
+from typing import Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -14,6 +14,14 @@ HEAVY_TIME_WINDOWS: Final[tuple[tuple[ClockTime, ClockTime], ...]] = (
     (ClockTime(22, 0), ClockTime(2, 0)),
 )
 QUOTA_PRESSURE_THRESHOLD: Final[float] = 0.9
+PromptFiringReason = Literal[
+    "explicit_decision",
+    "heavy_time",
+    "quota_pressure",
+    "heavy_time_and_quota_pressure",
+    "no_pressure",
+    "not_applicable",
+]
 
 
 class QuotaSignal(BaseModel):
@@ -32,6 +40,15 @@ class FiringSignals(BaseModel):
 
     time: datetime | None = None
     quota: QuotaSignal | None = None
+
+
+class PromptFiringEvaluation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    should_fire: bool
+    reason: PromptFiringReason
+    explicit_decision: bool | None
+    firing_signals: FiringSignals | None
 
 
 FiringSignalsInput = FiringSignals | Mapping[str, Any] | None
@@ -91,6 +108,8 @@ __all__ = [
     "FiringSignals",
     "FiringSignalsInput",
     "HEAVY_TIME_WINDOWS",
+    "PromptFiringEvaluation",
+    "PromptFiringReason",
     "QUOTA_PRESSURE_THRESHOLD",
     "QuotaSignal",
     "external_pressure_active",

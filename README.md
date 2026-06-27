@@ -130,6 +130,10 @@ priority cause-side override. When it is not set, firing is derived
 deterministically from injected external pressure signals: the run time falling
 inside the heavy windows in `firing_signals.py`, or quota usage at or above the
 configured threshold. Missing quota signals mean no quota pressure.
+External pressure is a prompt-loop cause-side signal, not an observation. The
+loop trace retains the evaluated `firing_signals`,
+`misreader_firing_decision`, and resolved `firing_reason` so a prompt-derived
+run can be reproduced from the artifact.
 
 `matched_no_boundary_event` means the checker observation was meaningful: the
 checker ran, the cause-side expectation was no boundary event, the checker
@@ -227,7 +231,8 @@ Prompt-derived loop traces carry provenance, including
 `loop_source = "prompt_contract"`, the prompt contract status, and the prompt
 contract artifact name. They also project generic boundary fields:
 `boundary_detected`, `substitution_axis`, `delegated_boundary`, and
-`selected_skill_id`. They do not embed the full prompt contract artifact.
+`selected_skill_id`, plus the cause-side firing inputs and resolved firing
+reason. They do not embed the full prompt contract artifact.
 Contract detection alone does not mean the principal was substituted; it only
 identifies the boundary where substitution could happen. Prompt-derived firing
 requires `boundary_detected + selected_skill_id`, then either the explicit
@@ -237,7 +242,9 @@ prompt-derived contract triggers the misreader step, the `do` step can also
 carry concise PromptContract-derived
 `drift_evidence` inside `.loop_trace.json`. This is synthetic arbitrary prompt
 observability, not fixed benchmark evaluation, and it does not emit a
-human-readable `.response.md`.
+human-readable `.response.md`. Fixed benchmark traces remain isolated from
+production prompt-loop signals; prompt-derived firing provenance is null for
+fixed loops.
 
 ## Minimal Loop Observability
 

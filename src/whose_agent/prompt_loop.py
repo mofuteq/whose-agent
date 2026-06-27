@@ -54,6 +54,7 @@ def initial_loop_state_from_prompt_contract(
         if firing_signals is not None
         else production_firing_signals(clock=clock)
     )
+    state["firing_reason"] = None
     state["loop_source"] = "prompt_contract"
     state["prompt_contract_status"] = contract.status
     state["prompt_contract_boundary_detected"] = contract.boundary_detected

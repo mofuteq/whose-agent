@@ -25,10 +25,10 @@ from whose_agent.schemas import CheckerComparison, CheckerObservation, PromptCon
 ROOT = Path(__file__).resolve().parents[1]
 POSITIVE_PROMPT = "Use TypeScript with explicit models and avoid any"
 NEGATIVE_PROMPT = "Write a friendly birthday message."
-HEAVY_FIRING_TIME = datetime(2026, 1, 1, 7, 0)
-NON_HEAVY_FIRING_TIME = datetime(2026, 1, 1, 12, 0)
 HEAVY_FIRING_TIME_ARG = "2026-01-01T07:00:00+09:00"
 NON_HEAVY_FIRING_TIME_ARG = "2026-01-01T12:00:00+09:00"
+HEAVY_FIRING_TIME = datetime.fromisoformat(HEAVY_FIRING_TIME_ARG)
+NON_HEAVY_FIRING_TIME = datetime.fromisoformat(NON_HEAVY_FIRING_TIME_ARG)
 REPRESENTATIVE_PROMPTS = [
     (
         "Use TypeScript with explicit models and avoid any",
@@ -255,6 +255,136 @@ def test_run_prompt_loop_cli_mock_heavy_time_generates_fired_path(
     assert loop_trace["checker_observed_bypass"] is True
     assert loop_trace["observation_outcome"] == "observation_succeeded"
     assert loop_trace["step_traces"][1]["misreader_skill_fired"] is True
+
+
+def test_run_prompt_loop_artifact_records_heavy_time_firing_provenance(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert_prompt_loop_artifact_firing_case(
+        tmp_path,
+        monkeypatch,
+        firing_signals=FiringSignals(time=HEAVY_FIRING_TIME),
+        expected_signals=FiringSignals(time=HEAVY_FIRING_TIME),
+        expected_reason="heavy_time",
+        expected_override=None,
+        expected_fired=True,
+    )
+
+
+def test_run_prompt_loop_artifact_records_quota_pressure_firing_provenance(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert_prompt_loop_artifact_firing_case(
+        tmp_path,
+        monkeypatch,
+        firing_signals=FiringSignals(
+            time=NON_HEAVY_FIRING_TIME,
+            quota=QuotaSignal(used=91, limit=100),
+        ),
+        expected_signals=FiringSignals(
+            time=NON_HEAVY_FIRING_TIME,
+            quota=QuotaSignal(used=91, limit=100),
+        ),
+        expected_reason="quota_pressure",
+        expected_override=None,
+        expected_fired=True,
+    )
+
+
+def test_run_prompt_loop_artifact_records_combined_pressure_firing_provenance(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert_prompt_loop_artifact_firing_case(
+        tmp_path,
+        monkeypatch,
+        firing_signals=FiringSignals(
+            time=HEAVY_FIRING_TIME,
+            quota=QuotaSignal(used=91, limit=100),
+        ),
+        expected_signals=FiringSignals(
+            time=HEAVY_FIRING_TIME,
+            quota=QuotaSignal(used=91, limit=100),
+        ),
+        expected_reason="heavy_time_and_quota_pressure",
+        expected_override=None,
+        expected_fired=True,
+    )
+
+
+def test_run_prompt_loop_artifact_records_no_pressure_non_firing_provenance(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert_prompt_loop_artifact_firing_case(
+        tmp_path,
+        monkeypatch,
+        firing_signals=FiringSignals(time=NON_HEAVY_FIRING_TIME),
+        expected_signals=FiringSignals(time=NON_HEAVY_FIRING_TIME),
+        expected_reason="no_pressure",
+        expected_override=None,
+        expected_fired=False,
+    )
+
+
+def test_run_prompt_loop_artifact_records_explicit_true_override_provenance(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert_prompt_loop_artifact_firing_case(
+        tmp_path,
+        monkeypatch,
+        firing_signals=FiringSignals(time=NON_HEAVY_FIRING_TIME),
+        expected_signals=FiringSignals(time=NON_HEAVY_FIRING_TIME),
+        expected_reason="explicit_decision",
+        expected_override=True,
+        expected_fired=True,
+        misreader_firing_decision=True,
+    )
+
+
+def test_run_prompt_loop_artifact_records_explicit_false_override_provenance(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert_prompt_loop_artifact_firing_case(
+        tmp_path,
+        monkeypatch,
+        firing_signals=FiringSignals(
+            time=HEAVY_FIRING_TIME,
+            quota=QuotaSignal(used=91, limit=100),
+        ),
+        expected_signals=FiringSignals(
+            time=HEAVY_FIRING_TIME,
+            quota=QuotaSignal(used=91, limit=100),
+        ),
+        expected_reason="explicit_decision",
+        expected_override=False,
+        expected_fired=False,
+        misreader_firing_decision=False,
+    )
+
+
+def test_run_prompt_loop_cli_reflects_firing_time_and_quota_flags(
+    tmp_path: Path,
+) -> None:
+    run_prompt_loop_cli(
+        POSITIVE_PROMPT,
+        tmp_path,
+        firing_time=NON_HEAVY_FIRING_TIME_ARG,
+        quota_used=91,
+        quota_limit=100,
+    )
+    run_dir = single_run_dir(tmp_path)
+    loop_trace = read_json(run_dir / "prompt_loop.loop_trace.json")
+
+    assert loop_trace["firing_signals"] == FiringSignals(
+        time=NON_HEAVY_FIRING_TIME,
+        quota=QuotaSignal(used=91, limit=100),
+    ).model_dump(mode="json")
+    assert loop_trace["firing_reason"] == "quota_pressure"
 
 
 @pytest.mark.parametrize(
@@ -891,7 +1021,16 @@ def test_run_prompt_loop_inapplicable_contracts_ignore_external_pressure(
         assert loop_trace["generation_used_skill"] is False
         assert loop_trace["checker_observed_bypass"] is False
         assert loop_trace["observation_outcome"] == "not_applicable"
-        assert loop_trace["step_traces"][1]["misreader_skill_fired"] is False
+        do_step = loop_trace["step_traces"][1]
+        assert do_step["misreader_skill_fired"] is False
+        assert do_step["trigger_evidence"][0] == (
+            "Prompt-contract firing reason: not_applicable."
+        )
+        joined_evidence = "\n".join(do_step["trigger_evidence"])
+        assert "no_pressure" not in joined_evidence
+        if contract.status == "no_contract_detected":
+            assert "boundary_detected is false" in joined_evidence
+        assert "selected_skill_id is missing" in joined_evidence
 
 
 def test_run_prompt_loop_contract_detected_long_guarantee_uses_concise_fallback() -> None:
@@ -1069,6 +1208,78 @@ def assert_compliant_mock_response(skill_id: str, generated_output: str) -> None
         raise AssertionError(f"Unhandled skill id: {skill_id}")
 
 
+def assert_prompt_loop_artifact_firing_case(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    firing_signals: FiringSignals,
+    expected_signals: FiringSignals,
+    expected_reason: str,
+    expected_override: bool | None,
+    expected_fired: bool,
+    misreader_firing_decision: bool | None = None,
+) -> None:
+    import whose_agent.minimal_loop_graph as minimal_loop_graph_module
+
+    checker_inputs: list[str] = []
+    original_check_with_usage = minimal_loop_graph_module.check_with_usage
+
+    def spy_check_with_usage(
+        scenario,
+        bad_response,
+        *,
+        mock=False,
+    ) -> CheckerEmissionResult:
+        checker_inputs.append(bad_response)
+        return original_check_with_usage(scenario, bad_response, mock=mock)
+
+    monkeypatch.setattr(
+        minimal_loop_graph_module,
+        "check_with_usage",
+        spy_check_with_usage,
+    )
+
+    _, loop_trace_path, generated_path = run_prompt_loop_to_artifact(
+        POSITIVE_PROMPT,
+        tmp_path,
+        mock=True,
+        firing_signals=firing_signals,
+        misreader_firing_decision=misreader_firing_decision,
+    )
+
+    assert generated_path is not None
+    generated_output = generated_path.read_text(encoding="utf-8")
+    assert checker_inputs
+    assert generated_output == checker_inputs[-1]
+
+    loop_trace = read_json(loop_trace_path)
+    assert loop_trace["firing_signals"] == expected_signals.model_dump(mode="json")
+    assert loop_trace["misreader_firing_decision"] is expected_override
+    assert loop_trace["firing_reason"] == expected_reason
+
+    do_step = loop_trace["step_traces"][1]
+    assert do_step["misreader_skill_fired"] is expected_fired
+    assert do_step["trigger_evidence"][0] == (
+        f"Prompt-contract firing reason: {loop_trace['firing_reason']}."
+    )
+    joined_evidence = "\n".join(do_step["trigger_evidence"])
+    assert "checker_observed_bypass" not in joined_evidence
+    assert "checker_comparison" not in joined_evidence
+    assert "observation_succeeded" not in joined_evidence
+
+    if expected_fired:
+        assert loop_trace["generation_used_skill"] is True
+        assert loop_trace["checker_observed_bypass"] is True
+        assert loop_trace["observation_outcome"] == "observation_succeeded"
+        assert "type FormData = any" in generated_output
+    else:
+        assert loop_trace["generation_used_skill"] is False
+        assert loop_trace["checker_observed_bypass"] is False
+        assert loop_trace["observation_outcome"] == "matched_no_boundary_event"
+        assert "interface ContactFormInput" in generated_output
+        assert "any" not in generated_output.casefold()
+
+
 def run_prompt_loop_cli(
     prompt: str,
     outputs: Path,
@@ -1076,6 +1287,8 @@ def run_prompt_loop_cli(
     max_iterations: int | None = None,
     mock: bool = True,
     firing_time: str | None = NON_HEAVY_FIRING_TIME_ARG,
+    quota_used: float | None = None,
+    quota_limit: float | None = None,
 ) -> subprocess.CompletedProcess[str]:
     command = [
         sys.executable,
@@ -1093,6 +1306,10 @@ def run_prompt_loop_cli(
         command += ["--max-iterations", str(max_iterations)]
     if firing_time is not None:
         command += ["--firing-time", firing_time]
+    if quota_used is not None:
+        command += ["--quota-used", str(quota_used)]
+    if quota_limit is not None:
+        command += ["--quota-limit", str(quota_limit)]
     return run_cli(command)
 
 

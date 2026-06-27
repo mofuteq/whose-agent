@@ -20,7 +20,8 @@ def write_loop_trace(output_dir: Path, loop_trace: LoopTrace) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / f"{loop_trace.scenario_id}.loop_trace.json"
     path.write_text(
-        json.dumps(loop_trace.model_dump(), indent=2, ensure_ascii=False) + "\n",
+        json.dumps(loop_trace.model_dump(mode="json"), indent=2, ensure_ascii=False)
+        + "\n",
         encoding="utf-8",
     )
     return path
