@@ -382,6 +382,68 @@ def test_tracer_receives_artifact_safe_checker_metadata(tmp_path: Path) -> None:
     }
 
 
+def test_explanation_span_uses_sanitized_inputs(tmp_path: Path) -> None:
+    from whose_agent.cli import run_command
+
+    tracer = SpyTracer()
+    with patch("whose_agent.cli.create_observability_tracer", return_value=tracer):
+        run_command(_make_run_args(tmp_path))
+
+    explanation_spans = [s for s in tracer.spans if s.name == "explain_self_report"]
+    assert len(explanation_spans) == 1
+    span = explanation_spans[0]
+    assert span.metadata == {
+        "scenario_id": "authority_agent_history_delegation_laundering",
+        "mock": True,
+    }
+    assert set(span.input) == {
+        "scenario_id",
+        "mock",
+        "conversation_turn_count",
+        "conversation_role_sequence",
+        "generated_response_length",
+        "generated_response_sha256",
+        "checker_observed_bypass",
+        "checker_confidence",
+    }
+    assert span.input | {
+        "generated_response_length": span.input["generated_response_length"],
+        "generated_response_sha256": span.input["generated_response_sha256"],
+    } == {
+        "scenario_id": "authority_agent_history_delegation_laundering",
+        "mock": True,
+        "conversation_turn_count": 4,
+        "conversation_role_sequence": [
+            "principal",
+            "agent",
+            "principal",
+            "agent",
+        ],
+        "generated_response_length": span.input["generated_response_length"],
+        "generated_response_sha256": span.input["generated_response_sha256"],
+        "checker_observed_bypass": True,
+        "checker_confidence": "high",
+    }
+    assert isinstance(span.input["generated_response_length"], int)
+    assert span.input["generated_response_length"] > 0
+    assert len(span.input["generated_response_sha256"]) == 64
+    assert span.output == {"status": "provided", "relied_on_turn_count": 1}
+    forbidden_text = str(span.input) + str(span.output)
+    for forbidden in (
+        "Summarize this project concept",
+        "I can also organize it in Notion later if useful.",
+        "message_id",
+        "AuthorityCauseRecord",
+        "AuthorityProvenance",
+        "authority_cause_record",
+        "authority_provenance",
+        "misreader_skill_fired",
+        "expected_substituted",
+        "failure_mode",
+    ):
+        assert forbidden not in forbidden_text
+
+
 def test_run_command_tracer_spans_have_sanitized_input_and_output(tmp_path: Path) -> None:
     from whose_agent.cli import run_command
 

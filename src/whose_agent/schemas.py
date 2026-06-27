@@ -12,7 +12,7 @@ from whose_agent.firing_signals import FiringSignals, PromptFiringReason
 Principal = str
 AgentId = str
 ConversationRole = Literal["user", "assistant", "tool", "system"]
-StepKind = Literal["plan", "do", "check"]
+StepKind = Literal["plan", "do", "check", "explain"]
 NextAction = Literal["continue", "stop", "handoff"]
 SubstitutionAxis = Literal["instruction", "authority", "role", "model"]
 Substituted = Literal["instruction", "authority", "role", "model", "none"]
@@ -59,6 +59,7 @@ AuthorityResult = Literal[
     "authorized",
     "not_applicable",
 ]
+ExplanationStatus = Literal["provided", "refused", "unavailable"]
 
 FAILURE_MODES: Final[tuple[FailureMode, ...]] = (
     "constraint_override",
@@ -191,6 +192,84 @@ class AuthorityCauseRecord(BaseModel):
     action_attempt: ExternalPersistenceActionAttempt | None = None
     drift_fired: bool
     trigger_evidence: tuple[str, ...] = Field(default_factory=tuple)
+
+
+class SelfExplanation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    status: ExplanationStatus
+    action_or_adaptation_summary: str | None = Field(
+        default=None,
+        max_length=300,
+    )
+    treated_as_sufficient_basis: str | None = Field(
+        default=None,
+        max_length=300,
+    )
+    relied_on_turn_indexes: tuple[int, ...] = Field(default_factory=tuple)
+    rationale_summary: str | None = Field(
+        default=None,
+        max_length=500,
+    )
+    checker_acknowledgement: str | None = Field(
+        default=None,
+        max_length=300,
+    )
+
+    @field_validator(
+        "action_or_adaptation_summary",
+        "treated_as_sufficient_basis",
+        "rationale_summary",
+        "checker_acknowledgement",
+        mode="before",
+    )
+    @classmethod
+    def normalize_optional_explanation_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    @field_validator("relied_on_turn_indexes")
+    @classmethod
+    def validate_relied_on_turn_indexes(
+        cls,
+        value: tuple[int, ...],
+    ) -> tuple[int, ...]:
+        if any(index < 1 for index in value):
+            raise ValueError("relied_on_turn_indexes must be 1-based")
+        if len(value) != len(set(value)):
+            raise ValueError("relied_on_turn_indexes must be unique")
+        if value != tuple(sorted(value)):
+            raise ValueError("relied_on_turn_indexes must be ascending")
+        return value
+
+    @model_validator(mode="after")
+    def validate_status_fields(self) -> "SelfExplanation":
+        explanatory_fields = (
+            self.action_or_adaptation_summary,
+            self.treated_as_sufficient_basis,
+            self.rationale_summary,
+            self.checker_acknowledgement,
+        )
+        if self.status == "provided":
+            if any(field is None for field in explanatory_fields):
+                raise ValueError("provided self_explanation requires all summaries")
+            if not self.relied_on_turn_indexes:
+                raise ValueError(
+                    "provided self_explanation requires relied_on_turn_indexes"
+                )
+            return self
+
+        if any(field is not None for field in explanatory_fields):
+            raise ValueError(
+                "refused and unavailable self_explanation must not include summaries"
+            )
+        if self.relied_on_turn_indexes:
+            raise ValueError(
+                "refused and unavailable self_explanation must not include turn indexes"
+            )
+        return self
 
 
 class AuthorityCheckerContext(BaseModel):
@@ -445,14 +524,14 @@ class Reflection(BaseModel):
 
 
 class CheckerObservation(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     scenario_id: str
     skill_id: str
     checker_observed_bypass: bool
     substituted: TraceSubstituted | Literal["none"]
     failure_mode: FailureMode
-    evidence: list[str]
+    evidence: tuple[str, ...] = Field(default_factory=tuple)
     divergence_point: str | None
     confidence: Confidence
 
@@ -485,6 +564,7 @@ class Trace(BaseModel):
     why_it_breaks_delegation: list[str]
     better_behavior: list[str]
     reflection_substituted: TraceSubstituted
+    self_explanation: SelfExplanation | None = None
 
 
 class BoundaryState(BaseModel):
@@ -555,6 +635,7 @@ class LoopTrace(BaseModel):
     observation_outcome: ObservationOutcome | None
     step_traces: list[StepTrace]
     checker_comparison: CheckerComparison | None
+    self_explanation: SelfExplanation | None = None
 
 
 class WhoseAgentState(TypedDict, total=False):
@@ -573,6 +654,7 @@ class WhoseAgentState(TypedDict, total=False):
     state_trace: BoundaryStateTrace | None
     checker_observation: CheckerObservation | None
     checker_comparison: CheckerComparison | None
+    self_explanation: SelfExplanation | None
 
     step_kind: StepKind
     step_index: int
@@ -656,6 +738,7 @@ __all__ = [
     "ExternalPersistenceActionAttempt",
     "FAILURE_MODES",
     "FailureMode",
+    "ExplanationStatus",
     "LoopSource",
     "LoopTrace",
     "NextAction",
@@ -667,6 +750,7 @@ __all__ = [
     "Scenario",
     "ScenarioCheckerTemplate",
     "ScenarioTraceTemplate",
+    "SelfExplanation",
     "StepKind",
     "SubstitutionAxis",
     "StepTrace",

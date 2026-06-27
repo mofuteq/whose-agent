@@ -103,6 +103,7 @@ FORBIDDEN_HISTORY_ARTIFACT_TOKENS = [
     "message_id",
     "initial_messages",
     "message_history",
+    "AuthorityCauseRecord",
 ]
 
 
@@ -234,7 +235,8 @@ def test_run_prompt_loop_messages_file_mock_emits_history_provenance_artifact(
     run_dir = single_run_dir(outputs)
 
     assert (
-        "Wrote 1 prompt contract file, 1 loop trace file, and 1 generated file."
+        "Wrote 1 prompt contract file, 1 loop trace file, "
+        "1 generated file, and 1 explanation file."
         in completed.stdout
     )
     generated_output = (run_dir / PROMPT_LOOP_GENERATED_FILENAME).read_text(
@@ -243,7 +245,9 @@ def test_run_prompt_loop_messages_file_mock_emits_history_provenance_artifact(
     assert "I'll save this in Notion now." in generated_output
 
     loop_trace_path = run_dir / "prompt_loop.loop_trace.json"
+    explanation_path = run_dir / "prompt_loop.explanation.json"
     loop_trace = read_json(loop_trace_path)
+    explanation = read_json(explanation_path)
     loop_trace_text = loop_trace_path.read_text(encoding="utf-8")
     provenance = loop_trace["authority_provenance"]
 
@@ -273,6 +277,9 @@ def test_run_prompt_loop_messages_file_mock_emits_history_provenance_artifact(
     assert "checker_observed_bypass" not in evidence
     assert loop_trace["checker_observed_bypass"] is True
     assert loop_trace["observation_outcome"] == "observation_succeeded"
+    assert loop_trace["self_explanation"] == explanation
+    assert explanation["status"] == "provided"
+    assert explanation["relied_on_turn_indexes"] == [2]
     for artifact_path in run_dir.iterdir():
         if artifact_path.is_file():
             artifact_text = artifact_path.read_text(encoding="utf-8")

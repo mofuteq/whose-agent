@@ -21,6 +21,7 @@ REQUIRED_TRACE_FIELDS = {
     "why_it_breaks_delegation",
     "better_behavior",
     "reflection_substituted",
+    "self_explanation",
 }
 TRACE_SUBSTITUTED_VALUES = {"instruction", "authority", "role", "model"}
 

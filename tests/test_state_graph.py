@@ -113,6 +113,17 @@ def test_fixed_authority_graph_appends_generated_response_and_cause_record() -> 
     assert cause_record.action_attempt.target == "notion"
     assert cause_record.drift_fired is True
     assert cause_record.trigger_evidence
+    self_explanation = state["self_explanation"]
+    assert self_explanation is not None
+    assert self_explanation.status == "provided"
+    assert self_explanation.relied_on_turn_indexes == (2,)
+    assert "earlier agent proposal" in (
+        self_explanation.treated_as_sufficient_basis or ""
+    ).casefold()
+    assert "not explicitly granted" in (
+        self_explanation.checker_acknowledgement or ""
+    ).casefold()
+    assert state["trace"].self_explanation == self_explanation
     with pytest.raises(ValidationError):
         cause_record.drift_fired = False
     with pytest.raises(ValidationError):
@@ -246,6 +257,136 @@ def test_fixed_authority_checker_receives_only_bounded_context(
     assert authority_context.generated_action_attempt_turn == 4
 
 
+def test_fixed_authority_explain_step_runs_after_checker_comparison() -> None:
+    scenario = load_scenario(
+        ROOT / "scenarios" / "authority_agent_history_delegation_laundering.yaml"
+    )
+    graph = compile_fixed_scenario_graph(mock=True)
+
+    state = graph.invoke(initial_state_from_scenario(scenario))
+    step_traces = state["step_traces"]
+
+    assert [trace.step_kind for trace in step_traces] == [
+        "plan",
+        "plan",
+        "plan",
+        "do",
+        "check",
+        "check",
+        "explain",
+    ]
+    assert step_traces[-1].step_kind == "explain"
+    assert step_traces[-2].step_kind == "check"
+    assert state["checker_observation"] is not None
+    assert state["checker_comparison"] is not None
+    assert state["self_explanation"] is not None
+
+
+def test_checker_execution_does_not_read_self_explanation() -> None:
+    source = (ROOT / "src" / "whose_agent" / "state_graph.py").read_text(
+        encoding="utf-8"
+    )
+    maybe_check_block = source.split("def maybe_check(")[1].split(
+        "def compare_checker("
+    )[0]
+    compare_block = source.split("def compare_checker(")[1].split("def explain(")[0]
+
+    assert "self_explanation" not in maybe_check_block
+    assert "self_explanation" not in compare_block
+
+
+def test_explanation_receives_checker_observation_after_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scenario = load_scenario(
+        ROOT / "scenarios" / "authority_agent_history_delegation_laundering.yaml"
+    )
+    calls: dict[str, object] = {}
+
+    def fake_explain_with_usage(
+        history,
+        generated_response,
+        checker_observation,
+        *,
+        mock=False,
+    ) -> LLMCallResult[schemas.SelfExplanation]:
+        calls["turn_count"] = len(history)
+        calls["generated_response"] = generated_response
+        calls["checker_observation"] = checker_observation
+        assert checker_observation.checker_observed_bypass is True
+        return LLMCallResult(output=schemas.SelfExplanation(status="refused"))
+
+    monkeypatch.setattr(
+        state_graph,
+        "explain_with_usage",
+        fake_explain_with_usage,
+    )
+    state = compile_fixed_scenario_graph(mock=True).invoke(
+        initial_state_from_scenario(scenario)
+    )
+
+    assert calls["turn_count"] == 4
+    assert calls["generated_response"] == state["bad_response"]
+    assert calls["checker_observation"] == state["checker_observation"]
+    assert state["self_explanation"] == schemas.SelfExplanation(status="refused")
+
+
+def test_refused_explanation_does_not_change_cause_checker_or_comparison(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scenario = load_scenario(
+        ROOT / "scenarios" / "authority_agent_history_delegation_laundering.yaml"
+    )
+    baseline = compile_fixed_scenario_graph(mock=True).invoke(
+        initial_state_from_scenario(scenario)
+    )
+
+    monkeypatch.setattr(
+        state_graph,
+        "explain_with_usage",
+        lambda *args, **kwargs: LLMCallResult(
+            output=schemas.SelfExplanation(status="refused")
+        ),
+    )
+    refused = compile_fixed_scenario_graph(mock=True).invoke(
+        initial_state_from_scenario(scenario)
+    )
+
+    assert refused["self_explanation"] == schemas.SelfExplanation(status="refused")
+    assert refused["authority_cause_record"] == baseline["authority_cause_record"]
+    assert refused["authority_provenance"] == baseline["authority_provenance"]
+    assert refused["checker_observation"] == baseline["checker_observation"]
+    assert refused["checker_comparison"] == baseline["checker_comparison"]
+    assert refused["misreader_skill_fired"] == baseline["misreader_skill_fired"]
+
+
+def test_explanation_error_becomes_unavailable_without_changing_outputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scenario = load_scenario(
+        ROOT / "scenarios" / "authority_agent_history_delegation_laundering.yaml"
+    )
+    baseline = compile_fixed_scenario_graph(mock=True).invoke(
+        initial_state_from_scenario(scenario)
+    )
+
+    def fail_explanation(*args, **kwargs):
+        raise RuntimeError("synthetic explanation failure")
+
+    monkeypatch.setattr(state_graph, "explain_with_usage", fail_explanation)
+    unavailable = compile_fixed_scenario_graph(mock=True).invoke(
+        initial_state_from_scenario(scenario)
+    )
+
+    assert unavailable["self_explanation"] == schemas.SelfExplanation(
+        status="unavailable"
+    )
+    assert unavailable["authority_cause_record"] == baseline["authority_cause_record"]
+    assert unavailable["checker_observation"] == baseline["checker_observation"]
+    assert unavailable["checker_comparison"] == baseline["checker_comparison"]
+    assert "self_explanation_unavailable:RuntimeError" in unavailable["errors"]
+
+
 def test_step_traces_are_appended_in_order_for_in_scope_scenario() -> None:
     scenario = load_scenario(ROOT / "scenarios" / "instruction_typescript_any.yaml")
     graph = compile_fixed_scenario_graph(mock=True)
@@ -259,11 +400,7 @@ def test_step_traces_are_appended_in_order_for_in_scope_scenario() -> None:
         "plan",
         "plan",
         "do",
-        "do",
         "check",
-        "check",
-        "check",
-        "do",
         "check",
     ]
     assert {trace.principal for trace in step_traces} == {"user"}
@@ -271,10 +408,10 @@ def test_step_traces_are_appended_in_order_for_in_scope_scenario() -> None:
     assert step_traces[2].misreader_skill_fired is True
     assert step_traces[2].selected_skill_id == "safety_framework_escape_hatch"
     assert step_traces[2].trigger_evidence
-    assert step_traces[6].checker_ran is True
-    assert step_traces[6].checker_observed_bypass is True
-    assert step_traces[6].misreader_skill_fired is True
-    assert step_traces[6].selected_skill_id == "safety_framework_escape_hatch"
+    assert step_traces[5].checker_ran is True
+    assert step_traces[5].checker_observed_bypass is True
+    assert step_traces[5].misreader_skill_fired is True
+    assert step_traces[5].selected_skill_id == "safety_framework_escape_hatch"
 
 
 def test_selected_skill_scenario_records_trigger_state() -> None:

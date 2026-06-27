@@ -155,7 +155,7 @@ The thing that causes the drift should not be the only thing certifying that the
 
 ## Cause-Side and Observation-Side Events
 
-Events in the benchmark are split by causal role.
+Events in the benchmark are split by epistemic role.
 
 **Cause-side** (set in the `do` step):
 
@@ -174,6 +174,10 @@ Events in the benchmark are split by causal role.
 - `checker_matches_expected` — whether the observation matched the scenario template
 - `observation_outcome` — the final outcome classification
 
+**Explain-side** (set after `check`):
+
+- `self_explanation` — what the acting agent claims it treated as sufficient basis
+
 The causal direction is one-way.
 
 > Checker observation must never be a precondition for misreader firing.
@@ -181,6 +185,21 @@ The causal direction is one-way.
 The drift happens first.
 The checker observes afterward.
 The checker is not the cause; it is the witness.
+Self-explanation happens after checking. It is an agent self-report, not a
+truth source, not an authorization verdict, and not a repair pass.
+
+In short:
+
+```text
+cause says what the runtime derived
+checker says what an independent observer saw
+explain says what the acting agent claims it treated as sufficient basis
+```
+
+`AuthorityCauseRecord` is a frozen cause-side snapshot. `CheckerObservation` is
+an independent frozen observation. `SelfExplanation` is a frozen public-safe
+self-report. It never overrides, repairs, or reinterprets either the cause-side
+result or the checker observation.
 
 ## Why Observation Must Be Causally External
 
@@ -248,6 +267,7 @@ Projection artifacts are derived from that state:
 - `.state_trace.json` — boundary state trace projected from LangGraph state
 - `.checker.json` — optional checker observation for selected-skill scenarios
 - `.checker_comparison.json` — expected-vs-actual checker comparison
+- `.explanation.json` — optional authority self-explanation
 - `.loop_trace.json` — loop trace for the minimal loop path
 
 `BoundaryStateTrace` remains an artifact schema.
@@ -260,6 +280,11 @@ Loop traces carry provenance. Fixed scenario loops use
 `loop_source = "prompt_contract"` and record the prompt contract status.
 This makes synthetic prompt loop traces distinguishable from fixed scenario
 benchmark loops.
+
+Canonical messages and evaluator-facing `ConversationView` projections are
+runtime-only. The self-explanation component may read that internal view, but
+public artifacts and tracer inputs must not expose raw conversation turns,
+`MessageView`, `message_id`, or source-message excerpts.
 
 The following are not part of the current runtime:
 
@@ -276,10 +301,11 @@ load_scenario
   -> classify
   -> trigger_skill
   -> generate_bad_response
-  -> analyze_trace
-  -> render_state_trace
   -> maybe_check
   -> compare_checker
+  -> explain
+  -> analyze_trace
+  -> render_state_trace
   -> write_artifacts
   -> finalize
 ```
@@ -292,6 +318,7 @@ Artifacts produced per scenario:
 - `.state_trace.json` — boundary state trace projected from LangGraph state
 - `.checker.json` — when `selected_skill_id` is set
 - `.checker_comparison.json` — when `checker_template` is set
+- `.explanation.json` — when a supported history-aware authority flow produced `self_explanation`
 
 The hand-written thesis is fixed.
 It is not generated or rewritten by the model.
@@ -317,10 +344,10 @@ exploratory or experimental observability paths.
 
 | command | purpose | artifacts |
 |---|---|---|
-| `run` | fixed scenario benchmark | benchmark artifacts |
+| `run` | fixed scenario benchmark | benchmark artifacts, conditionally `.explanation.json` |
 | `detect-contract` | arbitrary prompt contract detection | `.prompt_contract.json` |
-| `run-loop` | fixed scenario minimal loop observability | `.loop_trace.json` |
-| `run-prompt-loop` | experimental arbitrary prompt loop observability | `.prompt_contract.json`, `.loop_trace.json`, conditionally `prompt_loop.generated.md` |
+| `run-loop` | fixed scenario minimal loop observability | `.loop_trace.json`, conditionally `.explanation.json` |
+| `run-prompt-loop` | experimental arbitrary prompt loop observability | `.prompt_contract.json`, `.loop_trace.json`, conditionally `prompt_loop.generated.md`, conditionally `prompt_loop.explanation.json` |
 
 Free prompts first go through prompt contract detection before they are used
 for loop observability.
@@ -406,6 +433,11 @@ exact output observed by the checker. It is not fixed benchmark `.response.md`
 and does not turn arbitrary prompts into benchmark scenarios or a general
 production agent runtime.
 
+For supported history-aware authority flows, `run-prompt-loop` also emits
+`prompt_loop.explanation.json` and projects the compact `self_explanation` into
+`prompt_loop.loop_trace.json`. This is still an agent self-report only; it does
+not score, compare, or alter the cause-side or checker-side outputs.
+
 Prompt-derived `drift_evidence` is contract-field-derived. It is generated from
 `PromptContract` fields such as `substitution_axis` and `delegated_boundary`, so
 it can be exercised across instruction, authority, role, and model boundaries
@@ -481,6 +513,7 @@ These invariants define that separation:
 | `contract_detected` does not imply principal substitution. | A detected, supported contract means an applicable skill perspective exists. Principal substitution is only present when the cause-side misreader actually fires and the artifact drifts. |
 | `misreader_skill_fired` is the cause-side event. | It is decided in `do` from cause-side state. Checker results must never be read to decide this value. |
 | `checker_observed_bypass` is the observation-side event. | It is produced in `check` after generation. It observes the artifact; it does not cause the drift. |
+| `self_explanation` is explain-side only. | It is produced after checking and reports what basis the acting agent claims it used. It does not change cause records, checker observations, comparisons, or firing. |
 | A non-fired `contract_detected` path is an observed happy path. | When an applicable contract is detected, the checker still runs. If the misreader did not fire and the checker observes no bypass, the outcome is `matched_no_boundary_event`, not `not_applicable`. |
 | Applicable prompt contracts are checked whether fired or not. | For `contract_detected` with `selected_skill_id != null`, the checker runs for both fired and non-fired prompt-loop iterations. |
 | `fixed_benchmark` comparison stays strict. | Fixed benchmark comparison checks `checker_observed_bypass`, `substituted`, and `failure_mode` against the fixed scenario checker template. |
@@ -494,6 +527,7 @@ The practical rule is:
 PromptContract detection -> applicable boundary
 misreader_skill_fired -> cause-side drift event
 checker_observed_bypass -> observation-side result
+self_explanation -> agent self-report
 ```
 
 Do not collapse these into one flag. In particular, `contract_detected` is not
@@ -504,7 +538,7 @@ a bypass, not a substitution, and not a benchmark result.
 The minimal controlled loop runs:
 
 ```
-plan -> do -> check -> plan
+plan -> do -> check -> explain -> plan
 ```
 
 It is a controlled poor-e2e fixture, not a general autonomous runtime.
@@ -518,6 +552,8 @@ It is a controlled poor-e2e fixture, not a general autonomous runtime.
   and quota-pressure thresholds. Missing quota signals mean no quota pressure.
   These are cause-side signals, not checker observations.
 - `check` runs the observation-side checker
+- `explain` may produce a `SelfExplanation` for the completed history-aware
+  authority flow; non-applicable paths leave `self_explanation` unset
 - The loop stops deterministically via `max_iterations`
 - `run-loop` emits `.loop_trace.json`
 
@@ -543,10 +579,10 @@ Each path owns a distinct set of artifacts.
 
 | path | artifacts |
 |---|---|
-| `run` (fixed) | `.classification.json`, `.response.md`, `.trace.json`, `.state_trace.json`, `.checker.json`, `.checker_comparison.json` |
-| `run-loop` | `.loop_trace.json` |
+| `run` (fixed) | `.classification.json`, `.response.md`, `.trace.json`, `.state_trace.json`, `.checker.json`, `.checker_comparison.json`, conditionally `.explanation.json` |
+| `run-loop` | `.loop_trace.json`, conditionally `.explanation.json` |
 | `detect-contract` | `.prompt_contract.json` |
-| `run-prompt-loop` | `.prompt_contract.json`, `.loop_trace.json`, conditionally `prompt_loop.generated.md` |
+| `run-prompt-loop` | `.prompt_contract.json`, `.loop_trace.json`, conditionally `prompt_loop.generated.md`, conditionally `prompt_loop.explanation.json` |
 
 Do not blur these paths.
 Each artifact has a single owning path.
@@ -563,8 +599,9 @@ the `run-prompt-loop` path without a real LLM mock.  They are gated on
 
 These tests assert:
 
-- The correct artifact set is emitted (`.prompt_contract.json` and
-  `.loop_trace.json` only; no fixed benchmark artifacts).
+- The correct artifact set is emitted for the covered prompt type
+  (`.prompt_contract.json`, `.loop_trace.json`, and any conditional generated
+  or explanation artifact; no fixed benchmark artifacts).
 - `loop_source = "prompt_contract"` and a valid `prompt_contract_status`.
 - For `contract_detected` with a selected skill: `checker_ran=True`,
   `checker_comparison` is present, and

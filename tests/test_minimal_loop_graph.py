@@ -37,6 +37,12 @@ def _none_code_bugfix() -> schemas.Scenario:
     return load_scenario(ROOT / "scenarios" / "none_code_bugfix.yaml")
 
 
+def _authority_history() -> schemas.Scenario:
+    return load_scenario(
+        ROOT / "scenarios" / "authority_agent_history_delegation_laundering.yaml"
+    )
+
+
 def test_minimal_loop_graph_compiles() -> None:
     graph = compile_minimal_loop_graph(mock=True)
 
@@ -182,6 +188,25 @@ def test_single_iteration_poor_e2e_for_typescript_any() -> None:
     assert state["checker_observed_bypass"] is True
     assert state["guarantee_bypass_observed"] is True
     assert state["observation_outcome"] == "observation_succeeded"
+
+
+def test_single_iteration_authority_history_records_explain_step() -> None:
+    scenario = _authority_history()
+    graph = compile_minimal_loop_graph(mock=True)
+
+    state = graph.invoke(initial_loop_state_from_scenario(scenario, max_iterations=1))
+    traces = state["step_traces"]
+
+    assert [trace.step_kind for trace in traces] == [
+        "plan",
+        "do",
+        "check",
+        "explain",
+    ]
+    assert state["checker_observation"] is not None
+    assert state["self_explanation"] is not None
+    assert state["self_explanation"].status == "provided"
+    assert state["self_explanation"].relied_on_turn_indexes == (2,)
 
 
 def test_single_iteration_none_scenario_is_negative_control() -> None:

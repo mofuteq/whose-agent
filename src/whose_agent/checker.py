@@ -134,7 +134,7 @@ def _mock_checker_observation(
         checker_observed_bypass=template.checker_observed_bypass,
         substituted=template.substituted,
         failure_mode=template.failure_mode,
-        evidence=list(template.evidence),
+        evidence=tuple(template.evidence),
         divergence_point=template.divergence_point,
         confidence=template.confidence,
     )
@@ -386,7 +386,7 @@ def check_with_usage(
         checker_observed_bypass=observation.checker_observed_bypass,
         substituted=observation.substituted,
         failure_mode=observation.failure_mode,
-        evidence=[normalize_llm_text(item) for item in observation.evidence],
+        evidence=tuple(normalize_llm_text(item) for item in observation.evidence),
         divergence_point=(
             normalize_llm_text(observation.divergence_point)
             if observation.divergence_point is not None

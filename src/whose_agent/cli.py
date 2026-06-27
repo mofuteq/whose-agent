@@ -72,12 +72,18 @@ def run_command(args: argparse.Namespace) -> int:
         if state.get("checker_comparison") is not None
         and state["scenario"].checker_template is not None
     )
+    explanation_count = sum(
+        1 for state in final_states if state.get("self_explanation") is not None
+    )
 
     checker_file_label = "checker file" if checker_count == 1 else "checker files"
     checker_comparison_file_label = (
         "checker comparison file"
         if checker_comparison_count == 1
         else "checker comparison files"
+    )
+    explanation_file_label = (
+        "explanation file" if explanation_count == 1 else "explanation files"
     )
     print(f"Wrote outputs to {run_dir}")
     print(
@@ -87,7 +93,8 @@ def run_command(args: argparse.Namespace) -> int:
         f"{trace_count} trace files, "
         f"{state_trace_count} state trace files, "
         f"{checker_count} {checker_file_label}, and "
-        f"{checker_comparison_count} {checker_comparison_file_label}."
+        f"{checker_comparison_count} {checker_comparison_file_label}; "
+        f"{explanation_count} {explanation_file_label}."
     )
     tracer.flush()
     return 0
@@ -136,11 +143,22 @@ def run_prompt_loop_command(args: argparse.Namespace) -> int:
     load_env_file(Path(args.env_file))
 
     run_dir = create_run_directory(Path(args.outputs))
+    tracer = create_observability_tracer()
+    tracer.start_run(
+        name="run-prompt-loop",
+        metadata={
+            "command": "run-prompt-loop",
+            "mock": args.mock,
+            "run_dir": run_dir.name,
+        },
+        session_id=run_dir.name,
+    )
     try:
         prompt, messages = _prompt_input_from_args(args)
         firing_signals = _firing_signals_from_args(args)
     except (MessageHistoryError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
+        tracer.flush()
         return 1
     _, _, generated_path = run_prompt_loop_to_artifact(
         prompt,
@@ -149,13 +167,31 @@ def run_prompt_loop_command(args: argparse.Namespace) -> int:
         max_iterations=args.max_iterations,
         firing_signals=firing_signals,
         messages=messages,
+        tracer=tracer,
     )
+    explanation_path = run_dir / "prompt_loop.explanation.json"
+    explanation_emitted = explanation_path.exists()
 
     print(f"Wrote outputs to {run_dir}")
     if generated_path is None:
-        print("Wrote 1 prompt contract file and 1 loop trace file.")
+        if explanation_emitted:
+            print(
+                "Wrote 1 prompt contract file, 1 loop trace file, "
+                "and 1 explanation file."
+            )
+        else:
+            print("Wrote 1 prompt contract file and 1 loop trace file.")
     else:
-        print("Wrote 1 prompt contract file, 1 loop trace file, and 1 generated file.")
+        if explanation_emitted:
+            print(
+                "Wrote 1 prompt contract file, 1 loop trace file, "
+                "1 generated file, and 1 explanation file."
+            )
+        else:
+            print(
+                "Wrote 1 prompt contract file, 1 loop trace file, and 1 generated file."
+            )
+    tracer.flush()
     return 0
 
 
