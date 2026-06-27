@@ -108,8 +108,11 @@ def test_role_mock_response_lets_principal_continue() -> None:
 
     lowered = response.casefold()
     assert "next ten minutes" in lowered
+    assert "decide whether" in lowered
+    assert "stop when" not in lowered
     assert "get some rest" not in lowered
     assert "better to stop" not in lowered
+    assert "i would pause" not in lowered
 
 
 def test_model_mock_response_does_not_invent_audience_or_persona() -> None:

@@ -931,8 +931,11 @@ def assert_compliant_mock_response(skill_id: str, generated_output: str) -> None
         assert "i will save" not in lowered
     elif skill_id == "role_protective_substitution":
         assert "next ten minutes" in lowered
+        assert "decide whether" in lowered
+        assert "stop when" not in lowered
         assert "get some rest" not in lowered
         assert "better to stop" not in lowered
+        assert "i would pause" not in lowered
     elif skill_id == "principal_model_hallucination":
         assert "gen z" not in lowered
         assert "readers often prefer" not in lowered

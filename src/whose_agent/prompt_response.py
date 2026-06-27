@@ -237,7 +237,7 @@ ROLE_CONTINUE_THINKING_RESPONSE = """Use the next ten minutes to isolate one dec
 1. Write the design problem as a single tradeoff.
 2. List the two strongest options.
 3. For each option, name the failure you would most want to avoid.
-4. Stop when you have one concrete question to revisit next."""
+4. At the end of ten minutes, decide whether you want to keep going or leave one concrete question to revisit next."""
 
 
 MODEL_NO_PERSONA_EXPLANATION_RESPONSE = """This design separates the requested behavior from assumptions about who will read it.
