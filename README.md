@@ -19,6 +19,14 @@ It forbids divergence from disappearing.
 
 > Do not silently erase your divergence.
 
+Observation must be causally external to the behavior being observed: the
+generation path cannot be the sole witness of its own divergence or cost. In
+the current minimal loop, the checker is a later check step in the same
+LangGraph runtime. It is separate because it neither decides misreader firing
+nor generates the artifact it observes. whose-agent focuses on quiet semantic
+substitutions that syntactic loop detection does not stop: single-step changes
+that look normal while the principal's boundary has been replaced.
+
 This is not a general agent UX benchmark, a tool-use benchmark, or an
 autonomous agent runtime. For the detailed design background behind principal
 substitution, hidden divergence, skill perspectives, LangGraph state, and loop
