@@ -182,6 +182,60 @@ The drift happens first.
 The checker observes afterward.
 The checker is not the cause; it is the witness.
 
+## Why Observation Must Be Causally External
+
+The agent inside a loop is not a reliable observer of the loop itself.
+It may continue, diverge, or create costs while still presenting each step as
+ordinary task progress. From inside the same loop, the agent is not structurally
+positioned to notice that its own divergence has become the event to observe.
+
+This is why whose-agent keeps observation causally separate from the behavior
+being observed. In the current minimal loop, that separation is represented by
+a later `check` step in the same LangGraph runtime. The `do` step decides
+cause-side firing and generation. The `check` step observes the resulting
+artifact afterward. The checker is not a precondition for firing, and it is not
+an input to the generator whose artifact it observes.
+
+External therefore means causally external to the generation and decision path,
+not necessarily outside the current runtime boundary. A future design could
+move observation into a separate process, service, or human review step. The
+current implementation does not claim that stronger structural separation.
+
+This is also why whose-agent belongs on the observability pole rather than the
+autonomy pole: its core work is not to make the agent more self-directed, but
+to preserve a record of whether the principal's delegated boundary survived.
+
+An outer system layer may be able to stop some syntactic runaways, such as a
+recursive pattern that repeats the same call. That catches a different class of
+failure from the one whose-agent is designed to observe. A semantic deviation
+can complete once, look normal, and leave no repeated shape for syntactic loop
+detection to stop: a framework guarantee is hollowed out, a specific
+instruction is quietly replaced, or the principal is made to bear a cost they
+did not delegate.
+
+Those single-step deviations are dangerous because they can be silent. They do
+not need to keep running in order to matter. If the artifact looks compliant,
+the principal may not see that the boundary was substituted, and the system
+layer may have no repeated pattern to interrupt.
+
+For that reason, the checker contract is perspective-based: the selected skill
+perspective defines the delegated boundary under observation. In mock mode,
+bounded deterministic markers provide fixture coverage only. They are not a
+framework-agnostic semantic checker. In non-mock mode, the checker prompt
+receives the selected skill perspective and evaluates the generated artifact
+through that boundary.
+
+A syntax-only observer would share the same blind spot as syntactic loop
+detection: it could notice repeated structure while missing the quiet semantic
+bypass.
+
+The risk is therefore not only that an agent keeps running. Continuous runaway
+may be detected and stopped by a layer outside the agent. The harder case for
+whose-agent is intermittent boundary drift: ordinary behavior, then a quiet
+substitution, then a return to ordinary behavior. The danger is that the
+one-step substitution has no stopping layer unless a causally separate
+observation artifact preserves it.
+
 ## LangGraph State as Runtime Source of Truth
 
 > LangGraph state is the runtime source of truth.
