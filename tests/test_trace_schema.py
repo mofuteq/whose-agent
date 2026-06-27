@@ -14,6 +14,7 @@ REQUIRED_TRACE_FIELDS = {
     "scenario_id",
     "substituted",
     "failure_mode",
+    "authority_provenance",
     "principal_signal",
     "bad_response",
     "divergence_point",
@@ -67,6 +68,7 @@ def test_trace_json_contains_required_fields_and_no_none_substituted() -> None:
         dumped = trace.model_dump()
 
         assert set(dumped) == REQUIRED_TRACE_FIELDS
+        assert trace.authority_provenance is None
         assert trace.substituted in TRACE_SUBSTITUTED_VALUES
         assert trace.substituted != "none"
 

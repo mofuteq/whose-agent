@@ -383,7 +383,9 @@ def build_fixed_scenario_graph(
                 bad_response,
                 mock=mock,
             )
-            trace = trace_result.trace
+            trace = trace_result.trace.model_copy(
+                update={"authority_provenance": state.get("authority_provenance")}
+            )
             update_span_with_llm_call(
                 span,
                 output={

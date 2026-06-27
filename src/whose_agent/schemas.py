@@ -425,6 +425,7 @@ class Trace(BaseModel):
     scenario_id: str
     substituted: TraceSubstituted
     failure_mode: TraceFailureMode
+    authority_provenance: AuthorityProvenance | None = None
     principal_signal: str
     bad_response: str
     divergence_point: str
