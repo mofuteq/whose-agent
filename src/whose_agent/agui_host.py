@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 from uuid import uuid4
 
 from ag_ui.core import (
@@ -43,6 +44,7 @@ from whose_agent.schemas import ConversationMessage, Scenario
 
 
 MAX_API_ITERATIONS = 3
+PUBLIC_THREAD_ID_PATTERN = re.compile(r"^(?=.*[0-9])[A-Za-z0-9_-]{1,128}$")
 
 
 class WhoseAgentOptions(BaseModel):
@@ -154,7 +156,7 @@ def create_app(
                 scenarios_path,
             )
         except AguiRequestError as exc:
-            thread_id = _thread_id_from_untrusted_body(locals().get("body"))
+            thread_id = _public_thread_id_from_body_or_generated(locals().get("body"))
             return _safe_error_response(
                 encoder=encoder,
                 thread_id=thread_id,
@@ -162,7 +164,7 @@ def create_app(
                 code=exc.code,
             )
         except (ValidationError, ValueError, TypeError):
-            thread_id = _thread_id_from_untrusted_body(locals().get("body"))
+            thread_id = _public_thread_id_from_body_or_generated(locals().get("body"))
             return _safe_error_response(
                 encoder=encoder,
                 thread_id=thread_id,
@@ -263,7 +265,7 @@ def _execution_request_from_input(
 ) -> ExecutionRequest:
     _reject_client_controlled_execution_surfaces(run_input)
     options = _options_from_state(run_input.state)
-    thread_id = _safe_thread_id(run_input.thread_id)
+    thread_id = _public_thread_id_or_generated(run_input.thread_id)
     if options.mode == "fixed":
         scenario = load_known_scenario(scenarios_dir, options.scenario_id or "")
         if scenario is None:
@@ -436,18 +438,22 @@ def _encode_runner_event(
     return None
 
 
-def _safe_thread_id(thread_id: str | None) -> str:
-    if isinstance(thread_id, str) and thread_id.strip():
-        return thread_id.strip()
-    return f"thread_{uuid4().hex}"
+def _public_thread_id_or_generated(value: object) -> str:
+    if isinstance(value, str):
+        thread_id = value.strip()
+        if PUBLIC_THREAD_ID_PATTERN.fullmatch(thread_id):
+            return thread_id
+    return _new_thread_id()
 
 
-def _thread_id_from_untrusted_body(body: object) -> str:
+def _public_thread_id_from_body_or_generated(body: object) -> str:
     if isinstance(body, dict):
-        raw_thread_id = body.get("threadId")
-        if isinstance(raw_thread_id, str) and raw_thread_id.strip():
-            return raw_thread_id.strip()
-    return f"thread_{uuid4().hex}"
+        return _public_thread_id_or_generated(body.get("threadId"))
+    return _new_thread_id()
+
+
+def _new_thread_id() -> str:
+    return f"thread_1_{uuid4().hex}"
 
 
 def _new_run_id() -> str:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,9 @@ from whose_agent.agui_host import create_app
 
 ROOT = Path(__file__).resolve().parents[1]
 AUTHORITY_SCENARIO_ID = "authority_agent_history_delegation_laundering"
+PUBLIC_THREAD_ID_RE = re.compile(r"^(?=.*[0-9])[A-Za-z0-9_-]{1,128}$")
+VALID_CLIENT_THREAD_ID = "client-thread-01"
+INVALID_CLIENT_THREAD_ID = "SECRET_RAW_HISTORY"
 RAW_HISTORY_STRINGS = [
     "Summarize this project concept",
     "I can also organize it in Notion later if useful.",
@@ -84,6 +88,27 @@ def test_agui_endpoint_returns_text_event_stream(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
+
+
+def test_valid_opaque_thread_id_is_preserved_for_correlation(
+    tmp_path: Path,
+) -> None:
+    client = _client(tmp_path)
+
+    events = _post_events(
+        client,
+        _fixed_payload(AUTHORITY_SCENARIO_ID, thread_id=VALID_CLIENT_THREAD_ID),
+    )
+
+    assert _run_started_thread_id(events) == VALID_CLIENT_THREAD_ID
+    assert _custom_value(events, "whose_agent.run.started")["thread_id"] == (
+        VALID_CLIENT_THREAD_ID
+    )
+    assert _run_finished_thread_id(events) == VALID_CLIENT_THREAD_ID
+    run_id = _custom_value(events, "whose_agent.run.completed")["run_id"]
+    run_lookup = client.get(f"/api/runs/{run_id}")
+    assert run_lookup.status_code == 200
+    assert run_lookup.json()["thread_id"] == VALID_CLIENT_THREAD_ID
 
 
 def test_fixed_authority_history_emits_expected_causal_order(
@@ -211,6 +236,62 @@ def test_raw_input_history_is_absent_from_public_stream_and_run_lookup(
     assert "SECRET_RAW_HISTORY" not in serialized_error_events
 
 
+def test_invalid_thread_id_is_not_reflected_on_successful_request(
+    tmp_path: Path,
+) -> None:
+    client = _client(tmp_path)
+
+    events = _post_events(
+        client,
+        _prompt_loop_payload(
+            HISTORY_LAUNDERING_MESSAGES,
+            thread_id=INVALID_CLIENT_THREAD_ID,
+        ),
+    )
+
+    serialized_events = json.dumps(events)
+    assert INVALID_CLIENT_THREAD_ID not in serialized_events
+    generated_thread_id = _run_started_thread_id(events)
+    assert generated_thread_id != INVALID_CLIENT_THREAD_ID
+    assert PUBLIC_THREAD_ID_RE.fullmatch(generated_thread_id)
+    assert _custom_value(events, "whose_agent.run.started")["thread_id"] == (
+        generated_thread_id
+    )
+    assert _run_finished_thread_id(events) == generated_thread_id
+
+    completed = _custom_value(events, "whose_agent.run.completed")
+    assert INVALID_CLIENT_THREAD_ID not in json.dumps(completed)
+    run_lookup = client.get(f"/api/runs/{completed['run_id']}")
+    assert run_lookup.status_code == 200
+    serialized_run = json.dumps(run_lookup.json())
+    assert INVALID_CLIENT_THREAD_ID not in serialized_run
+    assert run_lookup.json()["thread_id"] == generated_thread_id
+
+
+def test_invalid_thread_id_is_not_reflected_on_invalid_request(
+    tmp_path: Path,
+) -> None:
+    client = _client(tmp_path)
+
+    events = _post_events(
+        client,
+        _prompt_loop_payload(
+            [("assistant", INVALID_CLIENT_THREAD_ID)],
+            thread_id=INVALID_CLIENT_THREAD_ID,
+        ),
+    )
+
+    assert [event["type"] for event in events] == ["RUN_STARTED", "RUN_ERROR"]
+    error = events[1]
+    assert error["code"] == "invalid_request"
+    assert error["message"] == "Invalid request."
+    serialized_events = json.dumps(events)
+    assert INVALID_CLIENT_THREAD_ID not in serialized_events
+    generated_thread_id = _run_started_thread_id(events)
+    assert generated_thread_id != INVALID_CLIENT_THREAD_ID
+    assert PUBLIC_THREAD_ID_RE.fullmatch(generated_thread_id)
+
+
 def test_generated_candidate_response_is_only_in_active_text_stream(
     tmp_path: Path,
 ) -> None:
@@ -260,7 +341,11 @@ def _client(tmp_path: Path) -> TestClient:
     return TestClient(create_app(outputs_dir=tmp_path / "outputs"))
 
 
-def _fixed_payload(scenario_id: str) -> dict[str, Any]:
+def _fixed_payload(
+    scenario_id: str,
+    *,
+    thread_id: str = "client_thread_1",
+) -> dict[str, Any]:
     return _base_payload(
         state={
             "whose_agent": {
@@ -271,10 +356,15 @@ def _fixed_payload(scenario_id: str) -> dict[str, Any]:
             }
         },
         messages=[],
+        thread_id=thread_id,
     )
 
 
-def _prompt_loop_payload(messages: list[tuple[str, str]]) -> dict[str, Any]:
+def _prompt_loop_payload(
+    messages: list[tuple[str, str]],
+    *,
+    thread_id: str = "client_thread_1",
+) -> dict[str, Any]:
     return _base_payload(
         state={
             "whose_agent": {
@@ -287,6 +377,7 @@ def _prompt_loop_payload(messages: list[tuple[str, str]]) -> dict[str, Any]:
             {"id": f"client_msg_{index}", "role": role, "content": content}
             for index, (role, content) in enumerate(messages, start=1)
         ],
+        thread_id=thread_id,
     )
 
 
@@ -294,9 +385,10 @@ def _base_payload(
     *,
     state: dict[str, Any],
     messages: list[dict[str, str]],
+    thread_id: str,
 ) -> dict[str, Any]:
     return {
-        "threadId": "client_thread",
+        "threadId": thread_id,
         "runId": "client_supplied_run_id",
         "state": state,
         "messages": messages,
@@ -326,6 +418,18 @@ def _parse_sse(body: str) -> list[dict[str, Any]]:
 
 def _custom_names(events: list[dict[str, Any]]) -> list[str]:
     return [event["name"] for event in events if event["type"] == "CUSTOM"]
+
+
+def _run_started_thread_id(events: list[dict[str, Any]]) -> str:
+    matches = [event["threadId"] for event in events if event["type"] == "RUN_STARTED"]
+    assert len(matches) == 1
+    return matches[0]
+
+
+def _run_finished_thread_id(events: list[dict[str, Any]]) -> str:
+    matches = [event["threadId"] for event in events if event["type"] == "RUN_FINISHED"]
+    assert len(matches) == 1
+    return matches[0]
 
 
 def _custom_values(events: list[dict[str, Any]], name: str) -> list[object]:
