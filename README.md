@@ -40,6 +40,36 @@ Open:
 The V1 server is local-first and unauthenticated. Bind it only to a loopback
 address such as `127.0.0.1`; do not bind it to a public interface.
 
+### Browser Workspace Development
+
+Terminal 1:
+
+```bash
+uv run whose-agent serve --host 127.0.0.1 --port 8000
+```
+
+Terminal 2:
+
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+Open the Vite development workspace at `http://127.0.0.1:5173/`.
+
+### Built Local Workspace
+
+```bash
+cd frontend
+npm run build
+cd ..
+uv run whose-agent serve --host 127.0.0.1 --port 8000
+```
+
+When `frontend/dist` exists, the built workspace is available from
+`http://127.0.0.1:8000/`.
+
 ## What You Can Run
 
 ### Fixed Scenario
