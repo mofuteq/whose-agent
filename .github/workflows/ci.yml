@@ -157,3 +157,6 @@ jobs:
             echo "$tracked_outputs"
             exit 1
           fi
+
+      - name: Run container smoke test
+        run: WHOSE_AGENT_PORT=18000 ./scripts/container-smoke-test.sh
