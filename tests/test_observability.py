@@ -20,6 +20,14 @@ from whose_agent.tracing import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
+FORBIDDEN_TRACER_KEYS = {"messages", "message_id", "initial_messages", "message_history"}
+FORBIDDEN_TRACER_TOKENS = [
+    "ConversationView",
+    "MessageView",
+    "message_id",
+    "initial_messages",
+    "message_history",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -239,11 +247,11 @@ def test_cli_mock_run_emits_same_artifacts_without_langfuse(tmp_path: Path, monk
     monkeypatch.delenv("LANGFUSE_SECRET_KEY", raising=False)
     _run_fixed_cli_subprocess(tmp_path)
     run_dir = single_run_dir(tmp_path)
-    assert len(list(run_dir.glob("*.classification.json"))) == 9
-    assert len(list(run_dir.glob("*.response.md"))) == 7
-    assert len([f for f in run_dir.glob("*.trace.json") if not f.name.endswith(".state_trace.json")]) == 7
-    assert len(list(run_dir.glob("*.state_trace.json"))) == 7
-    assert len(list(run_dir.glob("*.checker.json"))) == 7
+    assert len(list(run_dir.glob("*.classification.json"))) == 10
+    assert len(list(run_dir.glob("*.response.md"))) == 8
+    assert len([f for f in run_dir.glob("*.trace.json") if not f.name.endswith(".state_trace.json")]) == 8
+    assert len(list(run_dir.glob("*.state_trace.json"))) == 8
+    assert len(list(run_dir.glob("*.checker.json"))) == 8
     assert list(run_dir.glob("*.flow.mmd")) == []
 
 
@@ -350,7 +358,7 @@ def test_tracer_receives_artifact_safe_checker_metadata(tmp_path: Path) -> None:
         run_command(_make_run_args(tmp_path))
 
     checker_spans = [s for s in tracer.spans if s.name == "check_artifact"]
-    assert len(checker_spans) == 7
+    assert len(checker_spans) == 8
     span = next(
         s
         for s in checker_spans
@@ -374,6 +382,68 @@ def test_tracer_receives_artifact_safe_checker_metadata(tmp_path: Path) -> None:
     }
 
 
+def test_explanation_span_uses_sanitized_inputs(tmp_path: Path) -> None:
+    from whose_agent.cli import run_command
+
+    tracer = SpyTracer()
+    with patch("whose_agent.cli.create_observability_tracer", return_value=tracer):
+        run_command(_make_run_args(tmp_path))
+
+    explanation_spans = [s for s in tracer.spans if s.name == "explain_self_report"]
+    assert len(explanation_spans) == 1
+    span = explanation_spans[0]
+    assert span.metadata == {
+        "scenario_id": "authority_agent_history_delegation_laundering",
+        "mock": True,
+    }
+    assert set(span.input) == {
+        "scenario_id",
+        "mock",
+        "conversation_turn_count",
+        "conversation_role_sequence",
+        "generated_response_length",
+        "generated_response_sha256",
+        "checker_observed_bypass",
+        "checker_confidence",
+    }
+    assert span.input | {
+        "generated_response_length": span.input["generated_response_length"],
+        "generated_response_sha256": span.input["generated_response_sha256"],
+    } == {
+        "scenario_id": "authority_agent_history_delegation_laundering",
+        "mock": True,
+        "conversation_turn_count": 4,
+        "conversation_role_sequence": [
+            "principal",
+            "agent",
+            "principal",
+            "agent",
+        ],
+        "generated_response_length": span.input["generated_response_length"],
+        "generated_response_sha256": span.input["generated_response_sha256"],
+        "checker_observed_bypass": True,
+        "checker_confidence": "high",
+    }
+    assert isinstance(span.input["generated_response_length"], int)
+    assert span.input["generated_response_length"] > 0
+    assert len(span.input["generated_response_sha256"]) == 64
+    assert span.output == {"status": "provided", "relied_on_turn_count": 1}
+    forbidden_text = str(span.input) + str(span.output)
+    for forbidden in (
+        "Summarize this project concept",
+        "I can also organize it in Notion later if useful.",
+        "message_id",
+        "AuthorityCauseRecord",
+        "AuthorityProvenance",
+        "authority_cause_record",
+        "authority_provenance",
+        "misreader_skill_fired",
+        "expected_substituted",
+        "failure_mode",
+    ):
+        assert forbidden not in forbidden_text
+
+
 def test_run_command_tracer_spans_have_sanitized_input_and_output(tmp_path: Path) -> None:
     from whose_agent.cli import run_command
 
@@ -387,6 +457,8 @@ def test_run_command_tracer_spans_have_sanitized_input_and_output(tmp_path: Path
         assert span.output is not None, span.name
         _assert_no_large_strings(span.input)
         _assert_no_large_strings(span.output)
+        _assert_no_forbidden_tracer_tokens(span.input)
+        _assert_no_forbidden_tracer_tokens(span.output)
 
     classify_span = next(s for s in tracer.spans if s.name == "classify_scenario")
     assert "principal_prompt_length" in classify_span.input
@@ -418,6 +490,23 @@ def test_tracer_does_not_receive_full_bad_response(tmp_path: Path) -> None:
     for s in tracer.spans:
         _assert_no_large_strings(s.input)
         _assert_no_large_strings(s.output)
+        _assert_no_forbidden_tracer_tokens(s.input)
+        _assert_no_forbidden_tracer_tokens(s.output)
+
+
+def _assert_no_forbidden_tracer_tokens(value: Any) -> None:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            assert key not in FORBIDDEN_TRACER_KEYS
+            _assert_no_forbidden_tracer_tokens(item)
+        return
+    if isinstance(value, list):
+        for item in value:
+            _assert_no_forbidden_tracer_tokens(item)
+        return
+    if isinstance(value, str):
+        for token in FORBIDDEN_TRACER_TOKENS:
+            assert token not in value
 
 
 def _assert_no_large_strings(value: Any) -> None:

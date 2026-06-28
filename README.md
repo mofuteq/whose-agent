@@ -94,10 +94,10 @@ contract-first.
 
 | command | purpose | artifacts |
 |---|---|---|
-| `run` | fixed scenario benchmark | benchmark artifacts |
+| `run` | fixed scenario benchmark | benchmark artifacts, with `.explanation.json` for supported history-aware authority runs |
 | `detect-contract` | arbitrary prompt contract detection | `.prompt_contract.json` |
 | `run-loop` | fixed scenario minimal loop observability | `.loop_trace.json` |
-| `run-prompt-loop` | experimental arbitrary prompt loop observability | `.prompt_contract.json`, `.loop_trace.json`, conditionally `prompt_loop.generated.md` |
+| `run-prompt-loop` | experimental arbitrary prompt loop observability | `.prompt_contract.json`, `.loop_trace.json`, conditionally `prompt_loop.generated.md`, and conditionally `prompt_loop.explanation.json` |
 
 ## Artifact Ownership
 
@@ -109,6 +109,7 @@ contract-first.
 | `.state_trace.json` | `run` | state projection trace |
 | `.checker.json` | `run` | checker observation for selected-skill scenarios |
 | `.checker_comparison.json` | `run` | expected-vs-actual checker comparison |
+| `.explanation.json` | `run`, `run-prompt-loop` | authority self-explanation when a supported history-aware authority flow completes |
 | `.prompt_contract.json` | `detect-contract`, `run-prompt-loop` | arbitrary prompt contract |
 | `.loop_trace.json` | `run-loop`, `run-prompt-loop` | minimal loop projection |
 | `prompt_loop.generated.md` | `run-prompt-loop` | prompt-derived candidate response observed exactly by the checker |
@@ -158,6 +159,17 @@ as observing an applicable contract boundary. Do not use `not_applicable` for a
 non-fired applicable prompt contract where the checker ran and observed no
 bypass.
 
+Authority history runs also distinguish three public sources:
+
+- Cause says what the cause-side runtime derived and froze.
+- Checker says what an independent observer saw.
+- Explain says what the acting agent claims it treated as sufficient basis.
+
+`AuthorityCauseRecord` is a frozen cause-side snapshot. `CheckerObservation` is
+an independent frozen observation. `SelfExplanation` is an agent self-report,
+not an authorization verdict, and it never overrides, repairs, or reinterprets
+the cause-side result.
+
 ## Fixed Scenario Benchmark
 
 The fixed benchmark runs scenarios from `scenarios/` through classification,
@@ -188,6 +200,7 @@ The current fixed scenarios attach skills as follows:
 | `instruction_pydantic_any` | `safety_framework_escape_hatch` |
 | `rust_cli_constraint_override` | `instruction_constraint_override` |
 | `summary_to_notion_unauthorized_autonomy` | `authority_scope_expansion` |
+| `authority_agent_history_delegation_laundering` | `authority_scope_expansion` |
 | `late_night_protective_shutdown` | `role_protective_substitution` |
 | `summary_persona_hallucination` | `principal_model_hallucination` |
 
@@ -220,6 +233,26 @@ Prompt contract status values:
 `unsupported` is not treated as a successful contract for skill-triggered drift.
 
 `detect-contract` does not run a loop. It emits only `.prompt_contract.json`.
+
+`detect-contract` and `run-prompt-loop` accept exactly one of `--prompt` or
+`--messages-file`. `--messages-file` must be a JSON array of OpenAI-compatible
+`role`/`content` message objects, with optional `message_id` values. The final
+`user` message becomes the current prompt. The file is parsed into canonical
+`ConversationMessage` values, and
+`WhoseAgentState.messages` is the canonical conversation runtime. Fixed
+scenarios seed the same runtime field through fixture `initial_messages`.
+LangGraph checkpoints may retain raw canonical messages. `MessageView` is an
+ephemeral evaluator-facing projection from canonical runtime messages for
+source-aware authority evaluation; it is not a second message store, checkpoint
+value, or serialized adapter artifact.
+
+Runtime retention is allowed, but public exposure is not. Raw history must never
+be serialized into `PromptContract`, `Trace`, `LoopTrace`, `BoundaryStateTrace`,
+checker artifacts, generated response artifacts, or observability/tracer inputs.
+Public artifacts expose only compact derived data such as authority provenance,
+action attempts, checker observations, and explanation summaries. The
+self-explanation component may read an internal `ConversationView`, but raw
+conversation text and message IDs remain runtime-only.
 
 `run-prompt-loop` detects the contract and then runs the controlled minimal loop
 as a synthetic `prompt_loop` run. It emits `.prompt_contract.json`,
@@ -261,13 +294,14 @@ The minimal loop path is a controlled fixture, not a general autonomous runtime.
 It runs a minimal LangGraph loop:
 
 ```text
-plan -> do -> check -> plan
+plan -> do -> check -> explain -> plan
 ```
 
 It stops deterministically via `max_iterations`. It exists to demonstrate
 intermittent boundary drift within one task execution, where the misreader skill
 can fire during `do` and the checker observes the resulting drift during
-`check`.
+`check`. The `explain` step is currently applicable only to the completed
+history-aware authority flow; other paths leave `self_explanation` unset.
 
 `run-loop` runs the minimal loop for one fixed scenario:
 
@@ -297,7 +331,9 @@ fixed `run` benchmark path.
 - Trace artifacts are projections.
 - Misreader firing is cause-side.
 - Checker observation is observation-side.
+- Self-explanation is an agent self-report, not a truth source.
 - Do not use checker observations to decide whether the misreader fires.
+- Do not use self-explanation to change cause records, checker observations, or comparisons.
 - In prompt-derived loops, `misreader_firing_decision` overrides deterministic external pressure.
 - Observation is causally separate from the generation and decision path it observes.
 - The checker contract is perspective-based: the selected skill defines the delegated boundary under observation.

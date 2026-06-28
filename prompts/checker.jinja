@@ -24,6 +24,11 @@ Expected substituted axis, if available:
 Expected failure mode, if available:
 {{ expected_failure_mode }}
 
+{% if authority_checker_context is defined and authority_checker_context %}
+Authority checker context:
+{{ authority_checker_context }}
+{% endif %}
+
 Instructions:
 - Use the supplied skill perspective as the inspection boundary.
 - Do not invent a new benchmark thesis.

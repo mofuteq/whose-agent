@@ -9,6 +9,16 @@ from whose_agent.bad_response import BadResponseError
 from whose_agent.checker import CheckerError
 from whose_agent.env_loader import load_env_file
 from whose_agent.firing_signals import FiringSignals, QuotaSignal
+from whose_agent.authority_provenance import (
+    derive_external_persistence_provenance,
+)
+from whose_agent.conversation_view import project_messages
+from whose_agent.history_adapter import (
+    MessageHistoryError,
+    conversation_from_prompt,
+    current_principal_prompt,
+    load_message_history_file,
+)
 from whose_agent.loop_artifacts import run_minimal_loop_to_artifact
 from whose_agent.prompt_contract_artifacts import write_prompt_contract
 from whose_agent.prompt_contract_detector import (
@@ -19,6 +29,7 @@ from whose_agent.prompt_loop import run_prompt_loop_to_artifact
 from whose_agent.reflection import ReflectionError
 from whose_agent.run_directory import create_run_directory
 from whose_agent.scenario_loader import load_scenario, load_scenarios
+from whose_agent.schemas import ConversationMessage
 from whose_agent.state_graph import compile_fixed_scenario_graph, initial_state_from_scenario
 from whose_agent.tracing import create_observability_tracer
 
@@ -61,12 +72,18 @@ def run_command(args: argparse.Namespace) -> int:
         if state.get("checker_comparison") is not None
         and state["scenario"].checker_template is not None
     )
+    explanation_count = sum(
+        1 for state in final_states if state.get("self_explanation") is not None
+    )
 
     checker_file_label = "checker file" if checker_count == 1 else "checker files"
     checker_comparison_file_label = (
         "checker comparison file"
         if checker_comparison_count == 1
         else "checker comparison files"
+    )
+    explanation_file_label = (
+        "explanation file" if explanation_count == 1 else "explanation files"
     )
     print(f"Wrote outputs to {run_dir}")
     print(
@@ -76,7 +93,8 @@ def run_command(args: argparse.Namespace) -> int:
         f"{trace_count} trace files, "
         f"{state_trace_count} state trace files, "
         f"{checker_count} {checker_file_label}, and "
-        f"{checker_comparison_count} {checker_comparison_file_label}."
+        f"{checker_comparison_count} {checker_comparison_file_label}; "
+        f"{explanation_count} {explanation_file_label}."
     )
     tracer.flush()
     return 0
@@ -105,7 +123,15 @@ def detect_contract_command(args: argparse.Namespace) -> int:
     load_env_file(Path(args.env_file))
 
     run_dir = create_run_directory(Path(args.outputs))
-    contract = detect_prompt_contract(args.prompt, mock=args.mock)
+    prompt, messages = _prompt_input_from_args(args)
+    authority_provenance = derive_external_persistence_provenance(
+        project_messages(messages)
+    )
+    contract = detect_prompt_contract(
+        prompt,
+        mock=args.mock,
+        authority_provenance=authority_provenance,
+    )
     write_prompt_contract(contract, run_dir)
 
     print(f"Wrote outputs to {run_dir}")
@@ -117,24 +143,55 @@ def run_prompt_loop_command(args: argparse.Namespace) -> int:
     load_env_file(Path(args.env_file))
 
     run_dir = create_run_directory(Path(args.outputs))
+    tracer = create_observability_tracer()
+    tracer.start_run(
+        name="run-prompt-loop",
+        metadata={
+            "command": "run-prompt-loop",
+            "mock": args.mock,
+            "run_dir": run_dir.name,
+        },
+        session_id=run_dir.name,
+    )
     try:
+        prompt, messages = _prompt_input_from_args(args)
         firing_signals = _firing_signals_from_args(args)
-    except ValueError as exc:
+    except (MessageHistoryError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
+        tracer.flush()
         return 1
     _, _, generated_path = run_prompt_loop_to_artifact(
-        args.prompt,
+        prompt,
         run_dir,
         mock=args.mock,
         max_iterations=args.max_iterations,
         firing_signals=firing_signals,
+        messages=messages,
+        tracer=tracer,
     )
+    explanation_path = run_dir / "prompt_loop.explanation.json"
+    explanation_emitted = explanation_path.exists()
 
     print(f"Wrote outputs to {run_dir}")
     if generated_path is None:
-        print("Wrote 1 prompt contract file and 1 loop trace file.")
+        if explanation_emitted:
+            print(
+                "Wrote 1 prompt contract file, 1 loop trace file, "
+                "and 1 explanation file."
+            )
+        else:
+            print("Wrote 1 prompt contract file and 1 loop trace file.")
     else:
-        print("Wrote 1 prompt contract file, 1 loop trace file, and 1 generated file.")
+        if explanation_emitted:
+            print(
+                "Wrote 1 prompt contract file, 1 loop trace file, "
+                "1 generated file, and 1 explanation file."
+            )
+        else:
+            print(
+                "Wrote 1 prompt contract file, 1 loop trace file, and 1 generated file."
+            )
+    tracer.flush()
     return 0
 
 
@@ -161,7 +218,12 @@ def build_parser() -> argparse.ArgumentParser:
         "detect-contract",
         help="Detect a prompt contract for one arbitrary principal prompt.",
     )
-    contract_parser.add_argument("--prompt", required=True, help="Principal prompt text to inspect.")
+    contract_input_group = contract_parser.add_mutually_exclusive_group(required=True)
+    contract_input_group.add_argument("--prompt", help="Principal prompt text to inspect.")
+    contract_input_group.add_argument(
+        "--messages-file",
+        help="JSON array of OpenAI-compatible role/content messages.",
+    )
     contract_parser.add_argument("--outputs", required=True, help="Directory for generated output files.")
     contract_parser.add_argument("--env-file", default=".env", help="Path to a dotenv file.")
     contract_parser.add_argument("--mock", action="store_true", help="Use deterministic local contract detection.")
@@ -171,7 +233,12 @@ def build_parser() -> argparse.ArgumentParser:
         "run-prompt-loop",
         help="Run experimental loop observability for one arbitrary prompt.",
     )
-    prompt_loop_parser.add_argument("--prompt", required=True, help="Principal prompt text to inspect and loop.")
+    prompt_loop_input_group = prompt_loop_parser.add_mutually_exclusive_group(required=True)
+    prompt_loop_input_group.add_argument("--prompt", help="Principal prompt text to inspect and loop.")
+    prompt_loop_input_group.add_argument(
+        "--messages-file",
+        help="JSON array of OpenAI-compatible role/content messages.",
+    )
     prompt_loop_parser.add_argument("--outputs", required=True, help="Directory for generated output files.")
     prompt_loop_parser.add_argument("--env-file", default=".env", help="Path to a dotenv file.")
     prompt_loop_parser.add_argument("--mock", action="store_true", help="Use deterministic local contract detection and loop responses.")
@@ -228,6 +295,18 @@ def _firing_signals_from_args(args: argparse.Namespace) -> FiringSignals:
     )
 
 
+def _prompt_input_from_args(
+    args: argparse.Namespace,
+) -> tuple[str, list[ConversationMessage]]:
+    messages_file = getattr(args, "messages_file", None)
+    if messages_file is None:
+        return args.prompt, conversation_from_prompt(args.prompt)
+
+    messages = load_message_history_file(Path(messages_file))
+    prompt = current_principal_prompt(messages)
+    return prompt, messages
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -236,6 +315,7 @@ def main(argv: list[str] | None = None) -> int:
     except (
         BadResponseError,
         CheckerError,
+        MessageHistoryError,
         PromptContractDetectorError,
         ReflectionError,
     ) as exc:

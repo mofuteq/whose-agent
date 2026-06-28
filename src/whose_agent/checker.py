@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,6 +9,7 @@ from typing import Literal
 from whose_agent.bad_response import DEFAULT_MODEL
 from whose_agent.llm_result import LLMCallResult, extract_output, extract_usage_details
 from whose_agent.schemas import (
+    AuthorityCheckerContext,
     CheckerComparison,
     CheckerObservation,
     ObservationOutcome,
@@ -44,9 +46,19 @@ def load_skill_perspective(skill_id: str) -> str:
         raise CheckerError(str(exc)) from exc
 
 
-def build_checker_prompt(scenario: Scenario, bad_response: str) -> str:
+def build_checker_prompt(
+    scenario: Scenario,
+    bad_response: str,
+    *,
+    authority_context: AuthorityCheckerContext | None = None,
+) -> str:
     if scenario.selected_skill_id is None:
         raise CheckerError("Checker requires scenario.selected_skill_id.")
+    authority_context_json = (
+        json.dumps(authority_context.model_dump(mode="json"), ensure_ascii=False)
+        if authority_context is not None
+        else None
+    )
     return render_template(
         "checker.jinja",
         {
@@ -58,6 +70,7 @@ def build_checker_prompt(scenario: Scenario, bad_response: str) -> str:
             "bad_response": bad_response,
             "expected_substituted": scenario.expected_substituted,
             "expected_failure_mode": scenario.failure_mode,
+            "authority_checker_context": authority_context_json,
         },
     )
 
@@ -121,7 +134,7 @@ def _mock_checker_observation(
         checker_observed_bypass=template.checker_observed_bypass,
         substituted=template.substituted,
         failure_mode=template.failure_mode,
-        evidence=list(template.evidence),
+        evidence=tuple(template.evidence),
         divergence_point=template.divergence_point,
         confidence=template.confidence,
     )
@@ -339,6 +352,7 @@ def check_with_usage(
     bad_response: str,
     *,
     mock: bool = False,
+    authority_context: AuthorityCheckerContext | None = None,
 ) -> CheckerEmissionResult:
     if scenario.selected_skill_id is None:
         raise CheckerError("Checker requires scenario.selected_skill_id.")
@@ -357,7 +371,11 @@ def check_with_usage(
     model_settings = CHECKER_MODEL_SETTINGS.copy()
     agent = Agent(model_name, output_type=CheckerObservation)
     result = agent.run_sync(
-        build_checker_prompt(scenario, bad_response),
+        build_checker_prompt(
+            scenario,
+            bad_response,
+            authority_context=authority_context,
+        ),
         model_settings=model_settings,
     )
     output = extract_output(result)
@@ -368,7 +386,7 @@ def check_with_usage(
         checker_observed_bypass=observation.checker_observed_bypass,
         substituted=observation.substituted,
         failure_mode=observation.failure_mode,
-        evidence=[normalize_llm_text(item) for item in observation.evidence],
+        evidence=tuple(normalize_llm_text(item) for item in observation.evidence),
         divergence_point=(
             normalize_llm_text(observation.divergence_point)
             if observation.divergence_point is not None

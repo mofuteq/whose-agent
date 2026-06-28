@@ -14,9 +14,15 @@ from whose_agent.minimal_loop_graph import (
     compile_minimal_loop_graph,
     initial_loop_state_from_scenario,
 )
+from whose_agent.authority_provenance import (
+    derive_external_persistence_provenance,
+)
+from whose_agent.conversation_view import project_messages
+from whose_agent.history_adapter import conversation_from_prompt, require_unique_message_ids
 from whose_agent.prompt_contract_artifacts import write_prompt_contract
 from whose_agent.prompt_contract_detector import detect_prompt_contract
 from whose_agent.schemas import (
+    ConversationMessage,
     EXPECTED_FAILURE_BY_SUBSTITUTED,
     PromptContract,
     Scenario,
@@ -24,6 +30,7 @@ from whose_agent.schemas import (
     Substituted,
     WhoseAgentState,
 )
+from whose_agent.self_explanation import write_self_explanation
 
 
 PROMPT_LOOP_SCENARIO_ID = "prompt_loop"
@@ -35,13 +42,19 @@ def initial_loop_state_from_prompt_contract(
     max_iterations: int,
     misreader_firing_decision: bool | None = None,
     firing_signals: FiringSignals | None = None,
+    messages: list[ConversationMessage] | None = None,
     clock: Callable[[], datetime] | None = None,
 ) -> WhoseAgentState:
     """Convert a prompt contract into the existing minimal-loop state shape."""
     scenario = _scenario_from_prompt_contract(contract)
+    canonical_messages = (
+        list(messages) if messages is not None else conversation_from_prompt(contract.prompt)
+    )
+    require_unique_message_ids(canonical_messages)
     state = initial_loop_state_from_scenario(
         scenario,
         max_iterations=max_iterations,
+        messages=canonical_messages,
     )
     state["boundary_detected"] = contract.boundary_detected
     state["substitution_axis"] = contract.substitution_axis
@@ -65,6 +78,9 @@ def initial_loop_state_from_prompt_contract(
     state["prompt_contract_artifact"] = None
     state["prompt_loop_generated_artifact"] = None
     state["prompt_loop_generated_step_index"] = None
+    state["authority_provenance"] = (
+        derive_external_persistence_provenance(project_messages(canonical_messages))
+    )
     return state
 
 
@@ -76,18 +92,35 @@ def run_prompt_loop_to_artifact(
     max_iterations: int = 1,
     misreader_firing_decision: bool | None = None,
     firing_signals: FiringSignals | None = None,
+    messages: list[ConversationMessage] | None = None,
     clock: Callable[[], datetime] | None = None,
+    tracer: object | None = None,
 ) -> tuple[Path, Path, Path | None]:
     """Detect a prompt contract, run the minimal loop, and write artifacts."""
-    contract = detect_prompt_contract(prompt, mock=mock)
+    canonical_messages = (
+        list(messages) if messages is not None else conversation_from_prompt(prompt)
+    )
+    require_unique_message_ids(canonical_messages)
+    authority_provenance = derive_external_persistence_provenance(
+        project_messages(canonical_messages)
+    )
+    if authority_provenance is None:
+        contract = detect_prompt_contract(prompt, mock=mock)
+    else:
+        contract = detect_prompt_contract(
+            prompt,
+            mock=mock,
+            authority_provenance=authority_provenance,
+        )
     contract_path = write_prompt_contract(contract, output_dir)
 
-    graph = compile_minimal_loop_graph(mock=mock)
+    graph = compile_minimal_loop_graph(mock=mock, tracer=tracer)
     initial_state = initial_loop_state_from_prompt_contract(
         contract,
         max_iterations=max_iterations,
         misreader_firing_decision=misreader_firing_decision,
         firing_signals=firing_signals,
+        messages=canonical_messages,
         clock=clock,
     )
     initial_state["prompt_contract_artifact"] = contract_path.name
@@ -109,6 +142,9 @@ def run_prompt_loop_to_artifact(
 
     loop_trace = render_loop_trace(state)
     loop_trace_path = write_loop_trace(output_dir, loop_trace)
+    self_explanation = state.get("self_explanation")
+    if self_explanation is not None:
+        write_self_explanation(output_dir, PROMPT_LOOP_SCENARIO_ID, self_explanation)
 
     return contract_path, loop_trace_path, generated_path
 

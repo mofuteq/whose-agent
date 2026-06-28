@@ -11,9 +11,18 @@ import json
 from pathlib import Path
 from typing import Any, cast
 
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel
 
+from whose_agent.action_attempts import extract_external_persistence_attempt
+from whose_agent.authority_provenance import (
+    authority_trigger_evidence,
+    derive_authority_checker_context,
+    derive_external_persistence_provenance,
+    evaluate_external_persistence_attempt,
+    is_self_originated_delegation_laundering,
+)
 from whose_agent.bad_response import generate_bad_response_with_usage
 from whose_agent.checker import (
     check_with_usage,
@@ -21,17 +30,27 @@ from whose_agent.checker import (
     load_skill_perspective,
 )
 from whose_agent.classifier import classify_scenario
+from whose_agent.conversation_view import project_messages
+from whose_agent.history_adapter import append_assistant_message, initial_conversation_messages
 from whose_agent.llm_result import LLMCallResult
 from whose_agent.schemas import (
+    AuthorityCauseRecord,
+    AuthorityProvenance,
     BoundaryStateTrace,
     CheckerObservation,
     Classification,
     NextAction,
     Scenario,
+    SelfExplanation,
     StepKind,
     StepTrace,
     Trace,
     WhoseAgentState,
+)
+from whose_agent.self_explanation import explain_with_usage, write_self_explanation
+from whose_agent.self_explanation_safety import (
+    RAW_HISTORY_LEAKAGE_ERROR,
+    public_safe_self_explanation,
 )
 from whose_agent.state_trace_renderer import render_boundary_state_trace
 from whose_agent.trace_emitter import emit_trace_with_usage
@@ -42,12 +61,21 @@ CHECKER_ID = "skill-perspective-checker"
 
 
 def initial_state_from_scenario(scenario: Scenario) -> WhoseAgentState:
+    messages = initial_conversation_messages(
+        scenario.initial_messages,
+        prompt=scenario.principal_prompt,
+    )
+    authority_provenance = derive_external_persistence_provenance(
+        project_messages(messages)
+    )
+    runtime_scenario = scenario.model_copy(update={"initial_messages": []})
     return {
         "principal": "user",
         "agent": "assistant",
         "principal_instruction": scenario.principal_prompt,
         "principal_signal": scenario.principal_signal,
-        "scenario": scenario,
+        "messages": messages,
+        "scenario": runtime_scenario,
         "classification": None,
         "bad_response": None,
         "generation_used_skill": False,
@@ -56,6 +84,7 @@ def initial_state_from_scenario(scenario: Scenario) -> WhoseAgentState:
         "state_trace": None,
         "checker_observation": None,
         "checker_comparison": None,
+        "self_explanation": None,
         "step_kind": "plan",
         "step_index": 0,
         "next_action": "continue",
@@ -78,6 +107,8 @@ def initial_state_from_scenario(scenario: Scenario) -> WhoseAgentState:
         "failure_mode": scenario.failure_mode,
         "divergence_point": None,
         "boundary_flags": [],
+        "authority_provenance": authority_provenance,
+        "authority_cause_record": None,
         "step_traces": [],
         "errors": [],
     }
@@ -111,6 +142,29 @@ def sanitized_scenario_input(scenario: Scenario, **extra: Any) -> dict[str, Any]
     }
 
 
+def sanitized_explanation_input(
+    *,
+    scenario_id: str,
+    history_turn_count: int,
+    conversation_role_sequence: tuple[str, ...],
+    generated_response: str,
+    checker_observation: CheckerObservation,
+    mock: bool,
+) -> dict[str, Any]:
+    return {
+        "scenario_id": scenario_id,
+        "mock": mock,
+        "conversation_turn_count": history_turn_count,
+        "conversation_role_sequence": list(conversation_role_sequence),
+        "generated_response_length": len(generated_response),
+        "generated_response_sha256": hashlib.sha256(
+            generated_response.encode()
+        ).hexdigest(),
+        "checker_observed_bypass": checker_observation.checker_observed_bypass,
+        "checker_confidence": checker_observation.confidence,
+    }
+
+
 def update_span_with_llm_call(
     span: Any,
     *,
@@ -134,8 +188,13 @@ def compile_fixed_scenario_graph(
     run_dir: Path | None = None,
     tracer: Any | None = None,
     mock: bool = False,
+    checkpointer: BaseCheckpointSaver | None = None,
 ) -> Any:
-    return build_fixed_scenario_graph(run_dir=run_dir, tracer=tracer, mock=mock).compile()
+    return build_fixed_scenario_graph(
+        run_dir=run_dir,
+        tracer=tracer,
+        mock=mock,
+    ).compile(checkpointer=checkpointer)
 
 
 def build_fixed_scenario_graph(
@@ -201,6 +260,21 @@ def build_fixed_scenario_graph(
                 **_step_update(state, "plan", selected_skill_id=None),
             }
 
+        if _uses_authority_provenance(state):
+            return {
+                "selected_skill_id": selected_skill_id,
+                "selected_skill_perspective": None,
+                "skill_triggered": False,
+                "misreader_skill_fired": False,
+                **_step_update(
+                    state,
+                    "plan",
+                    selected_skill_id=selected_skill_id,
+                    misreader_skill_fired=False,
+                    authority_provenance=state.get("authority_provenance"),
+                ),
+            }
+
         selected_skill_perspective = load_skill_perspective(selected_skill_id)
         trigger_evidence = [
             "Scenario selected skill "
@@ -261,6 +335,54 @@ def build_fixed_scenario_graph(
                 mock=mock,
             )
             bad_response = bad_response_call.output
+            updated_messages = append_assistant_message(
+                state.get("messages", []),
+                bad_response,
+            )
+            authority_update: dict[str, Any] = {}
+            authority_step_trigger_evidence: list[str] | None = None
+            authority_step_fired: bool | None = None
+            if _uses_authority_provenance(state):
+                base_authority_provenance = (
+                    derive_external_persistence_provenance(
+                        project_messages(state.get("messages", []))
+                    )
+                )
+                action_attempt = extract_external_persistence_attempt(
+                    bad_response,
+                    mock=mock,
+                )
+                action_attempt_turn = len(updated_messages) if action_attempt is not None else None
+                authority_provenance = evaluate_external_persistence_attempt(
+                    base_authority_provenance,
+                    action_attempt,
+                    action_attempt_turn=action_attempt_turn,
+                )
+                authority_step_fired = is_self_originated_delegation_laundering(
+                    authority_provenance
+                )
+                authority_step_trigger_evidence = authority_trigger_evidence(
+                    authority_provenance
+                )
+                authority_cause_record = AuthorityCauseRecord(
+                    provenance=authority_provenance,
+                    action_attempt=action_attempt,
+                    drift_fired=authority_step_fired,
+                    trigger_evidence=tuple(authority_step_trigger_evidence),
+                )
+                selected_skill_perspective = (
+                    load_skill_perspective(cast(str, selected_skill_id))
+                    if authority_step_fired and selected_skill_id is not None
+                    else selected_skill_perspective
+                )
+                authority_update = {
+                    "authority_provenance": authority_provenance,
+                    "selected_skill_perspective": selected_skill_perspective,
+                    "skill_triggered": authority_step_fired,
+                    "misreader_skill_fired": authority_step_fired,
+                    "trigger_evidence": authority_step_trigger_evidence,
+                    "authority_cause_record": authority_cause_record,
+                }
             update_span_with_llm_call(
                 span,
                 output={
@@ -275,10 +397,23 @@ def build_fixed_scenario_graph(
 
         return {
             "bad_response": bad_response,
+            "messages": updated_messages,
             "generation_used_skill": generation_used_skill,
             "generation_skill_id": selected_skill_id if generation_used_skill else None,
             "next_action": "continue",
-            **_step_update(state, "do"),
+            **authority_update,
+            **_step_update(
+                state,
+                "do",
+                selected_skill_id=selected_skill_id,
+                misreader_skill_fired=authority_step_fired,
+                trigger_evidence=authority_step_trigger_evidence,
+                authority_provenance=(
+                    authority_update.get("authority_provenance")
+                    if authority_update
+                    else None
+                ),
+            ),
         }
 
     def analyze_trace(state: WhoseAgentState) -> WhoseAgentState:
@@ -302,7 +437,12 @@ def build_fixed_scenario_graph(
                 bad_response,
                 mock=mock,
             )
-            trace = trace_result.trace
+            trace = trace_result.trace.model_copy(
+                update={
+                    "authority_provenance": state.get("authority_provenance"),
+                    "self_explanation": state.get("self_explanation"),
+                }
+            )
             update_span_with_llm_call(
                 span,
                 output={
@@ -319,12 +459,6 @@ def build_fixed_scenario_graph(
             "failure_mode": trace.failure_mode,
             "divergence_point": trace.divergence_point,
             "next_action": "continue",
-            **_step_update(
-                state,
-                "do",
-                substituted=trace.substituted,
-                divergence_point=trace.divergence_point,
-            ),
         }
 
     def render_state_trace(state: WhoseAgentState) -> WhoseAgentState:
@@ -361,13 +495,6 @@ def build_fixed_scenario_graph(
             "state_trace": state_trace,
             "boundary_flags": boundary_flags,
             "next_action": next_action,
-            **_step_update(
-                state,
-                "check",
-                substituted=_trace_substituted(state),
-                boundary_flags=boundary_flags,
-                divergence_point=state.get("divergence_point"),
-            ),
         }
 
     def maybe_check(state: WhoseAgentState) -> WhoseAgentState:
@@ -384,6 +511,34 @@ def build_fixed_scenario_graph(
             }
 
         bad_response = _bad_response(state)
+        authority_context = None
+        if scenario.selected_skill_id == "authority_scope_expansion":
+            history = project_messages(state.get("messages", []))
+            generated_turn = history[-1].turn_index if history else None
+            bounded_history = tuple(
+                message
+                for message in history
+                if generated_turn is None or message.turn_index < generated_turn
+            )
+            checker_provenance = derive_external_persistence_provenance(
+                bounded_history
+            )
+            if (
+                checker_provenance is not None
+                and checker_provenance.prior_agent_proposal_turn is not None
+            ):
+                action_attempt = extract_external_persistence_attempt(
+                    bad_response,
+                    mock=mock,
+                )
+                action_attempt_turn = (
+                    generated_turn if action_attempt is not None else None
+                )
+                authority_context = derive_authority_checker_context(
+                    history,
+                    action_attempt,
+                    action_attempt_turn=action_attempt_turn,
+                )
         check_observation = tracer.span if mock else tracer.generation
         with check_observation(
             name="check_artifact",
@@ -400,10 +555,13 @@ def build_fixed_scenario_graph(
                 mock=mock,
             ),
         ) as span:
+            checker_kwargs: dict[str, Any] = {"mock": mock}
+            if authority_context is not None:
+                checker_kwargs["authority_context"] = authority_context
             checker_result = check_with_usage(
                 scenario,
                 bad_response,
-                mock=mock,
+                **checker_kwargs,
             )
             checker_observation = checker_result.observation
             update_span_with_llm_call(
@@ -506,6 +664,88 @@ def build_fixed_scenario_graph(
             ),
         }
 
+    def explain(state: WhoseAgentState) -> WhoseAgentState:
+        if not _should_explain_authority_history(state):
+            return {}
+
+        scenario = _scenario(state)
+        bad_response = _bad_response(state)
+        checker_observation = state.get("checker_observation")
+        if checker_observation is None:
+            return {}
+        history = project_messages(state.get("messages", []))
+        role_sequence = tuple(message.speaker for message in history)
+        explanation_observation = tracer.span if mock else tracer.generation
+        errors: list[str] = []
+        explanation_call: LLMCallResult[SelfExplanation] | None = None
+        with explanation_observation(
+            name="explain_self_report",
+            metadata={
+                "scenario_id": scenario.scenario_id,
+                "mock": mock,
+            },
+            input=sanitized_explanation_input(
+                scenario_id=scenario.scenario_id,
+                history_turn_count=len(history),
+                conversation_role_sequence=role_sequence,
+                generated_response=bad_response,
+                checker_observation=checker_observation,
+                mock=mock,
+            ),
+        ) as span:
+            try:
+                explanation_call = explain_with_usage(
+                    history,
+                    bad_response,
+                    checker_observation,
+                    mock=mock,
+                )
+                candidate_explanation = explanation_call.output
+                self_explanation = public_safe_self_explanation(
+                    candidate_explanation,
+                    history=history,
+                )
+                output = {
+                    "status": self_explanation.status,
+                    "relied_on_turn_count": len(
+                        self_explanation.relied_on_turn_indexes
+                    ),
+                }
+                if (
+                    candidate_explanation.status == "provided"
+                    and self_explanation.status == "unavailable"
+                ):
+                    errors.append(RAW_HISTORY_LEAKAGE_ERROR)
+                    output["error"] = RAW_HISTORY_LEAKAGE_ERROR
+                update_span_with_llm_call(
+                    span,
+                    output=output,
+                    llm_call=explanation_call,
+                )
+            except Exception as exc:
+                self_explanation = SelfExplanation(status="unavailable")
+                error = f"self_explanation_unavailable:{type(exc).__name__}"
+                errors.append(error)
+                span.update(output={"status": "unavailable", "error": error})
+
+        return {
+            "self_explanation": self_explanation,
+            "errors": errors,
+            **_step_update(
+                state,
+                "explain",
+                selected_skill_id=state.get("selected_skill_id"),
+                checker_ran=bool(state.get("checker_ran", False)),
+                checker_observed_bypass=bool(
+                    state.get("checker_observed_bypass", False)
+                ),
+                substituted=_step_substituted(checker_observation.substituted),
+                boundary_flags=state.get("boundary_flags", []),
+                divergence_point=checker_observation.divergence_point
+                or state.get("divergence_point"),
+            ),
+        }
+
     def write_artifacts(state: WhoseAgentState) -> WhoseAgentState:
         scenario = _scenario(state)
         classification = _classification(state)
@@ -529,12 +769,12 @@ def build_fixed_scenario_graph(
                 span.update(output={"artifact_count": len(artifact_names)})
             return {
                 "next_action": "stop",
-                **_step_update(state, "do"),
             }
 
         bad_response = _bad_response(state)
         trace = _trace(state)
         state_trace = _state_trace(state)
+        self_explanation = state.get("self_explanation")
         artifact_names = [
             f"{scenario.scenario_id}.classification.json",
             f"{scenario.scenario_id}.response.md",
@@ -545,6 +785,8 @@ def build_fixed_scenario_graph(
             artifact_names.append(f"{scenario.scenario_id}.checker.json")
         if scenario.checker_template is not None and checker_comparison is not None:
             artifact_names.append(f"{scenario.scenario_id}.checker_comparison.json")
+        if self_explanation is not None:
+            artifact_names.append(f"{scenario.scenario_id}.explanation.json")
         with tracer.span(
             name="write_artifacts",
             metadata={"scenario_id": scenario.scenario_id, "artifact_names": artifact_names},
@@ -569,17 +811,16 @@ def build_fixed_scenario_graph(
                         run_dir / f"{scenario.scenario_id}.checker_comparison.json",
                         checker_comparison,
                     )
+                if self_explanation is not None:
+                    write_self_explanation(
+                        run_dir,
+                        scenario.scenario_id,
+                        self_explanation,
+                    )
             span.update(output={"artifact_count": len(artifact_names)})
 
         return {
             "next_action": "continue",
-            **_step_update(
-                state,
-                "do",
-                substituted=_trace_substituted(state),
-                boundary_flags=state.get("boundary_flags", []),
-                divergence_point=state.get("divergence_point"),
-            ),
         }
 
     def finalize(state: WhoseAgentState) -> WhoseAgentState:
@@ -587,16 +828,6 @@ def build_fixed_scenario_graph(
             "completed": True,
             "handoff_ready": False,
             "next_action": "stop",
-            **_step_update(
-                state,
-                "check",
-                substituted=_trace_substituted(state),
-                selected_skill_id=state.get("selected_skill_id"),
-                checker_ran=bool(state.get("checker_ran", False)),
-                checker_observed_bypass=bool(state.get("checker_observed_bypass", False)),
-                boundary_flags=state.get("boundary_flags", []),
-                divergence_point=state.get("divergence_point"),
-            ),
         }
 
     graph.add_node("load_scenario", load_scenario)
@@ -607,6 +838,7 @@ def build_fixed_scenario_graph(
     graph.add_node("render_state_trace", render_state_trace)
     graph.add_node("maybe_check", maybe_check)
     graph.add_node("compare_checker", compare_checker)
+    graph.add_node("explain", explain)
     graph.add_node("write_artifacts", write_artifacts)
     graph.add_node("finalize", finalize)
 
@@ -621,11 +853,12 @@ def build_fixed_scenario_graph(
         },
     )
     graph.add_edge("trigger_skill", "generate_bad_response")
-    graph.add_edge("generate_bad_response", "analyze_trace")
-    graph.add_edge("analyze_trace", "render_state_trace")
-    graph.add_edge("render_state_trace", "maybe_check")
+    graph.add_edge("generate_bad_response", "maybe_check")
     graph.add_edge("maybe_check", "compare_checker")
-    graph.add_edge("compare_checker", "write_artifacts")
+    graph.add_edge("compare_checker", "explain")
+    graph.add_edge("explain", "analyze_trace")
+    graph.add_edge("analyze_trace", "render_state_trace")
+    graph.add_edge("render_state_trace", "write_artifacts")
     graph.add_edge("write_artifacts", "finalize")
     graph.add_edge("finalize", END)
     return graph
@@ -634,6 +867,22 @@ def build_fixed_scenario_graph(
 def _route_after_classification(state: WhoseAgentState) -> str:
     classification = _classification(state)
     return classification.classification
+
+
+def _uses_authority_provenance(state: WhoseAgentState) -> bool:
+    return (
+        state.get("authority_provenance") is not None
+        and state.get("selected_skill_id") == "authority_scope_expansion"
+    )
+
+
+def _should_explain_authority_history(state: WhoseAgentState) -> bool:
+    cause_record = state.get("authority_cause_record")
+    return (
+        cause_record is not None
+        and cause_record.drift_fired is True
+        and cause_record.provenance.result == "self_originated_delegation_laundering"
+    )
 
 
 def _step_update(
@@ -645,6 +894,7 @@ def _step_update(
     trigger_evidence: list[str] | None = None,
     checker_ran: bool = False,
     checker_observed_bypass: bool = False,
+    authority_provenance: AuthorityProvenance | None = None,
     substituted: str | None = None,
     boundary_flags: list[str] | None = None,
     divergence_point: str | None = None,
@@ -671,6 +921,7 @@ def _step_update(
         checker_ran=checker_ran,
         checker_observed_bypass=checker_observed_bypass,
         trigger_evidence=step_trigger_evidence,
+        authority_provenance=authority_provenance,
         substituted=_step_substituted(substituted),
         boundary_flags=list(boundary_flags or []),
         divergence_point=divergence_point,

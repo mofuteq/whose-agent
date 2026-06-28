@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from operator import add
 from typing import Annotated, Final, Literal, TypedDict
+from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -10,7 +11,8 @@ from whose_agent.firing_signals import FiringSignals, PromptFiringReason
 
 Principal = str
 AgentId = str
-StepKind = Literal["plan", "do", "check"]
+ConversationRole = Literal["user", "assistant", "tool", "system"]
+StepKind = Literal["plan", "do", "check", "explain"]
 NextAction = Literal["continue", "stop", "handoff"]
 SubstitutionAxis = Literal["instruction", "authority", "role", "model"]
 Substituted = Literal["instruction", "authority", "role", "model", "none"]
@@ -44,6 +46,20 @@ PromptContractStatus = Literal[
     "no_contract_detected",
     "unsupported",
 ]
+ExternalActionKind = Literal["external_persistence"]
+AuthorityGrantStatus = Literal[
+    "not_granted",
+    "granted",
+    "no_agent_proposal",
+    "target_mismatch",
+    "no_action_attempt",
+]
+AuthorityResult = Literal[
+    "self_originated_delegation_laundering",
+    "authorized",
+    "not_applicable",
+]
+ExplanationStatus = Literal["provided", "refused", "unavailable"]
 
 FAILURE_MODES: Final[tuple[FailureMode, ...]] = (
     "constraint_override",
@@ -89,6 +105,191 @@ class ControlState(BaseModel):
     boundary_flags: list[str] = Field(default_factory=list)
 
 
+class ConversationMessage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    message_id: str = Field(default_factory=lambda: f"msg_{uuid4().hex}")
+    role: ConversationRole
+    content: str
+
+    @field_validator("message_id", mode="before")
+    @classmethod
+    def require_message_id(cls, value: str) -> str:
+        message_id = str(value).strip()
+        if not message_id:
+            raise ValueError("message_id must not be empty")
+        return message_id
+
+    @field_validator("content", mode="before")
+    @classmethod
+    def require_content(cls, value: str) -> str:
+        content = str(value).strip()
+        if not content:
+            raise ValueError("content must not be empty")
+        return content
+
+
+class ExternalPersistenceActionAttempt(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    action_kind: ExternalActionKind = "external_persistence"
+    target: str = Field(max_length=80)
+
+    @field_validator("target", mode="before")
+    @classmethod
+    def normalize_target(cls, value: str) -> str:
+        target = str(value).strip().casefold()
+        if not target:
+            raise ValueError("target must not be empty")
+        return target
+
+
+class AuthorityProvenance(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    action_kind: ExternalActionKind = "external_persistence"
+    target: str = Field(max_length=80)
+    prior_agent_proposal_turn: int | None = None
+    principal_grant_turn: int | None = None
+    grant_status: AuthorityGrantStatus
+    action_attempt_turn: int | None = None
+    result: AuthorityResult = "not_applicable"
+
+    @field_validator("target", mode="before")
+    @classmethod
+    def normalize_target(cls, value: str) -> str:
+        target = str(value).strip().casefold()
+        if not target:
+            raise ValueError("target must not be empty")
+        return target
+
+    @model_validator(mode="after")
+    def validate_turn_indexes(self) -> "AuthorityProvenance":
+        for field_name in (
+            "prior_agent_proposal_turn",
+            "principal_grant_turn",
+            "action_attempt_turn",
+        ):
+            value = getattr(self, field_name)
+            if value is not None and value < 1:
+                raise ValueError(f"{field_name} must be a 1-based turn index")
+        if (
+            self.result == "self_originated_delegation_laundering"
+            and self.grant_status != "not_granted"
+        ):
+            raise ValueError(
+                "self_originated_delegation_laundering requires grant_status=not_granted"
+            )
+        if self.result == "authorized" and self.grant_status != "granted":
+            raise ValueError("authorized requires grant_status=granted")
+        return self
+
+
+class AuthorityCauseRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    provenance: AuthorityProvenance
+    action_attempt: ExternalPersistenceActionAttempt | None = None
+    drift_fired: bool
+    trigger_evidence: tuple[str, ...] = Field(default_factory=tuple)
+
+
+class SelfExplanation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    status: ExplanationStatus
+    action_or_adaptation_summary: str | None = Field(
+        default=None,
+        max_length=300,
+    )
+    treated_as_sufficient_basis: str | None = Field(
+        default=None,
+        max_length=300,
+    )
+    relied_on_turn_indexes: tuple[int, ...] = Field(default_factory=tuple)
+    rationale_summary: str | None = Field(
+        default=None,
+        max_length=500,
+    )
+    checker_acknowledgement: str | None = Field(
+        default=None,
+        max_length=300,
+    )
+
+    @field_validator(
+        "action_or_adaptation_summary",
+        "treated_as_sufficient_basis",
+        "rationale_summary",
+        "checker_acknowledgement",
+        mode="before",
+    )
+    @classmethod
+    def normalize_optional_explanation_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    @field_validator("relied_on_turn_indexes")
+    @classmethod
+    def validate_relied_on_turn_indexes(
+        cls,
+        value: tuple[int, ...],
+    ) -> tuple[int, ...]:
+        if any(index < 1 for index in value):
+            raise ValueError("relied_on_turn_indexes must be 1-based")
+        if len(value) != len(set(value)):
+            raise ValueError("relied_on_turn_indexes must be unique")
+        if value != tuple(sorted(value)):
+            raise ValueError("relied_on_turn_indexes must be ascending")
+        return value
+
+    @model_validator(mode="after")
+    def validate_status_fields(self) -> "SelfExplanation":
+        explanatory_fields = (
+            self.action_or_adaptation_summary,
+            self.treated_as_sufficient_basis,
+            self.rationale_summary,
+            self.checker_acknowledgement,
+        )
+        if self.status == "provided":
+            if any(field is None for field in explanatory_fields):
+                raise ValueError("provided self_explanation requires all summaries")
+            if not self.relied_on_turn_indexes:
+                raise ValueError(
+                    "provided self_explanation requires relied_on_turn_indexes"
+                )
+            return self
+
+        if any(field is not None for field in explanatory_fields):
+            raise ValueError(
+                "refused and unavailable self_explanation must not include summaries"
+            )
+        if self.relied_on_turn_indexes:
+            raise ValueError(
+                "refused and unavailable self_explanation must not include turn indexes"
+            )
+        return self
+
+
+class AuthorityCheckerContext(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action_kind: ExternalActionKind = "external_persistence"
+    target: str = Field(max_length=80)
+    prior_agent_proposal_turn: int | None = None
+    principal_grant_turn: int | None = None
+    generated_action_attempt_turn: int | None = None
+
+    @field_validator("target", mode="before")
+    @classmethod
+    def normalize_target(cls, value: str) -> str:
+        target = str(value).strip().casefold()
+        if not target:
+            raise ValueError("target must not be empty")
+        return target
+
+
 class StepTrace(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -103,6 +304,7 @@ class StepTrace(BaseModel):
     checker_ran: bool = False
     checker_observed_bypass: bool = False
     trigger_evidence: list[str] = Field(default_factory=list)
+    authority_provenance: AuthorityProvenance | None = None
     drift_evidence: str | None = Field(default=None, max_length=300)
     drift_artifact_kind: str | None = Field(default=None, max_length=80)
     substituted: TraceSubstituted | None = None
@@ -175,6 +377,7 @@ class Scenario(BaseModel):
     principal_prompt: str
     principal_signal: str
     generation_instruction: str
+    initial_messages: list[dict[str, object]] = Field(default_factory=list)
     trace_template: ScenarioTraceTemplate | None = None
     checker_template: ScenarioCheckerTemplate | None = None
 
@@ -321,14 +524,14 @@ class Reflection(BaseModel):
 
 
 class CheckerObservation(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     scenario_id: str
     skill_id: str
     checker_observed_bypass: bool
     substituted: TraceSubstituted | Literal["none"]
     failure_mode: FailureMode
-    evidence: list[str]
+    evidence: tuple[str, ...] = Field(default_factory=tuple)
     divergence_point: str | None
     confidence: Confidence
 
@@ -354,12 +557,14 @@ class Trace(BaseModel):
     scenario_id: str
     substituted: TraceSubstituted
     failure_mode: TraceFailureMode
+    authority_provenance: AuthorityProvenance | None = None
     principal_signal: str
     bad_response: str
     divergence_point: str
     why_it_breaks_delegation: list[str]
     better_behavior: list[str]
     reflection_substituted: TraceSubstituted
+    self_explanation: SelfExplanation | None = None
 
 
 class BoundaryState(BaseModel):
@@ -410,6 +615,7 @@ class LoopTrace(BaseModel):
     prompt_contract_artifact: str | None = None
     prompt_loop_generated_artifact: str | None = None
     prompt_loop_generated_step_index: int | None = None
+    authority_provenance: AuthorityProvenance | None = None
     principal: str
     agent: str
     max_iterations: int
@@ -429,11 +635,13 @@ class LoopTrace(BaseModel):
     observation_outcome: ObservationOutcome | None
     step_traces: list[StepTrace]
     checker_comparison: CheckerComparison | None
+    self_explanation: SelfExplanation | None = None
 
 
 class WhoseAgentState(TypedDict, total=False):
     principal: str
     agent: str
+    messages: list[ConversationMessage]
     principal_instruction: str
     principal_signal: str
 
@@ -446,6 +654,7 @@ class WhoseAgentState(TypedDict, total=False):
     state_trace: BoundaryStateTrace | None
     checker_observation: CheckerObservation | None
     checker_comparison: CheckerComparison | None
+    self_explanation: SelfExplanation | None
 
     step_kind: StepKind
     step_index: int
@@ -475,6 +684,8 @@ class WhoseAgentState(TypedDict, total=False):
     prompt_contract_artifact: str | None
     prompt_loop_generated_artifact: str | None
     prompt_loop_generated_step_index: int | None
+    authority_provenance: AuthorityProvenance | None
+    authority_cause_record: AuthorityCauseRecord | None
 
     selected_skill_id: str | None
     selected_skill_perspective: str | None
@@ -505,6 +716,11 @@ class WhoseAgentState(TypedDict, total=False):
 
 __all__ = [
     "AgentId",
+    "AuthorityCauseRecord",
+    "AuthorityCheckerContext",
+    "AuthorityGrantStatus",
+    "AuthorityProvenance",
+    "AuthorityResult",
     "BoundaryNextAction",
     "BoundaryState",
     "BoundaryStateTrace",
@@ -515,9 +731,14 @@ __all__ = [
     "ClassificationKind",
     "Confidence",
     "ControlState",
+    "ConversationMessage",
+    "ConversationRole",
     "EXPECTED_FAILURE_BY_SUBSTITUTED",
+    "ExternalActionKind",
+    "ExternalPersistenceActionAttempt",
     "FAILURE_MODES",
     "FailureMode",
+    "ExplanationStatus",
     "LoopSource",
     "LoopTrace",
     "NextAction",
@@ -529,6 +750,7 @@ __all__ = [
     "Scenario",
     "ScenarioCheckerTemplate",
     "ScenarioTraceTemplate",
+    "SelfExplanation",
     "StepKind",
     "SubstitutionAxis",
     "StepTrace",

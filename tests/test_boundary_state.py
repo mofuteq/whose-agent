@@ -97,7 +97,7 @@ def test_cli_mock_run_emits_state_trace_json(tmp_path: Path) -> None:
     run_dir = single_run_dir(tmp_path)
 
     state_trace_files = list(run_dir.glob("*.state_trace.json"))
-    assert len(state_trace_files) == 7
+    assert len(state_trace_files) == 8
 
 
 def test_state_trace_json_remains_structurally_compatible(tmp_path: Path) -> None:

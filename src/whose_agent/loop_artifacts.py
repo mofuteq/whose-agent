@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 
 from whose_agent.schemas import LoopTrace, Scenario
+from whose_agent.self_explanation import write_self_explanation
 
 
 PROMPT_LOOP_GENERATED_FILENAME = "prompt_loop.generated.md"
@@ -58,4 +59,7 @@ def run_minimal_loop_to_artifact(
     )
     loop_trace = render_loop_trace(state)
     write_loop_trace(output_dir, loop_trace)
+    self_explanation = state.get("self_explanation")
+    if self_explanation is not None:
+        write_self_explanation(output_dir, scenario.scenario_id, self_explanation)
     return loop_trace
