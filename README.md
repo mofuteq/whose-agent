@@ -70,6 +70,45 @@ uv run whose-agent serve --host 127.0.0.1 --port 8000
 When `frontend/dist` exists, the built workspace is available from
 `http://127.0.0.1:8000/`.
 
+### Container Workspace
+
+```bash
+./scripts/start.sh
+```
+
+Open `http://127.0.0.1:8000/`.
+
+Run in the background:
+
+```bash
+./scripts/start.sh -d
+```
+
+Stop the container:
+
+```bash
+docker compose down
+```
+
+Follow logs:
+
+```bash
+docker compose logs -f
+```
+
+Use another host port:
+
+```bash
+WHOSE_AGENT_PORT=18000 ./scripts/start.sh
+```
+
+The final runtime image is Debian stable slim. Node exists only in the
+frontend build stage, and the final container serves the built static assets
+from FastAPI. `outputs/` persists generated files through the local bind mount.
+`.env` values are passed at runtime by Compose interpolation and are never
+copied into the image. Compose binds only to `127.0.0.1` by default. The direct
+Python and Vite development workflows above remain supported.
+
 ## What You Can Run
 
 ### Fixed Scenario

@@ -1,0 +1,17 @@
+services:
+  whose-agent:
+    image: whose-agent:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:${WHOSE_AGENT_PORT:-8000}:8000"
+    user: "${WHOSE_AGENT_UID:-10001}:${WHOSE_AGENT_GID:-10001}"
+    environment:
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+      WHOSE_AGENT_MODEL: "${WHOSE_AGENT_MODEL:-openrouter:openai/gpt-4o-mini}"
+      LANGFUSE_PUBLIC_KEY: "${LANGFUSE_PUBLIC_KEY:-}"
+      LANGFUSE_SECRET_KEY: "${LANGFUSE_SECRET_KEY:-}"
+      LANGFUSE_BASE_URL: "${LANGFUSE_BASE_URL:-}"
+    volumes:
+      - ./outputs:/data/outputs
