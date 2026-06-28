@@ -98,6 +98,76 @@ contract-first.
 | `detect-contract` | arbitrary prompt contract detection | `.prompt_contract.json` |
 | `run-loop` | fixed scenario minimal loop observability | `.loop_trace.json` |
 | `run-prompt-loop` | experimental arbitrary prompt loop observability | `.prompt_contract.json`, `.loop_trace.json`, conditionally `prompt_loop.generated.md`, and conditionally `prompt_loop.explanation.json` |
+| `serve` | local FastAPI AG-UI execution host | same artifacts as the selected fixed or prompt-loop execution path |
+
+## Local AG-UI Execution Host
+
+Install or sync dependencies:
+
+```bash
+uv sync
+```
+
+Start the local server:
+
+```bash
+uv run whose-agent serve --host 127.0.0.1 --port 8000
+```
+
+The default local URL is `http://127.0.0.1:8000`. FastAPI docs are available at
+`http://127.0.0.1:8000/docs`.
+
+Server endpoints:
+
+| endpoint | purpose |
+|---|---|
+| `GET /health` | small health payload |
+| `GET /api/scenarios` | safe fixed-scenario picker metadata |
+| `POST /agui` | primary AG-UI SSE execution endpoint |
+| `GET /api/runs/{run_id}` | local in-memory public run projection |
+
+`POST /agui` accepts the standard AG-UI run input shape. whose-agent execution
+options live under `state.whose_agent`.
+
+Fixed scenario mode:
+
+```json
+{
+  "whose_agent": {
+    "mode": "fixed",
+    "scenario_id": "authority_agent_history_delegation_laundering",
+    "mock": true,
+    "max_iterations": 1
+  }
+}
+```
+
+Prompt-loop mode:
+
+```json
+{
+  "whose_agent": {
+    "mode": "prompt_loop",
+    "mock": true,
+    "max_iterations": 1
+  }
+}
+```
+
+In prompt-loop mode, the AG-UI role-tagged messages are normalized through the
+same canonical message path used by `run-prompt-loop`. In fixed mode, the
+selected scenario ID must be one of the known local scenario fixtures.
+
+The V1 API is local-first and unauthenticated. Do not bind it to a public
+interface.
+
+The public SSE custom events and `/api/runs/{run_id}` projections do not include
+raw submitted conversation history, `ConversationView`, message IDs,
+`WhoseAgentState.messages`, or the raw `AuthorityCauseRecord`. The active AG-UI
+stream may include the generated candidate response as normal assistant text
+events so the browser can show what was executed; that generated text is not
+copied into the final public run projection. Run metadata is in-memory only, so
+`GET /api/runs/{run_id}` may return 404 after a server restart.
 
 ## Artifact Ownership
 
