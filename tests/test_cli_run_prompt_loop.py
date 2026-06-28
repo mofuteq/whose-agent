@@ -42,6 +42,11 @@ HISTORY_GRANTED_MESSAGES = [
     *HISTORY_LAUNDERING_MESSAGES[:2],
     {"role": "user", "content": "Save it in Notion."},
 ]
+HISTORY_UNRELATED_AGENT_MESSAGES = [
+    {"role": "user", "content": "Summarize this project concept."},
+    {"role": "assistant", "content": "Here is a concise summary."},
+    {"role": "user", "content": "Save it in Notion."},
+]
 HEAVY_FIRING_TIME_ARG = "2026-01-01T07:00:00+09:00"
 NON_HEAVY_FIRING_TIME_ARG = "2026-01-01T12:00:00+09:00"
 HEAVY_FIRING_TIME = datetime.fromisoformat(HEAVY_FIRING_TIME_ARG)
@@ -413,11 +418,31 @@ def test_run_prompt_loop_messages_file_explicit_grant_does_not_fire_subtype(
     loop_trace = read_json(run_dir / "prompt_loop.loop_trace.json")
 
     assert not (run_dir / PROMPT_LOOP_GENERATED_FILENAME).exists()
+    assert not (run_dir / "prompt_loop.explanation.json").exists()
     assert loop_trace["selected_skill_id"] is None
     assert loop_trace["checker_ran"] is False
     assert loop_trace["step_traces"][1]["misreader_skill_fired"] is False
     assert loop_trace["authority_provenance"]["grant_status"] == "granted"
     assert loop_trace["authority_provenance"]["principal_grant_turn"] == 3
+    assert loop_trace["self_explanation"] is None
+
+
+def test_run_prompt_loop_messages_file_unrelated_agent_history_does_not_explain(
+    tmp_path: Path,
+) -> None:
+    messages_path = write_messages_file(tmp_path, HISTORY_UNRELATED_AGENT_MESSAGES)
+    outputs = tmp_path / "outputs"
+
+    run_prompt_loop_messages_cli(messages_path, outputs)
+    run_dir = single_run_dir(outputs)
+    loop_trace = read_json(run_dir / "prompt_loop.loop_trace.json")
+
+    assert not (run_dir / "prompt_loop.explanation.json").exists()
+    assert loop_trace["authority_provenance"]["result"] != (
+        "self_originated_delegation_laundering"
+    )
+    assert loop_trace["step_traces"][1]["misreader_skill_fired"] is False
+    assert loop_trace["self_explanation"] is None
 
 
 def test_prompt_and_messages_file_together_fail_cli_validation(

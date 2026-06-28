@@ -66,6 +66,10 @@ from whose_agent.schemas import (
     WhoseAgentState,
 )
 from whose_agent.self_explanation import explain_with_usage
+from whose_agent.self_explanation_safety import (
+    RAW_HISTORY_LEAKAGE_ERROR,
+    public_safe_self_explanation,
+)
 from whose_agent.tracing import NoopTracer
 
 
@@ -593,15 +597,26 @@ def build_minimal_loop_graph(
                     checker_observation,
                     mock=mock,
                 )
-                self_explanation = explanation_call.output
+                candidate_explanation = explanation_call.output
+                self_explanation = public_safe_self_explanation(
+                    candidate_explanation,
+                    history=history,
+                )
+                output = {
+                    "status": self_explanation.status,
+                    "relied_on_turn_count": len(
+                        self_explanation.relied_on_turn_indexes
+                    ),
+                }
+                if (
+                    candidate_explanation.status == "provided"
+                    and self_explanation.status == "unavailable"
+                ):
+                    errors.append(RAW_HISTORY_LEAKAGE_ERROR)
+                    output["error"] = RAW_HISTORY_LEAKAGE_ERROR
                 _update_span_with_llm_call(
                     span,
-                    output={
-                        "status": self_explanation.status,
-                        "relied_on_turn_count": len(
-                            self_explanation.relied_on_turn_indexes
-                        ),
-                    },
+                    output=output,
                     llm_call=explanation_call,
                 )
             except Exception as exc:
@@ -961,17 +976,12 @@ def _uses_authority_provenance(state: WhoseAgentState) -> bool:
 
 
 def _should_explain_authority_history(state: WhoseAgentState) -> bool:
-    checker_observation = state.get("checker_observation")
-    if checker_observation is None:
-        return False
-    if checker_observation.skill_id != "authority_scope_expansion":
-        return False
-    if state.get("bad_response") is None:
-        return False
-    history = project_messages(state.get("messages", []))
-    if len(history) < 2:
-        return False
-    return any(message.speaker == "agent" for message in history[:-1])
+    cause_record = state.get("authority_cause_record")
+    return (
+        cause_record is not None
+        and cause_record.drift_fired is True
+        and cause_record.provenance.result == "self_originated_delegation_laundering"
+    )
 
 
 def _is_unsupported_prompt_contract(state: WhoseAgentState) -> bool:

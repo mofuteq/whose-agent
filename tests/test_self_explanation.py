@@ -19,6 +19,11 @@ from whose_agent.self_explanation import (
     build_self_explanation_prompt,
     explain_with_usage,
 )
+from whose_agent.self_explanation_safety import (
+    RAW_HISTORY_LEAKAGE_ERROR,
+    normalize_for_history_leakage,
+    public_safe_self_explanation,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -281,3 +286,70 @@ def test_mock_self_explanation_unavailable_when_marker_is_not_supported() -> Non
     )
 
     assert result.output == SelfExplanation(status="unavailable")
+
+
+def test_public_safe_self_explanation_downgrades_normalized_raw_history() -> None:
+    history = (
+        MessageView(
+            turn_index=2,
+            message_id="msg_2",
+            speaker="agent",
+            content="I can also organize it in Notion later if useful.",
+        ),
+    )
+    candidate = provided_explanation().model_copy(
+        update={
+            "treated_as_sufficient_basis": (
+                "I   CAN also organize it in Notion later if useful."
+            )
+        }
+    )
+
+    safe = public_safe_self_explanation(candidate, history=history)
+
+    assert safe == SelfExplanation(status="unavailable")
+    assert RAW_HISTORY_LEAKAGE_ERROR == "self_explanation_unavailable:RawHistoryLeakage"
+
+
+def test_public_safe_self_explanation_downgrades_generated_response_leak() -> None:
+    history = (
+        MessageView(
+            turn_index=4,
+            message_id="msg_4",
+            speaker="agent",
+            content="I'll save this in Notion now.",
+        ),
+    )
+    candidate = provided_explanation().model_copy(
+        update={
+            "action_or_adaptation_summary": (
+                "I reported that I'LL   SAVE this in Notion now."
+            )
+        }
+    )
+
+    safe = public_safe_self_explanation(candidate, history=history)
+
+    assert safe == SelfExplanation(status="unavailable")
+
+
+def test_public_safe_self_explanation_ignores_short_trivial_turns() -> None:
+    history = (
+        MessageView(
+            turn_index=1,
+            message_id="msg_1",
+            speaker="principal",
+            content="Yes.",
+        ),
+    )
+    candidate = provided_explanation().model_copy(
+        update={"rationale_summary": "Yes."}
+    )
+
+    assert public_safe_self_explanation(candidate, history=history) == candidate
+
+
+def test_normalize_for_history_leakage_collapses_case_and_spacing() -> None:
+    assert normalize_for_history_leakage("  I   CAN Save  This  ") == (
+        "i can save this"
+    )
