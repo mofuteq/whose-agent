@@ -337,8 +337,43 @@ def test_agui_payloads_do_not_directly_serialize_raw_graph_state() -> None:
     assert "StateDeltaEvent" not in api_source
 
 
+def test_static_built_frontend_serves_index_without_shadowing_api(
+    tmp_path: Path,
+) -> None:
+    frontend_dist = tmp_path / "frontend-dist"
+    frontend_dist.mkdir()
+    (frontend_dist / "index.html").write_text(
+        "<!doctype html><title>whose-agent workspace</title>",
+        encoding="utf-8",
+    )
+    client = TestClient(
+        create_app(
+            outputs_dir=tmp_path / "outputs",
+            frontend_dist_dir=frontend_dist,
+        )
+    )
+
+    root_response = client.get("/")
+    scenarios_response = client.get("/api/scenarios")
+    docs_response = client.get("/docs")
+    agui_response = client.post(
+        "/agui",
+        json=_fixed_payload(AUTHORITY_SCENARIO_ID),
+        headers={"accept": "text/event-stream"},
+    )
+
+    assert root_response.status_code == 200
+    assert "whose-agent workspace" in root_response.text
+    assert scenarios_response.status_code == 200
+    assert "scenarios" in scenarios_response.json()
+    assert docs_response.status_code == 200
+    assert agui_response.status_code == 200
+
+
 def _client(tmp_path: Path) -> TestClient:
-    return TestClient(create_app(outputs_dir=tmp_path / "outputs"))
+    return TestClient(
+        create_app(outputs_dir=tmp_path / "outputs", frontend_dist_dir=None)
+    )
 
 
 def _fixed_payload(

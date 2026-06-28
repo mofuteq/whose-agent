@@ -8,3 +8,6 @@ outputs/*
 contract-outputs/
 prompt-loop-outputs/
 .env
+node_modules/
+frontend/node_modules/
+frontend/dist/

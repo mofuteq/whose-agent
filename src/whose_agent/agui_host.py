@@ -19,7 +19,8 @@ from ag_ui.core import (
 )
 from ag_ui.encoder import EventEncoder
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from whose_agent.execution import (
@@ -123,10 +124,14 @@ def create_app(
     *,
     scenarios_dir: Path | str = Path("scenarios"),
     outputs_dir: Path | str = Path("outputs"),
+    frontend_dist_dir: Path | str | None = Path("frontend/dist"),
     registry: RunRegistry | None = None,
 ) -> FastAPI:
     scenarios_path = Path(scenarios_dir)
     outputs_path = Path(outputs_dir)
+    frontend_dist_path = (
+        Path(frontend_dist_dir) if frontend_dist_dir is not None else None
+    )
     run_registry = registry if registry is not None else RunRegistry()
     app = FastAPI(title="whose-agent local AG-UI host")
     app.state.run_registry = run_registry
@@ -238,6 +243,22 @@ def create_app(
         if record is None:
             raise HTTPException(status_code=404, detail={"code": "not_found"})
         return record.model_dump(mode="json")
+
+    if frontend_dist_path is not None and frontend_dist_path.exists():
+        app.mount(
+            "/",
+            StaticFiles(directory=frontend_dist_path, html=True),
+            name="frontend",
+        )
+    else:
+
+        @app.get("/", response_class=PlainTextResponse)
+        async def frontend_missing() -> str:
+            return (
+                "Built frontend not found. For development, run `cd frontend && "
+                "npm run dev`. For local built serving, run `cd frontend && "
+                "npm run build` first."
+            )
 
     return app
 
