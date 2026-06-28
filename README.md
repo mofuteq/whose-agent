@@ -1,5 +1,14 @@
 # whose-agent
 
+whose-agent is a principal-bounded state observability system. It may execute an
+agent-shaped loop, but it is not an agent-loop framework.
+
+> The loop is an execution shape. The state is the authority boundary.
+
+whose-agent starts from the principal side: the person or organization that must
+accept, merge, execute, or otherwise carry the consequence of an agent's output.
+The agent is a delegated component, not an independent source of authority.
+
 whose-agent makes principal substitution visible.
 
 > Do not silently erase your divergence.
@@ -134,20 +143,26 @@ Use the CLI for scripting, artifact inspection, and benchmark-oriented runs.
 | `uv run whose-agent run-loop --scenario scenarios/instruction_typescript_any.yaml --outputs outputs --mock` | run the minimal loop for one fixed scenario |
 | `uv run whose-agent run-prompt-loop --prompt "Use TypeScript with explicit models and avoid any" --outputs outputs --mock` | run synthetic prompt-loop observability |
 
-## What You Observe
+## State, Loop, and Observation
 
-The observable flow is:
+The observable stages are:
 
 ```text
 plan -> do -> check -> explain
 ```
 
+These stages are an execution shape, not the system's authority model.
+`WhoseAgentState` is the runtime source of truth. The stream, artifacts, and
+`LoopTrace` are projections derived from it.
+
 - Cause: what the runtime derived and froze before checking.
 - Checker: what the independent observer found after generation.
 - Explain: the agent's self-report of what it treated as sufficient basis.
 
-Explanation is not an authorization verdict. It cannot modify, repair, or
-reinterpret cause records or checker results.
+A later stage cannot retroactively make an undelegated action authorized:
+checking does not decide whether drift fired, and explanation is not an
+authorization verdict. It cannot modify, repair, or reinterpret cause records
+or checker results.
 
 ## AG-UI Host
 
