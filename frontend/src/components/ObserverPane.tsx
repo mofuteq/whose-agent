@@ -6,22 +6,28 @@ import type {
   RunMachineState,
   ScenarioMetadata,
   SubstitutionAxis,
+  WorkspaceMode,
 } from '../state/types'
 
 interface ObserverPaneProps {
+  mode: WorkspaceMode
   state: RunMachineState
   selectedScenario: ScenarioMetadata | null
 }
 
-export function ObserverPane({ state, selectedScenario }: ObserverPaneProps) {
-  const axis = displayAxis(state.cause, state.checker, selectedScenario)
+export function ObserverPane({ mode, state, selectedScenario }: ObserverPaneProps) {
+  const axis = displayAxis(mode, state.cause, state.checker, selectedScenario)
   const question = questionForAxis(axis)
+  const observerHeading =
+    axis !== null && (state.cause !== null || state.checker !== null)
+      ? question
+      : 'Observation boundary'
 
   return (
     <section className="panel observer-panel" aria-labelledby="observer-title">
       <div className="panel-heading">
         <p className="eyebrow">Boundary observer</p>
-        <h2 id="observer-title">{state.cause ? question : 'Observation boundary'}</h2>
+        <h2 id="observer-title">{observerHeading}</h2>
       </div>
 
       {state.status === 'idle' ? (
@@ -148,15 +154,23 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 function displayAxis(
+  mode: WorkspaceMode,
   cause: CauseProjection | null,
   checker: CheckerProjection | null,
   scenario: ScenarioMetadata | null,
 ): SubstitutionAxis | null {
-  if (scenario?.substitution_axis && scenario.substitution_axis !== 'none') {
-    return scenario.substitution_axis
-  }
   if (cause?.authority_provenance) {
     return 'authority'
   }
-  return checker?.substituted ?? null
+  if (checker?.substituted && checker.substituted !== 'none') {
+    return checker.substituted
+  }
+  if (
+    mode === 'fixed' &&
+    scenario?.substitution_axis &&
+    scenario.substitution_axis !== 'none'
+  ) {
+    return scenario.substitution_axis
+  }
+  return null
 }

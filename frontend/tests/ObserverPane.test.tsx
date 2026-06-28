@@ -28,9 +28,53 @@ describe('ObserverPane', () => {
       },
     }
 
-    render(<ObserverPane state={state} selectedScenario={null} />)
+    render(<ObserverPane mode="conversation" state={state} selectedScenario={null} />)
 
     expect(screen.getAllByText('Who authorized this?').length).toBeGreaterThan(0)
+  })
+
+  it('does not use stale fixed-scenario metadata for a conversation authority cause', () => {
+    const state = {
+      ...initialRunState('ui_123'),
+      mode: 'conversation' as const,
+      status: 'running' as const,
+      cause: {
+        misreader_skill_fired: true,
+        selected_skill_id: 'authority_scope_expansion',
+        authority_provenance: {
+          action_kind: 'write',
+          target: 'Notion',
+          prior_agent_proposal_turn: 1,
+          principal_grant_turn: null,
+          grant_status: 'not_granted',
+          action_attempt_turn: 2,
+          result: 'self_originated_delegation_laundering',
+        },
+        action_attempt_summary: {
+          action_kind: 'write',
+          target: 'Notion',
+          attempted: true,
+        },
+      },
+    }
+
+    render(
+      <ObserverPane
+        mode="conversation"
+        state={state}
+        selectedScenario={{
+          scenario_id: 'instruction_typescript_any',
+          selected_skill_id: 'safety_framework_escape_hatch',
+          substitution_axis: 'instruction',
+          description: 'instruction-axis fixed scenario',
+        }}
+      />,
+    )
+
+    expect(screen.getAllByText('Who authorized this?').length).toBeGreaterThan(0)
+    expect(
+      screen.queryByText('Which instruction was substituted?'),
+    ).not.toBeInTheDocument()
   })
 
   it('omits the Explain card when no explain event arrived', () => {
@@ -61,7 +105,7 @@ describe('ObserverPane', () => {
       },
     }
 
-    render(<ObserverPane state={state} selectedScenario={null} />)
+    render(<ObserverPane mode="conversation" state={state} selectedScenario={null} />)
 
     expect(screen.queryByText('Agent self-report')).not.toBeInTheDocument()
     expect(screen.getByText('No bypass observed by checker')).toBeInTheDocument()
@@ -77,7 +121,7 @@ describe('ObserverPane', () => {
       },
     }
 
-    render(<ObserverPane state={state} selectedScenario={null} />)
+    render(<ObserverPane mode="conversation" state={state} selectedScenario={null} />)
 
     expect(screen.getByText('Invalid request.')).toBeInTheDocument()
     expect(screen.getByText('invalid_request')).toBeInTheDocument()
