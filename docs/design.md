@@ -201,6 +201,40 @@ an independent frozen observation. `SelfExplanation` is a frozen public-safe
 self-report. It never overrides, repairs, or reinterprets either the cause-side
 result or the checker observation.
 
+## AG-UI Transport Boundary
+
+The FastAPI AG-UI host is an execution transport and observation transport.
+It is not a new source of authority, checker logic, explanation logic, or
+scenario semantics.
+
+The AG-UI endpoint maps two UI modes to existing runtime paths:
+
+- fixed scenario execution maps to the fixed scenario benchmark runtime
+- prompt-loop execution maps to the contract-first prompt-loop runtime
+
+The transport validates request shape, invokes the shared runner, projects
+public-safe observations, encodes AG-UI events, and records local in-memory run
+metadata. It must not decide firing, recompute checker output, infer
+self-explanations, or expose raw LangGraph state.
+
+AG-UI lifecycle events describe stream lifecycle. whose-agent custom events
+describe public observations:
+
+```text
+whose_agent.run.started
+whose_agent.phase
+whose_agent.cause
+whose_agent.checker
+whose_agent.explain
+whose_agent.run.completed
+```
+
+Those custom events are explicit projections. They do not serialize
+`WhoseAgentState`, canonical messages, `ConversationView`, `MessageView`,
+fixture `initial_messages`, or `AuthorityCauseRecord`. The active AG-UI text
+stream may carry the generated candidate response for the browser session, but
+the final public run projection and run lookup response do not copy that text.
+
 ## Why Observation Must Be Causally External
 
 The agent inside a loop is not a reliable observer of the loop itself.

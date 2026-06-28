@@ -13,6 +13,7 @@ from whose_agent.authority_provenance import (
     derive_external_persistence_provenance,
 )
 from whose_agent.conversation_view import project_messages
+from whose_agent.execution import run_fixed_scenarios, run_prompt_loop
 from whose_agent.history_adapter import (
     MessageHistoryError,
     conversation_from_prompt,
@@ -20,17 +21,16 @@ from whose_agent.history_adapter import (
     load_message_history_file,
 )
 from whose_agent.loop_artifacts import run_minimal_loop_to_artifact
+from whose_agent.loop_artifacts import PROMPT_LOOP_GENERATED_FILENAME
 from whose_agent.prompt_contract_artifacts import write_prompt_contract
 from whose_agent.prompt_contract_detector import (
     PromptContractDetectorError,
     detect_prompt_contract,
 )
-from whose_agent.prompt_loop import run_prompt_loop_to_artifact
 from whose_agent.reflection import ReflectionError
 from whose_agent.run_directory import create_run_directory
 from whose_agent.scenario_loader import load_scenario, load_scenarios
 from whose_agent.schemas import ConversationMessage
-from whose_agent.state_graph import compile_fixed_scenario_graph, initial_state_from_scenario
 from whose_agent.tracing import create_observability_tracer
 
 
@@ -54,27 +54,20 @@ def run_command(args: argparse.Namespace) -> int:
         session_id=session_id,
     )
 
-    graph = compile_fixed_scenario_graph(run_dir=run_dir, tracer=tracer, mock=args.mock)
-    final_states = []
-    for scenario in scenarios:
-        final_states.append(graph.invoke(initial_state_from_scenario(scenario)))
-
-    classification_count = sum(1 for state in final_states if state.get("classification") is not None)
-    response_count = sum(1 for state in final_states if state.get("bad_response") is not None)
-    trace_count = sum(1 for state in final_states if state.get("trace") is not None)
-    state_trace_count = sum(1 for state in final_states if state.get("state_trace") is not None)
-    checker_count = sum(
-        1 for state in final_states if state.get("checker_observation") is not None
+    result = run_fixed_scenarios(
+        scenarios_dir=scenarios_dir,
+        outputs_dir=Path(args.outputs),
+        run_dir=run_dir,
+        mock=args.mock,
+        tracer=tracer,
     )
-    checker_comparison_count = sum(
-        1
-        for state in final_states
-        if state.get("checker_comparison") is not None
-        and state["scenario"].checker_template is not None
-    )
-    explanation_count = sum(
-        1 for state in final_states if state.get("self_explanation") is not None
-    )
+    classification_count = result.classification_count
+    response_count = result.response_count
+    trace_count = result.trace_count
+    state_trace_count = result.state_trace_count
+    checker_count = result.checker_count
+    checker_comparison_count = result.checker_comparison_count
+    explanation_count = result.explanation_count
 
     checker_file_label = "checker file" if checker_count == 1 else "checker files"
     checker_comparison_file_label = (
@@ -160,20 +153,22 @@ def run_prompt_loop_command(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         tracer.flush()
         return 1
-    _, _, generated_path = run_prompt_loop_to_artifact(
-        prompt,
-        run_dir,
+    result = run_prompt_loop(
+        run_id=run_dir.name,
+        prompt=prompt,
+        outputs_dir=Path(args.outputs),
+        run_dir=run_dir,
         mock=args.mock,
         max_iterations=args.max_iterations,
         firing_signals=firing_signals,
         messages=messages,
         tracer=tracer,
     )
-    explanation_path = run_dir / "prompt_loop.explanation.json"
-    explanation_emitted = explanation_path.exists()
+    generated_emitted = PROMPT_LOOP_GENERATED_FILENAME in result.artifact_names
+    explanation_emitted = "prompt_loop.explanation.json" in result.artifact_names
 
     print(f"Wrote outputs to {run_dir}")
-    if generated_path is None:
+    if not generated_emitted:
         if explanation_emitted:
             print(
                 "Wrote 1 prompt contract file, 1 loop trace file, "
@@ -192,6 +187,20 @@ def run_prompt_loop_command(args: argparse.Namespace) -> int:
                 "Wrote 1 prompt contract file, 1 loop trace file, and 1 generated file."
             )
     tracer.flush()
+    return 0
+
+
+def serve_command(args: argparse.Namespace) -> int:
+    load_env_file(Path(args.env_file))
+    from whose_agent.agui_host import create_app
+
+    import uvicorn
+
+    app = create_app(
+        scenarios_dir=Path(args.scenarios),
+        outputs_dir=Path(args.outputs),
+    )
+    uvicorn.run(app, host=args.host, port=args.port)
     return 0
 
 
@@ -262,6 +271,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Inject quota limit for prompt-loop firing pressure.",
     )
     prompt_loop_parser.set_defaults(func=run_prompt_loop_command)
+
+    serve_parser = subparsers.add_parser(
+        "serve",
+        help="Run the local FastAPI AG-UI execution host.",
+    )
+    serve_parser.add_argument("--host", default="127.0.0.1", help="Bind host.")
+    serve_parser.add_argument("--port", type=int, default=8000, help="Bind port.")
+    serve_parser.add_argument(
+        "--scenarios",
+        default="scenarios",
+        help="Directory containing scenario YAML files.",
+    )
+    serve_parser.add_argument(
+        "--outputs",
+        default="outputs",
+        help="Directory for generated output files.",
+    )
+    serve_parser.add_argument(
+        "--env-file",
+        default=".env",
+        help="Path to a dotenv file.",
+    )
+    serve_parser.set_defaults(func=serve_command)
 
     return parser
 
