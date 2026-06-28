@@ -19,6 +19,7 @@ ARTIFACT_SUFFIXES = [
     ".trace.json",
     ".checker_comparison.json",
     ".checker.json",
+    ".explanation.json",
     ".generated.md",
 ]
 
@@ -38,6 +39,7 @@ def test_cli_commands_have_exact_artifact_ownership(tmp_path: Path) -> None:
             ".state_trace.json": 8,
             ".checker.json": 8,
             ".checker_comparison.json": 8,
+            ".explanation.json": 1,
         },
     )
     assert_suffix_counts(contract_dir, {".prompt_contract.json": 1})

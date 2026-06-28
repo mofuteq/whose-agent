@@ -30,6 +30,7 @@ from whose_agent.schemas import (
     Substituted,
     WhoseAgentState,
 )
+from whose_agent.self_explanation import write_self_explanation
 
 
 PROMPT_LOOP_SCENARIO_ID = "prompt_loop"
@@ -93,6 +94,7 @@ def run_prompt_loop_to_artifact(
     firing_signals: FiringSignals | None = None,
     messages: list[ConversationMessage] | None = None,
     clock: Callable[[], datetime] | None = None,
+    tracer: object | None = None,
 ) -> tuple[Path, Path, Path | None]:
     """Detect a prompt contract, run the minimal loop, and write artifacts."""
     canonical_messages = (
@@ -112,7 +114,7 @@ def run_prompt_loop_to_artifact(
         )
     contract_path = write_prompt_contract(contract, output_dir)
 
-    graph = compile_minimal_loop_graph(mock=mock)
+    graph = compile_minimal_loop_graph(mock=mock, tracer=tracer)
     initial_state = initial_loop_state_from_prompt_contract(
         contract,
         max_iterations=max_iterations,
@@ -140,6 +142,9 @@ def run_prompt_loop_to_artifact(
 
     loop_trace = render_loop_trace(state)
     loop_trace_path = write_loop_trace(output_dir, loop_trace)
+    self_explanation = state.get("self_explanation")
+    if self_explanation is not None:
+        write_self_explanation(output_dir, PROMPT_LOOP_SCENARIO_ID, self_explanation)
 
     return contract_path, loop_trace_path, generated_path
 

@@ -20,6 +20,7 @@ firing.
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any, cast
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -55,13 +56,21 @@ from whose_agent.prompt_response import generate_contract_preserving_response_wi
 from whose_agent.schemas import (
     AuthorityCauseRecord,
     AuthorityProvenance,
+    CheckerObservation,
     ConversationMessage,
     Classification,
     Scenario,
+    SelfExplanation,
     StepKind,
     StepTrace,
     WhoseAgentState,
 )
+from whose_agent.self_explanation import explain_with_usage
+from whose_agent.self_explanation_safety import (
+    RAW_HISTORY_LEAKAGE_ERROR,
+    public_safe_self_explanation,
+)
+from whose_agent.tracing import NoopTracer
 
 
 CHECKER_ID = "skill-perspective-checker"
@@ -134,6 +143,7 @@ def initial_loop_state_from_scenario(
         "state_trace": None,
         "checker_observation": None,
         "checker_comparison": None,
+        "self_explanation": None,
         "step_kind": "plan",
         "step_index": 0,
         "next_action": "continue",
@@ -188,12 +198,20 @@ def initial_loop_state_from_scenario(
 def compile_minimal_loop_graph(
     *,
     mock: bool = False,
+    tracer: Any | None = None,
     checkpointer: BaseCheckpointSaver | None = None,
 ) -> Any:
-    return build_minimal_loop_graph(mock=mock).compile(checkpointer=checkpointer)
+    return build_minimal_loop_graph(mock=mock, tracer=tracer).compile(
+        checkpointer=checkpointer
+    )
 
 
-def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
+def build_minimal_loop_graph(
+    *,
+    mock: bool = False,
+    tracer: Any | None = None,
+) -> StateGraph:
+    tracer = tracer if tracer is not None else NoopTracer()
     graph = StateGraph(WhoseAgentState)
 
     def plan(state: WhoseAgentState) -> WhoseAgentState:
@@ -214,6 +232,7 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
             "boundary_detected": boundary_detected,
             "misreader_skill_fired": False,
             "skill_triggered": False,
+            "self_explanation": None,
             "loop_phase": "plan",
             **_step_update(
                 state,
@@ -544,19 +563,142 @@ def build_minimal_loop_graph(*, mock: bool = False) -> StateGraph:
             ),
         }
 
+    def explain(state: WhoseAgentState) -> WhoseAgentState:
+        if not _should_explain_authority_history(state):
+            return {}
+
+        scenario = _scenario(state)
+        checker_observation = state.get("checker_observation")
+        bad_response = state.get("bad_response")
+        if checker_observation is None or bad_response is None:
+            return {}
+
+        history = project_messages(state.get("messages", []))
+        explanation_observation = tracer.span if mock else tracer.generation
+        errors: list[str] = []
+        with explanation_observation(
+            name="explain_self_report",
+            metadata={
+                "scenario_id": scenario.scenario_id,
+                "mock": mock,
+            },
+            input=_sanitized_explanation_input(
+                scenario_id=scenario.scenario_id,
+                history=history,
+                generated_response=bad_response,
+                checker_observation=checker_observation,
+                mock=mock,
+            ),
+        ) as span:
+            try:
+                explanation_call = explain_with_usage(
+                    history,
+                    bad_response,
+                    checker_observation,
+                    mock=mock,
+                )
+                candidate_explanation = explanation_call.output
+                self_explanation = public_safe_self_explanation(
+                    candidate_explanation,
+                    history=history,
+                )
+                output = {
+                    "status": self_explanation.status,
+                    "relied_on_turn_count": len(
+                        self_explanation.relied_on_turn_indexes
+                    ),
+                }
+                if (
+                    candidate_explanation.status == "provided"
+                    and self_explanation.status == "unavailable"
+                ):
+                    errors.append(RAW_HISTORY_LEAKAGE_ERROR)
+                    output["error"] = RAW_HISTORY_LEAKAGE_ERROR
+                _update_span_with_llm_call(
+                    span,
+                    output=output,
+                    llm_call=explanation_call,
+                )
+            except Exception as exc:
+                self_explanation = SelfExplanation(status="unavailable")
+                error = f"self_explanation_unavailable:{type(exc).__name__}"
+                errors.append(error)
+                span.update(output={"status": "unavailable", "error": error})
+
+        return {
+            "self_explanation": self_explanation,
+            "errors": errors,
+            "loop_phase": "explain",
+            **_step_update(
+                state,
+                "explain",
+                misreader_skill_fired=bool(state.get("misreader_skill_fired", False)),
+                selected_skill_id=state.get("selected_skill_id"),
+                checker_ran=bool(state.get("checker_ran", False)),
+                checker_observed_bypass=bool(
+                    state.get("checker_observed_bypass", False)
+                ),
+                substituted=checker_observation.substituted,
+            ),
+        }
+
     graph.add_node("plan", plan)
     graph.add_node("do", do)
     graph.add_node("check", check)
+    graph.add_node("explain", explain)
 
     graph.add_edge(START, "plan")
     graph.add_edge("plan", "do")
     graph.add_edge("do", "check")
+    graph.add_edge("check", "explain")
     graph.add_conditional_edges(
-        "check",
+        "explain",
         _route_after_check,
         {"plan": "plan", "end": END},
     )
     return graph
+
+
+def _sanitized_explanation_input(
+    *,
+    scenario_id: str,
+    history: tuple[Any, ...],
+    generated_response: str,
+    checker_observation: CheckerObservation,
+    mock: bool,
+) -> dict[str, Any]:
+    return {
+        "scenario_id": scenario_id,
+        "mock": mock,
+        "conversation_turn_count": len(history),
+        "conversation_role_sequence": [
+            str(message.speaker) for message in history
+        ],
+        "generated_response_length": len(generated_response),
+        "generated_response_sha256": hashlib.sha256(
+            generated_response.encode()
+        ).hexdigest(),
+        "checker_observed_bypass": checker_observation.checker_observed_bypass,
+        "checker_confidence": checker_observation.confidence,
+    }
+
+
+def _update_span_with_llm_call(
+    span: Any,
+    *,
+    output: dict[str, Any],
+    llm_call: Any | None = None,
+) -> None:
+    update_kwargs: dict[str, Any] = {"output": output}
+    if llm_call is not None:
+        if llm_call.usage_details:
+            output["llm_usage"] = llm_call.usage_details
+            update_kwargs["usage_details"] = llm_call.usage_details
+        if llm_call.model_name:
+            update_kwargs["model"] = llm_call.model_name
+        if llm_call.model_settings:
+            update_kwargs["model_parameters"] = llm_call.model_settings
+    span.update(**update_kwargs)
 
 
 def _route_after_check(state: WhoseAgentState) -> str:
@@ -830,6 +972,15 @@ def _uses_authority_provenance(state: WhoseAgentState) -> bool:
     return (
         state.get("authority_provenance") is not None
         and state.get("selected_skill_id") == "authority_scope_expansion"
+    )
+
+
+def _should_explain_authority_history(state: WhoseAgentState) -> bool:
+    cause_record = state.get("authority_cause_record")
+    return (
+        cause_record is not None
+        and cause_record.drift_fired is True
+        and cause_record.provenance.result == "self_originated_delegation_laundering"
     )
 
 

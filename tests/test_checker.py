@@ -163,7 +163,7 @@ def test_mock_checker_output_is_deterministic_without_network_credentials(
     assert observation.failure_mode == "constraint_override"
     assert observation.confidence == "high"
     assert observation.checker_observed_bypass == scenario.checker_template.checker_observed_bypass
-    assert observation.evidence == scenario.checker_template.evidence
+    assert observation.evidence == tuple(scenario.checker_template.evidence)
     assert observation.divergence_point == scenario.checker_template.divergence_point
 
 

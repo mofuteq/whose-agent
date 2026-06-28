@@ -62,4 +62,5 @@ def render_loop_trace(state: WhoseAgentState) -> LoopTrace:
         observation_outcome=state.get("observation_outcome"),
         step_traces=list(state.get("step_traces", [])),
         checker_comparison=state.get("checker_comparison"),
+        self_explanation=state.get("self_explanation"),
     )
