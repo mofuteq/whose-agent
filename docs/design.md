@@ -201,6 +201,14 @@ an independent frozen observation. `SelfExplanation` is a frozen public-safe
 self-report. It never overrides, repairs, or reinterprets either the cause-side
 result or the checker observation.
 
+Current self-explanation support is intentionally narrow. `SelfExplanation`
+currently applies only to supported history-aware authority laundering flows,
+and more specifically to the self-originated delegation laundering authority
+path. It is not yet a general explanation mechanism for every substitution
+axis, permission laundering, persona laundering, or other future laundering
+subtype. This limitation is current scope; it is not evidence that explanation
+changes the authority model.
+
 ## AG-UI Transport Boundary
 
 The FastAPI AG-UI host is an execution transport and observation transport.
@@ -319,6 +327,12 @@ Canonical messages and evaluator-facing `ConversationView` projections are
 runtime-only. The self-explanation component may read that internal view, but
 public artifacts and tracer inputs must not expose raw conversation turns,
 `MessageView`, `message_id`, or source-message excerpts.
+
+A trace may include a public-safe projection of `self_explanation` after
+checking. This projection records the explanation alongside the completed
+observation. It never mutates, repairs, reinterprets, or contributes to
+`AuthorityCauseRecord`, `CheckerObservation`, checker comparison, firing
+decisions, or authority provenance.
 
 The following are not part of the current runtime:
 
@@ -661,6 +675,9 @@ The following are out of scope for the current version:
   agent that the principal did not delegate, including whether cost attribution
   should become its own boundary dimension or cut across the existing
   instruction, authority, role, and model axes.
+- Extend public-safe self-explanation to additional applicable laundering
+  patterns without allowing explanation to influence firing, cause records,
+  checker observations, checker comparison, or authority provenance.
 - Meta-cognitive failure and recursive self-delegation: cases where an agent
   cannot recognize that it is delegating judgment back to itself or repeatedly
   re-authorizing its own choices. This is currently out of scope because it

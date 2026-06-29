@@ -1,5 +1,10 @@
 # whose-agent
 
+[![CI](https://github.com/mofuteq/whose-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mofuteq/whose-agent/actions/workflows/ci.yml)
+[![Python 3.13+](https://img.shields.io/badge/python-3.13%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-D22128)](LICENSE)
+[![Status: Controlled demonstrator](https://img.shields.io/badge/status-controlled%20demonstrator-3D5A80)](#status)
+
 whose-agent is a principal-bounded state observability system. It may execute an
 agent-shaped loop, but it is not an agent-loop framework.
 
@@ -27,6 +32,13 @@ The four substitution axes are:
 - model
 
 For the detailed architecture, see [docs/design.md](docs/design.md).
+
+## Status
+
+whose-agent is a controlled demonstrator and benchmark observability toolkit.
+It makes principal substitution visible in bounded scenario and prompt-loop
+paths. It is not a production autonomous agent runtime, a general
+policy-enforcement system, or a substitute for principal review.
 
 ## Quick Start
 
@@ -255,6 +267,11 @@ Minimal prompt-loop request:
 - `tests/`: regression tests for benchmark, prompt-loop, and transport
   behavior.
 - `docs/design.md`: detailed design documentation.
+
+## License
+
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) and
+[NOTICE](NOTICE).
 
 ## Further Reading
 
