@@ -247,7 +247,7 @@ def test_cli_mock_run_emits_same_artifacts_without_langfuse(tmp_path: Path, monk
     monkeypatch.delenv("LANGFUSE_SECRET_KEY", raising=False)
     _run_fixed_cli_subprocess(tmp_path)
     run_dir = single_run_dir(tmp_path)
-    assert len(list(run_dir.glob("*.classification.json"))) == 10
+    assert len(list(run_dir.glob("*.classification.json"))) == 11
     assert len(list(run_dir.glob("*.response.md"))) == 8
     assert len([f for f in run_dir.glob("*.trace.json") if not f.name.endswith(".state_trace.json")]) == 8
     assert len(list(run_dir.glob("*.state_trace.json"))) == 8
