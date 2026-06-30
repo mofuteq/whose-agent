@@ -71,8 +71,8 @@ jobs:
             exit 1
           fi
 
-          if [[ "$response_count" != "8" ]]; then
-            echo "Expected 8 response files, got $response_count"
+          if [[ "$response_count" != "9" ]]; then
+            echo "Expected 9 response files, got $response_count"
             exit 1
           fi
 

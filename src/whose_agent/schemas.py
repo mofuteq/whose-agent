@@ -378,6 +378,7 @@ class Scenario(BaseModel):
     principal_prompt: str
     principal_signal: str
     generation_instruction: str
+    safe_response: str | None = None
     initial_messages: list[dict[str, object]] = Field(default_factory=list)
     trace_template: ScenarioTraceTemplate | None = None
     checker_template: ScenarioCheckerTemplate | None = None
@@ -386,6 +387,14 @@ class Scenario(BaseModel):
     @classmethod
     def trim_yaml_block_terminal_newline(cls, value: str) -> str:
         return value.rstrip("\n")
+
+    @field_validator("safe_response")
+    @classmethod
+    def trim_optional_safe_response(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
 
     @field_validator("display_title")
     @classmethod
@@ -409,6 +418,21 @@ class Scenario(BaseModel):
                 raise ValueError("none scenarios must have an empty generation_instruction")
             if self.checker_template is not None:
                 raise ValueError("none scenarios must not define checker_template")
+        if self.safe_response is not None:
+            if self.expected_substituted != "none" or self.failure_mode != "none":
+                raise ValueError("safe_response is allowed only for none scenarios")
+            if self.selected_skill_id is not None:
+                raise ValueError(
+                    "safe_response scenarios must not define selected_skill_id"
+                )
+            if self.checker_template is not None:
+                raise ValueError("safe_response scenarios must not define checker_template")
+            if self.trace_template is not None:
+                raise ValueError("safe_response scenarios must not define trace_template")
+            if self.generation_instruction != "":
+                raise ValueError(
+                    "safe_response scenarios must not define generation_instruction"
+                )
         if self.selected_skill_id is not None and self.checker_template is None:
             raise ValueError("selected_skill_id requires checker_template")
         if self.checker_template is not None and self.selected_skill_id is None:
@@ -657,6 +681,7 @@ class WhoseAgentState(TypedDict, total=False):
     scenario: Scenario
     classification: Classification | None
     bad_response: str | None
+    safe_response: str | None
     generation_used_skill: bool
     generation_skill_id: str | None
     trace: Trace | None

@@ -78,6 +78,7 @@ def initial_state_from_scenario(scenario: Scenario) -> WhoseAgentState:
         "scenario": runtime_scenario,
         "classification": None,
         "bad_response": None,
+        "safe_response": None,
         "generation_used_skill": False,
         "generation_skill_id": None,
         "trace": None,
@@ -239,13 +240,62 @@ def build_fixed_scenario_graph(
             )
 
         next_action: NextAction = (
-            "stop" if classification.classification == "out_of_scope" else "continue"
+            "continue"
+            if (
+                classification.classification == "in_scope"
+                or scenario.safe_response is not None
+            )
+            else "stop"
         )
         return {
             "classification": classification,
             "substituted": classification.substituted,
             "next_action": next_action,
             **_step_update(state, "plan"),
+        }
+
+    def generate_safe_response(state: WhoseAgentState) -> WhoseAgentState:
+        scenario = _scenario(state)
+        safe_response = scenario.safe_response
+        if safe_response is None:
+            raise ValueError("safe response scenario requires safe_response.")
+        updated_messages = append_assistant_message(
+            state.get("messages", []),
+            safe_response,
+        )
+        return {
+            "bad_response": None,
+            "safe_response": safe_response,
+            "messages": updated_messages,
+            "selected_skill_id": None,
+            "selected_skill_perspective": None,
+            "skill_triggered": False,
+            "misreader_skill_fired": False,
+            "trigger_evidence": [],
+            "generation_used_skill": False,
+            "generation_skill_id": None,
+            "checker_observation": None,
+            "checker_comparison": None,
+            "checker_matches_expected": None,
+            "observation_outcome": None,
+            "checker_ran": False,
+            "checker_observed_bypass": False,
+            "guarantee_bypass_observed": False,
+            "guarantee_bypass_evidence": [],
+            "authority_provenance": None,
+            "authority_cause_record": None,
+            "self_explanation": None,
+            "errors": [],
+            "substituted": "none",
+            "failure_mode": "none",
+            "next_action": "continue",
+            **_step_update(
+                state,
+                "do",
+                selected_skill_id=None,
+                misreader_skill_fired=False,
+                substituted="none",
+            ),
         }
 
     def trigger_skill(state: WhoseAgentState) -> WhoseAgentState:
@@ -397,6 +447,7 @@ def build_fixed_scenario_graph(
 
         return {
             "bad_response": bad_response,
+            "safe_response": None,
             "messages": updated_messages,
             "generation_used_skill": generation_used_skill,
             "generation_skill_id": selected_skill_id if generation_used_skill else None,
@@ -751,8 +802,11 @@ def build_fixed_scenario_graph(
         classification = _classification(state)
         checker_observation = state.get("checker_observation")
         checker_comparison = state.get("checker_comparison")
+        response_text = emitted_response_text(state)
         if classification.classification == "out_of_scope":
             artifact_names = [f"{scenario.scenario_id}.classification.json"]
+            if response_text is not None:
+                artifact_names.append(f"{scenario.scenario_id}.response.md")
             with tracer.span(
                 name="write_artifacts",
                 metadata={
@@ -766,12 +820,18 @@ def build_fixed_scenario_graph(
                         run_dir / f"{scenario.scenario_id}.classification.json",
                         classification,
                     )
+                    if response_text is not None:
+                        write_text(
+                            run_dir / f"{scenario.scenario_id}.response.md",
+                            response_text,
+                        )
                 span.update(output={"artifact_count": len(artifact_names)})
             return {
                 "next_action": "stop",
             }
 
         bad_response = _bad_response(state)
+        response_text = require_emitted_response_text(state)
         trace = _trace(state)
         state_trace = _state_trace(state)
         self_explanation = state.get("self_explanation")
@@ -796,7 +856,7 @@ def build_fixed_scenario_graph(
                 write_model_json(
                     run_dir / f"{scenario.scenario_id}.classification.json", classification
                 )
-                write_text(run_dir / f"{scenario.scenario_id}.response.md", bad_response)
+                write_text(run_dir / f"{scenario.scenario_id}.response.md", response_text)
                 write_model_json(run_dir / f"{scenario.scenario_id}.trace.json", trace)
                 write_model_json(
                     run_dir / f"{scenario.scenario_id}.state_trace.json", state_trace
@@ -832,6 +892,7 @@ def build_fixed_scenario_graph(
 
     graph.add_node("load_scenario", load_scenario)
     graph.add_node("classify", classify)
+    graph.add_node("generate_safe_response", generate_safe_response)
     graph.add_node("trigger_skill", trigger_skill)
     graph.add_node("generate_bad_response", generate_bad_response)
     graph.add_node("analyze_trace", analyze_trace)
@@ -849,9 +910,11 @@ def build_fixed_scenario_graph(
         _route_after_classification,
         {
             "in_scope": "trigger_skill",
+            "safe_response": "generate_safe_response",
             "out_of_scope": "write_artifacts",
         },
     )
+    graph.add_edge("generate_safe_response", "write_artifacts")
     graph.add_edge("trigger_skill", "generate_bad_response")
     graph.add_edge("generate_bad_response", "maybe_check")
     graph.add_edge("maybe_check", "compare_checker")
@@ -866,6 +929,11 @@ def build_fixed_scenario_graph(
 
 def _route_after_classification(state: WhoseAgentState) -> str:
     classification = _classification(state)
+    if (
+        classification.classification == "out_of_scope"
+        and _scenario(state).safe_response is not None
+    ):
+        return "safe_response"
     return classification.classification
 
 
@@ -952,6 +1020,21 @@ def _bad_response(state: WhoseAgentState) -> str:
     if bad_response is None:
         raise ValueError("WhoseAgentState requires bad_response.")
     return bad_response
+
+
+def emitted_response_text(state: WhoseAgentState) -> str | None:
+    bad_response = state.get("bad_response")
+    safe_response = state.get("safe_response")
+    if bad_response is not None and safe_response is not None:
+        raise ValueError("WhoseAgentState cannot contain both response types.")
+    return bad_response if bad_response is not None else safe_response
+
+
+def require_emitted_response_text(state: WhoseAgentState) -> str:
+    response_text = emitted_response_text(state)
+    if response_text is None:
+        raise ValueError("WhoseAgentState requires a response text.")
+    return response_text
 
 
 def _trace(state: WhoseAgentState) -> Trace:

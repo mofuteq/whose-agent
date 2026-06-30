@@ -34,7 +34,7 @@ def test_cli_commands_have_exact_artifact_ownership(tmp_path: Path) -> None:
         fixed_dir,
         {
             ".classification.json": 11,
-            ".response.md": 8,
+            ".response.md": 9,
             ".trace.json": 8,
             ".state_trace.json": 8,
             ".checker.json": 8,

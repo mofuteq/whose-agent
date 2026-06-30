@@ -137,6 +137,7 @@ def initial_loop_state_from_scenario(
         "scenario": runtime_scenario,
         "classification": None,
         "bad_response": None,
+        "safe_response": None,
         "generation_used_skill": False,
         "generation_skill_id": None,
         "trace": None,
