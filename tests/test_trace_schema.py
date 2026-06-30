@@ -55,7 +55,7 @@ def test_trace_json_is_emitted_only_for_in_scope_scenarios() -> None:
         )
 
     assert len(traces) == 8
-    assert len(skipped) == 2
+    assert len(skipped) == 3
 
 
 def test_trace_json_contains_required_fields_and_no_none_substituted() -> None:

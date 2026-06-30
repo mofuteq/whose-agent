@@ -13,6 +13,7 @@ from whose_agent.scenario_loader import load_scenario
 
 ROOT = Path(__file__).resolve().parents[1]
 AUTHORITY_SCENARIO_ID = "authority_agent_history_delegation_laundering"
+SAFE_TYPESCRIPT_SCENARIO_ID = "none_typescript_delivery_constraint_respected"
 PUBLIC_THREAD_ID_RE = re.compile(r"^(?=.*[0-9])[A-Za-z0-9_-]{1,128}$")
 VALID_CLIENT_THREAD_ID = "client-thread-01"
 INVALID_CLIENT_THREAD_ID = "SECRET_RAW_HISTORY"
@@ -27,6 +28,7 @@ FORBIDDEN_PUBLIC_TOKENS = [
     "initial_messages",
     "principal_prompt",
     "generation_instruction",
+    "safe_response",
     "AuthorityCauseRecord",
     "WhoseAgentState",
     "checker_template",
@@ -138,6 +140,33 @@ def test_scenario_listing_omits_private_scenario_fields(tmp_path: Path) -> None:
     assert fixture.checker_template is not None
     for evidence in fixture.checker_template.evidence:
         assert evidence not in serialized
+
+
+def test_safe_fixed_scenario_emits_normal_assistant_text_event(
+    tmp_path: Path,
+) -> None:
+    client = _client(tmp_path)
+    fixture = load_scenario(ROOT / "scenarios" / f"{SAFE_TYPESCRIPT_SCENARIO_ID}.yaml")
+    assert fixture.safe_response is not None
+
+    events = _post_events(client, _fixed_payload(SAFE_TYPESCRIPT_SCENARIO_ID))
+
+    text_events = [
+        event for event in events if event["type"] == "TEXT_MESSAGE_CONTENT"
+    ]
+    assert len(text_events) == 1
+    assert text_events[0]["delta"] == fixture.safe_response
+    assert "type SignupInput" in text_events[0]["delta"]
+    assert "raw: unknown" in text_events[0]["delta"]
+    assert "safe_response" not in json.dumps(events)
+    assert "whose_agent.checker" not in _custom_names(events)
+    completed = _custom_value(events, "whose_agent.run.completed")
+    assert completed["selected_skill_id"] is None
+    assert completed["observation_outcome"] is None
+    assert completed["artifact_names"] == [
+        f"{SAFE_TYPESCRIPT_SCENARIO_ID}.classification.json",
+        f"{SAFE_TYPESCRIPT_SCENARIO_ID}.response.md",
+    ]
 
 
 def test_agui_endpoint_returns_text_event_stream(tmp_path: Path) -> None:

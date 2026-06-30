@@ -115,6 +115,63 @@ def test_out_of_scope_scenario_may_omit_trace_template() -> None:
     assert scenario.trace_template is None
 
 
+def test_safe_response_none_scenario_passes_validation() -> None:
+    scenario = Scenario.model_validate(
+        valid_scenario_data()
+        | {
+            "scenario_id": "valid_none_safe_response",
+            "expected_substituted": "none",
+            "failure_mode": "none",
+            "generation_instruction": "",
+            "trace_template": None,
+            "safe_response": "\nSafe response.\n",
+        }
+    )
+
+    assert scenario.safe_response == "Safe response."
+
+
+def test_safe_response_requires_none_scenario() -> None:
+    data = valid_scenario_data() | {"safe_response": "Safe response."}
+
+    with pytest.raises(ValidationError, match="safe_response is allowed only"):
+        Scenario.model_validate(data)
+
+
+def test_safe_response_rejects_trace_template() -> None:
+    data = valid_scenario_data() | {
+        "scenario_id": "invalid_safe_trace_template",
+        "expected_substituted": "none",
+        "failure_mode": "none",
+        "generation_instruction": "",
+        "safe_response": "Safe response.",
+    }
+
+    with pytest.raises(
+        ValidationError,
+        match="safe_response scenarios must not define trace_template",
+    ):
+        Scenario.model_validate(data)
+
+
+def test_safe_response_rejects_selected_skill_id() -> None:
+    data = valid_scenario_data() | {
+        "scenario_id": "invalid_safe_selected_skill",
+        "expected_substituted": "none",
+        "failure_mode": "none",
+        "selected_skill_id": "safety_framework_escape_hatch",
+        "generation_instruction": "",
+        "trace_template": None,
+        "safe_response": "Safe response.",
+    }
+
+    with pytest.raises(
+        ValidationError,
+        match="safe_response scenarios must not define selected_skill_id",
+    ):
+        Scenario.model_validate(data)
+
+
 def test_selected_skill_id_requires_checker_template() -> None:
     data = valid_scenario_data() | {
         "selected_skill_id": "safety_framework_escape_hatch",

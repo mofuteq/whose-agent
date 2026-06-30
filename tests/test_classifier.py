@@ -20,6 +20,7 @@ def test_classifier_returns_expected_substituted_values_for_all_scenarios() -> N
         "summary_persona_hallucination": "model",
         "none_code_bugfix": "none",
         "none_general_explanation": "none",
+        "none_typescript_delivery_constraint_respected": "none",
     }
 
     actual = {scenario.scenario_id: classify_scenario(scenario).substituted for scenario in scenarios}
@@ -54,5 +55,5 @@ def test_none_scenarios_are_marked_out_of_scope() -> None:
         if scenario.expected_substituted == "none"
     ]
 
-    assert len(none_classifications) == 2
+    assert len(none_classifications) == 3
     assert all(classification.classification == "out_of_scope" for classification in none_classifications)

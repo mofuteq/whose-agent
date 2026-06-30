@@ -66,13 +66,13 @@ jobs:
           trace_count="$(find "$run_dir" -maxdepth 1 -name '*.trace.json' | wc -l | tr -d ' ')"
           state_trace_count="$(find "$run_dir" -maxdepth 1 -name '*.state_trace.json' | wc -l | tr -d ' ')"
 
-          if [[ "$classification_count" != "10" ]]; then
-            echo "Expected 10 classification files, got $classification_count"
+          if [[ "$classification_count" != "11" ]]; then
+            echo "Expected 11 classification files, got $classification_count"
             exit 1
           fi
 
-          if [[ "$response_count" != "8" ]]; then
-            echo "Expected 8 response files, got $response_count"
+          if [[ "$response_count" != "9" ]]; then
+            echo "Expected 9 response files, got $response_count"
             exit 1
           fi
 

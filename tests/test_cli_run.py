@@ -32,12 +32,12 @@ def test_fixed_scenario_run_writes_outputs_inside_one_run_directory(tmp_path: Pa
 
     assert f"Wrote outputs to {run_dir}" in completed.stdout
     assert (
-        "Wrote 10 classification files, 8 response files, 8 trace files, "
+        "Wrote 11 classification files, 9 response files, 8 trace files, "
         "8 state trace files, 8 checker files, and "
         "8 checker comparison files; 1 explanation file."
     ) in completed.stdout
-    assert len(list(run_dir.glob("*.classification.json"))) == 10
-    assert len(list(run_dir.glob("*.response.md"))) == 8
+    assert len(list(run_dir.glob("*.classification.json"))) == 11
+    assert len(list(run_dir.glob("*.response.md"))) == 9
     assert len([f for f in run_dir.glob("*.trace.json") if not f.name.endswith(".state_trace.json")]) == 8
     assert len(list(run_dir.glob("*.state_trace.json"))) == 8
     assert len(list(run_dir.glob("*.checker.json"))) == 8

@@ -44,7 +44,11 @@ from whose_agent.schemas import (
     WhoseAgentState,
 )
 from whose_agent.self_explanation import write_self_explanation
-from whose_agent.state_graph import compile_fixed_scenario_graph, initial_state_from_scenario
+from whose_agent.state_graph import (
+    compile_fixed_scenario_graph,
+    emitted_response_text,
+    initial_state_from_scenario,
+)
 from whose_agent.tracing import NoopTracer
 
 
@@ -400,9 +404,9 @@ async def _project_state_progress(
     if latest_trace.step_kind == "do":
         emitted_step_indexes.add(latest_trace.step_index)
         yield RunnerEvent(kind="phase", phase=PhaseProjection(phase="do"))
-        bad_response = state.get("bad_response")
-        if bad_response is not None:
-            yield RunnerEvent(kind="text", text=bad_response)
+        response_text = emitted_response_text(state)
+        if response_text is not None:
+            yield RunnerEvent(kind="text", text=response_text)
         yield RunnerEvent(kind="cause", cause=project_cause(state))
         return
     if latest_trace.step_kind == "check":

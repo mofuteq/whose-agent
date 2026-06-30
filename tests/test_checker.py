@@ -376,8 +376,8 @@ def test_fixed_mock_run_keeps_existing_artifact_counts_plus_checker(tmp_path: Pa
     run_fixed_cli(tmp_path)
     run_dir = single_run_dir(tmp_path)
 
-    assert len(list(run_dir.glob("*.classification.json"))) == 10
-    assert len(list(run_dir.glob("*.response.md"))) == 8
+    assert len(list(run_dir.glob("*.classification.json"))) == 11
+    assert len(list(run_dir.glob("*.response.md"))) == 9
     assert len([f for f in run_dir.glob("*.trace.json") if not f.name.endswith(".state_trace.json")]) == 8
     assert len(list(run_dir.glob("*.state_trace.json"))) == 8
     assert len(list(run_dir.glob("*.checker.json"))) == 8
