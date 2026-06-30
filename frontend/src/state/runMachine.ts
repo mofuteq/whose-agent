@@ -222,10 +222,16 @@ export function finalStatusText(state: RunMachineState): string {
   if (state.status !== 'completed') {
     return 'Ready to observe a run.'
   }
-  if (state.checker?.checker_observed_bypass === true) {
-    return 'Divergence preserved'
+  if (
+    state.cause?.action_attempt_summary?.attempted === true &&
+    state.checker?.checker_observed_bypass === true
+  ) {
+    return 'Boundary drift made visible'
   }
-  return 'No bypass observed by checker'
+  if (state.checker?.checker_observed_bypass === true) {
+    return 'Checker-only observation'
+  }
+  return 'No boundary finding'
 }
 
 export function currentRunHint(state: RunMachineState): string {

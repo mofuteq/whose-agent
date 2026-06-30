@@ -1,13 +1,17 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { fetchScenarios } from './api/scenarios'
+import { ConversationHistory } from './components/ConversationHistory'
 import { ConversationPane } from './components/ConversationPane'
 import { ObserverPane } from './components/ObserverPane'
-import { PhaseTimeline } from './components/PhaseTimeline'
-import { RunComposer } from './components/RunComposer'
 import { StatusHeader } from './components/StatusHeader'
+import {
+  defaultScenarioId,
+  scenarioConversations,
+  type ScenarioConversation,
+} from './state/conversationExamples'
+import { boundaryNarrative } from './state/narrative'
 import { runWorkspaceStream } from './state/runCoordinator'
 import {
-  authorityDemoMessages,
   initialRunState,
   newMessageId,
   newThreadId,
@@ -19,8 +23,10 @@ function App() {
   const [state, dispatch] = useReducer(runMachine, undefined, () => initialRunState())
   const [scenarios, setScenarios] = useState<ScenarioMetadata[]>([])
   const [selectedScenarioId, setSelectedScenarioId] = useState('')
-  const [mock, setMock] = useState(true)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [inspectorOpen, setInspectorOpen] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
+  const observedScenarioRef = useRef<string>('')
 
   useEffect(() => {
     let active = true
@@ -30,7 +36,7 @@ function App() {
           return
         }
         setScenarios(loadedScenarios)
-        setSelectedScenarioId((current) => current || loadedScenarios[0]?.scenario_id || '')
+        setSelectedScenarioId((current) => current || defaultScenarioId(loadedScenarios))
       })
       .catch(() => {
         if (active) {
@@ -42,109 +48,117 @@ function App() {
     }
   }, [])
 
+  const conversations = useMemo(
+    () => scenarioConversations(scenarios),
+    [scenarios],
+  )
+  const selectedConversation = useMemo(
+    () =>
+      conversations.find(
+        (conversation) => conversation.scenarioId === selectedScenarioId,
+      ) ?? conversations[0] ?? null,
+    [conversations, selectedScenarioId],
+  )
   const selectedScenario = useMemo(
     () =>
       scenarios.find((scenario) => scenario.scenario_id === selectedScenarioId) ??
       null,
     [scenarios, selectedScenarioId],
   )
+  const narrative = boundaryNarrative(state)
 
-  function setMessages(messages: BrowserMessage[]) {
-    dispatch({ type: 'setMessages', messages })
-  }
+  useEffect(() => {
+    if (selectedConversation === null) {
+      return
+    }
+    if (observedScenarioRef.current === selectedConversation.scenarioId) {
+      return
+    }
+    observedScenarioRef.current = selectedConversation.scenarioId
+    void observeConversation(selectedConversation)
+  }, [selectedConversation])
 
-  function loadAuthorityDemo() {
-    dispatch({ type: 'setMode', mode: 'conversation' })
-    setMessages(authorityDemoMessages())
-  }
-
-  function addTurn() {
-    setMessages([
-      ...state.messages,
-      {
-        clientId: newMessageId(),
-        role: 'user',
-        content: '',
-      },
-    ])
-  }
-
-  function updateTurn(
-    clientId: string,
-    patch: Partial<Pick<BrowserMessage, 'role' | 'content'>>,
-  ) {
-    setMessages(
-      state.messages.map((message) =>
-        message.clientId === clientId ? { ...message, ...patch } : message,
-      ),
-    )
-  }
-
-  function removeTurn(clientId: string) {
-    setMessages(state.messages.filter((message) => message.clientId !== clientId))
-  }
-
-  async function runWorkspace() {
-    const threadId = state.threadId || newThreadId()
+  async function observeConversation(conversation: ScenarioConversation) {
+    abortRef.current?.abort()
+    const threadId = newThreadId()
+    const messages = browserMessages(conversation)
+    const runState = {
+      ...initialRunState(threadId),
+      mode: 'fixed' as const,
+      messages,
+    }
     const abortController = new AbortController()
     abortRef.current = abortController
+    setInspectorOpen(false)
+    setHistoryOpen(false)
+    dispatch({ type: 'reset', threadId })
+    dispatch({ type: 'setMode', mode: 'fixed' })
+    dispatch({ type: 'setMessages', messages })
     await runWorkspaceStream({
-      state: { ...state, threadId },
-      selectedScenarioId,
-      mock,
+      state: runState,
+      selectedScenarioId: conversation.scenarioId,
+      mock: true,
       signal: abortController.signal,
-      dispatch,
+      dispatch: (event) => {
+        if (abortRef.current === abortController) {
+          dispatch(event)
+        }
+      },
     }).finally(() => {
-      abortRef.current = null
+      if (abortRef.current === abortController) {
+        abortRef.current = null
+      }
     })
   }
 
-  function cancelRun() {
-    abortRef.current?.abort()
-  }
-
-  function resetWorkspace() {
-    abortRef.current?.abort()
-    setMock(true)
-    dispatch({ type: 'reset', threadId: newThreadId() })
+  function selectConversation(scenarioId: string) {
+    setInspectorOpen(false)
+    setHistoryOpen(false)
+    setSelectedScenarioId(scenarioId)
   }
 
   return (
     <main className="workspace-shell">
-      <StatusHeader state={state} />
-      <div className="workspace-grid">
-        <RunComposer
-          mode={state.mode}
-          scenarios={scenarios}
-          selectedScenarioId={selectedScenarioId}
-          mock={mock}
-          status={state.status}
-          messages={state.messages}
-          onModeChange={(mode) => dispatch({ type: 'setMode', mode })}
-          onScenarioChange={setSelectedScenarioId}
-          onMockChange={setMock}
-          onLoadDemo={loadAuthorityDemo}
-          onAddTurn={addTurn}
-          onUpdateTurn={updateTurn}
-          onRemoveTurn={removeTurn}
-          onRun={runWorkspace}
-          onCancel={cancelRun}
-          onReset={resetWorkspace}
+      <ConversationHistory
+        conversations={conversations}
+        selectedScenarioId={selectedConversation?.scenarioId ?? selectedScenarioId}
+        mobileOpen={historyOpen}
+        onSelect={selectConversation}
+        onCloseMobile={() => setHistoryOpen(false)}
+      />
+      <section className="chat-workspace" aria-label="Conversation workspace">
+        <StatusHeader
+          state={state}
+          conversation={selectedConversation}
+          onOpenHistory={() => setHistoryOpen(true)}
         />
         <ConversationPane
           messages={state.messages}
           generatedCandidateText={state.generatedCandidateText}
           status={state.status}
+          observerVisible={narrative.observerVisible}
+          observerTitle={narrative.interruptionTitle}
+          observerBody={narrative.interruptionBody}
+          onOpenInspector={() => setInspectorOpen(true)}
         />
-        <ObserverPane
-          mode={state.mode}
-          state={state}
-          selectedScenario={selectedScenario}
-        />
-      </div>
-      <PhaseTimeline state={state} />
+      </section>
+      <ObserverPane
+        isOpen={inspectorOpen}
+        mode={state.mode}
+        state={state}
+        selectedScenario={selectedScenario}
+        onClose={() => setInspectorOpen(false)}
+      />
     </main>
   )
+}
+
+function browserMessages(conversation: ScenarioConversation): BrowserMessage[] {
+  return conversation.messages.map((message) => ({
+    clientId: newMessageId(),
+    role: message.role,
+    content: message.content,
+  }))
 }
 
 export default App
