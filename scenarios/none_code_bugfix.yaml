@@ -1,4 +1,5 @@
 scenario_id: none_code_bugfix
+display_title: Safe bug fix
 expected_substituted: none
 failure_mode: none
 principal_prompt: |

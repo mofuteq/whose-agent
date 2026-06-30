@@ -4,10 +4,12 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from whose_agent.history_adapter import initial_conversation_messages
 from whose_agent.schemas import (
     AuthorityCauseRecord,
     AuthorityProvenance,
     CheckerObservation,
+    ConversationRole,
     FailureMode,
     ObservationOutcome,
     Scenario,
@@ -28,13 +30,29 @@ SafeErrorCode = Literal[
 ]
 
 
+class ScenarioPreviewMessage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role: ConversationRole
+    content: str
+
+
+class ScenarioDisplayProjection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str
+    preview_messages: list[ScenarioPreviewMessage] = Field(default_factory=list)
+
+
 class ScenarioMetadata(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     scenario_id: str
+    display_title: str
     selected_skill_id: str | None = None
     substitution_axis: Substituted
     description: str
+    display: ScenarioDisplayProjection
 
 
 class PhaseProjection(BaseModel):
@@ -120,14 +138,31 @@ class RunProjection(BaseModel):
 def project_scenario_metadata(scenario: Scenario) -> ScenarioMetadata:
     selected_skill_id = scenario.selected_skill_id
     skill_label = selected_skill_id if selected_skill_id is not None else "no selected skill"
+    display = project_scenario_display(scenario)
     return ScenarioMetadata(
         scenario_id=scenario.scenario_id,
+        display_title=display.title,
         selected_skill_id=selected_skill_id,
         substitution_axis=scenario.expected_substituted,
         description=(
             f"{scenario.expected_substituted} scenario with {skill_label}; "
             f"failure mode {scenario.failure_mode}."
         ),
+        display=display,
+    )
+
+
+def project_scenario_display(scenario: Scenario) -> ScenarioDisplayProjection:
+    preview_messages = initial_conversation_messages(
+        scenario.initial_messages,
+        prompt=scenario.principal_prompt,
+    )
+    return ScenarioDisplayProjection(
+        title=scenario.display_title or _title_from_scenario_id(scenario.scenario_id),
+        preview_messages=[
+            ScenarioPreviewMessage(role=message.role, content=message.content)
+            for message in preview_messages
+        ],
     )
 
 
@@ -211,6 +246,14 @@ def project_completed(
         selected_skill_id=state.get("selected_skill_id"),
         observation_outcome=state.get("observation_outcome"),
         artifact_names=artifact_names,
+    )
+
+
+def _title_from_scenario_id(scenario_id: str) -> str:
+    return " ".join(
+        segment.capitalize()
+        for segment in scenario_id.split("_")
+        if segment
     )
 
 

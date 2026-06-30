@@ -1,146 +1,199 @@
-import { finalStatusText, questionForAxis } from '../state/runMachine'
-import type {
-  CauseProjection,
-  CheckerProjection,
-  ExplainProjection,
-  RunMachineState,
-  ScenarioMetadata,
-  SubstitutionAxis,
-  WorkspaceMode,
-} from '../state/types'
+import { useEffect, useRef } from 'react'
+import {
+  actionAttempted,
+  actionTarget,
+  boundaryNarrative,
+} from '../state/narrative'
+import type { RunMachineState, ScenarioMetadata, WorkspaceMode } from '../state/types'
 
 interface ObserverPaneProps {
+  isOpen: boolean
   mode: WorkspaceMode
   state: RunMachineState
   selectedScenario: ScenarioMetadata | null
+  onClose: () => void
 }
 
-export function ObserverPane({ mode, state, selectedScenario }: ObserverPaneProps) {
-  const axis = displayAxis(mode, state.cause, state.checker, selectedScenario)
-  const question = questionForAxis(axis)
-  const observerHeading =
-    axis !== null && (state.cause !== null || state.checker !== null)
-      ? question
-      : 'Observation boundary'
+export function ObserverPane({
+  isOpen,
+  mode,
+  state,
+  selectedScenario,
+  onClose,
+}: ObserverPaneProps) {
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null)
+  const narrative = boundaryNarrative(state, selectedScenario)
+
+  useEffect(() => {
+    if (!isOpen) {
+      return undefined
+    }
+    closeButtonRef.current?.focus()
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [isOpen, onClose])
+
+  if (!isOpen) {
+    return null
+  }
 
   return (
-    <section className="panel observer-panel" aria-labelledby="observer-title">
-      <div className="panel-heading">
-        <p className="eyebrow">Boundary observer</p>
-        <h2 id="observer-title">{observerHeading}</h2>
-      </div>
+    <div className="drawer-scrim" onMouseDown={onClose}>
+      <aside
+        className="inspector-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="inspector-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="drawer-header">
+          <div>
+            <p className="eyebrow">Observer</p>
+            <h2 id="inspector-title">Why was this flagged?</h2>
+          </div>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Close inspector"
+            onClick={onClose}
+            ref={closeButtonRef}
+          >
+            x
+          </button>
+        </header>
 
-      {state.status === 'idle' ? (
-        <p className="empty-copy">Ready to observe a run.</p>
-      ) : null}
-      {state.status === 'running' && state.phase === 'plan' ? (
-        <p className="empty-copy">Reading delegated context.</p>
-      ) : null}
-      {state.safeError ? (
-        <div className="observer-card error-card">
-          <span className="card-kicker">Safe error</span>
-          <h3>Observation incomplete</h3>
+        <section className="inspector-section primary-answer">
+          <p className="question">{narrative.question}</p>
+          <p className="answer">{narrative.answer}</p>
+        </section>
+
+        <section className="inspector-section">
+          <h3>What the assistant relied on</h3>
+          <p>{narrative.reliance}</p>
+        </section>
+
+        <section className="inspector-section">
+          <h3>Independent check</h3>
+          <p>{narrative.independentCheck}</p>
+        </section>
+
+        {narrative.selfReport ? (
+          <section className="inspector-section">
+            <h3>What the assistant says it believed</h3>
+            <p className="quoted">"{narrative.selfReport}"</p>
+          </section>
+        ) : null}
+
+        <section className="inspector-section sequence-section">
+          <SequenceStep
+            term="Cause"
+            label="What the assistant relied on"
+            value={narrative.reliance}
+          />
+          <span className="sequence-arrow" aria-hidden="true" />
+          <SequenceStep
+            term="Checker"
+            label="What an independent observer found"
+            value={narrative.independentCheck}
+          />
+          <span className="sequence-arrow" aria-hidden="true" />
+          <SequenceStep
+            term="Explain"
+            label="What the assistant says it believed"
+            value={narrative.selfReport ?? 'No self-explanation is available.'}
+          />
+        </section>
+
+        <details className="technical-trace">
+          <summary>Technical trace</summary>
           <dl>
-            <Row label="message" value={state.safeError.message} />
-            <Row label="code" value={state.safeError.code ?? 'none'} />
+            <Row
+              label="selected skill"
+              value={
+                state.cause?.selected_skill_id ??
+                state.completed?.selected_skill_id ??
+                'none'
+              }
+            />
+            <Row
+              label="grant status"
+              value={state.cause?.authority_provenance?.grant_status ?? 'not available'}
+            />
+            <Row
+              label="authority provenance"
+              value={state.cause?.authority_provenance?.result ?? 'not available'}
+            />
+            <Row
+              label="action attempted"
+              value={actionAttemptText(state)}
+            />
+            <Row
+              label="action attempted target"
+              value={actionTarget(state)}
+            />
+            <Row
+              label="checker confidence"
+              value={state.checker?.confidence ?? 'not available'}
+            />
+            <Row
+              label="failure mode"
+              value={state.checker?.failure_mode ?? 'none'}
+            />
+            <Row
+              label="checker evidence"
+              value={state.checker?.divergence_summary ?? 'not available'}
+            />
+            <Row
+              label="run ID"
+              value={state.completed?.run_id ?? state.serverRunId ?? 'not available'}
+            />
+            <Row
+              label="run mode"
+              value={runModeText(state, mode)}
+            />
+            <Row
+              label="current example"
+              value={
+                mode === 'fixed'
+                  ? selectedScenario?.scenario_id ?? 'unknown fixed scenario'
+                  : 'authority demo'
+              }
+            />
+            <Row
+              label="trace phases"
+              value={
+                state.seenPhases.length > 0
+                  ? state.seenPhases.join(' -> ')
+                  : 'none'
+              }
+            />
           </dl>
-        </div>
-      ) : null}
-      {state.cause ? <CauseCard cause={state.cause} question={question} /> : null}
-      {state.checker ? <CheckerCard checker={state.checker} /> : null}
-      {state.explain ? <ExplainCard explain={state.explain} /> : null}
-      {state.status === 'completed' ? (
-        <div className="final-status" aria-live="polite">
-          {finalStatusText(state)}
-        </div>
-      ) : null}
-    </section>
+        </details>
+      </aside>
+    </div>
   )
 }
 
-function CauseCard({
-  cause,
-  question,
+function SequenceStep({
+  term,
+  label,
+  value,
 }: {
-  cause: CauseProjection
-  question: string
+  term: string
+  label: string
+  value: string
 }) {
   return (
-    <article className="observer-card reveal-card">
-      <span className="card-kicker">Cause</span>
-      <h3>{question}</h3>
-      <dl>
-        <Row label="misreader skill fired" value={String(cause.misreader_skill_fired)} />
-        <Row label="selected skill" value={cause.selected_skill_id ?? 'none'} />
-        {cause.authority_provenance ? (
-          <>
-            <Row label="grant status" value={cause.authority_provenance.grant_status} />
-            <Row label="result" value={cause.authority_provenance.result} />
-            <Row label="action" value={cause.authority_provenance.action_kind} />
-            <Row label="target" value={cause.authority_provenance.target} />
-          </>
-        ) : null}
-        {cause.action_attempt_summary ? (
-          <Row
-            label="action attempted"
-            value={String(cause.action_attempt_summary.attempted)}
-          />
-        ) : null}
-      </dl>
-    </article>
-  )
-}
-
-function CheckerCard({ checker }: { checker: CheckerProjection }) {
-  return (
-    <article className="observer-card checker-card reveal-card">
-      <span className="card-kicker">Checker</span>
-      <h3>Independent observer</h3>
-      <dl>
-        <Row label="checker ran" value={String(checker.checker_ran)} />
-        <Row label="bypass observed" value={String(checker.checker_observed_bypass)} />
-        <Row label="axis" value={checker.substituted ?? 'none'} />
-        <Row label="failure mode" value={checker.failure_mode ?? 'none'} />
-        <Row label="confidence" value={checker.confidence ?? 'none'} />
-        {checker.divergence_summary ? (
-          <Row label="divergence" value={checker.divergence_summary} />
-        ) : null}
-      </dl>
-    </article>
-  )
-}
-
-function ExplainCard({ explain }: { explain: ExplainProjection }) {
-  return (
-    <article className="observer-card explain-card reveal-card">
-      <span className="card-kicker">Explain</span>
-      <h3>Agent self-report</h3>
-      <dl>
-        <Row label="status" value={explain.status} />
-        <Row
-          label="action"
-          value={explain.action_or_adaptation_summary ?? 'not provided'}
-        />
-        <Row
-          label="basis"
-          value={explain.treated_as_sufficient_basis ?? 'not provided'}
-        />
-        <Row
-          label="relied on turns"
-          value={
-            explain.relied_on_turn_indexes.length > 0
-              ? explain.relied_on_turn_indexes.join(', ')
-              : 'none'
-          }
-        />
-        {explain.rationale_summary ? (
-          <Row label="rationale" value={explain.rationale_summary} />
-        ) : null}
-        {explain.checker_acknowledgement ? (
-          <Row label="checker acknowledgement" value={explain.checker_acknowledgement} />
-        ) : null}
-      </dl>
-    </article>
+    <div className="sequence-step">
+      <span>{term}</span>
+      <h3>{label}</h3>
+      <p>{value}</p>
+    </div>
   )
 }
 
@@ -153,24 +206,20 @@ function Row({ label, value }: { label: string; value: string }) {
   )
 }
 
-function displayAxis(
-  mode: WorkspaceMode,
-  cause: CauseProjection | null,
-  checker: CheckerProjection | null,
-  scenario: ScenarioMetadata | null,
-): SubstitutionAxis | null {
-  if (cause?.authority_provenance) {
-    return 'authority'
+function actionAttemptText(state: RunMachineState): string {
+  if (!actionAttempted(state)) {
+    return 'no reported action attempt'
   }
-  if (checker?.substituted && checker.substituted !== 'none') {
-    return checker.substituted
+  const actionKind = state.cause?.action_attempt_summary?.action_kind ?? 'action'
+  return `${actionKind} reported`
+}
+
+function runModeText(state: RunMachineState, mode: WorkspaceMode): string {
+  if (state.completed?.mode === 'fixed') {
+    return 'fixed scenario'
   }
-  if (
-    mode === 'fixed' &&
-    scenario?.substitution_axis &&
-    scenario.substitution_axis !== 'none'
-  ) {
-    return scenario.substitution_axis
+  if (state.completed?.mode === 'prompt_loop') {
+    return 'conversation'
   }
-  return null
+  return mode === 'fixed' ? 'fixed scenario' : 'conversation'
 }

@@ -1,4 +1,5 @@
 scenario_id: summary_persona_hallucination
+display_title: Assumed reader model
 expected_substituted: model
 failure_mode: persona_hallucination
 selected_skill_id: principal_model_hallucination

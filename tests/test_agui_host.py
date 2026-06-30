@@ -8,6 +8,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from whose_agent.agui_host import create_app
+from whose_agent.scenario_loader import load_scenario
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,8 +17,6 @@ PUBLIC_THREAD_ID_RE = re.compile(r"^(?=.*[0-9])[A-Za-z0-9_-]{1,128}$")
 VALID_CLIENT_THREAD_ID = "client-thread-01"
 INVALID_CLIENT_THREAD_ID = "SECRET_RAW_HISTORY"
 RAW_HISTORY_STRINGS = [
-    "Summarize this project concept",
-    "I can also organize it in Notion later if useful.",
     "SECRET_RAW_HISTORY",
 ]
 FORBIDDEN_PUBLIC_TOKENS = [
@@ -26,7 +25,12 @@ FORBIDDEN_PUBLIC_TOKENS = [
     "MessageView",
     "message_id",
     "initial_messages",
+    "principal_prompt",
+    "generation_instruction",
     "AuthorityCauseRecord",
+    "WhoseAgentState",
+    "checker_template",
+    "trace_template",
 ]
 HISTORY_LAUNDERING_MESSAGES = [
     ("user", "Summarize this project concept so I can revisit it later."),
@@ -64,17 +68,76 @@ def test_scenario_listing_is_safe_picker_metadata(tmp_path: Path) -> None:
     authority = _scenario(payload["scenarios"], AUTHORITY_SCENARIO_ID)
     assert set(authority) == {
         "scenario_id",
+        "display_title",
         "selected_skill_id",
         "substitution_axis",
         "description",
+        "display",
     }
+    assert set(authority["display"]) == {"title", "preview_messages"}
+    assert all(
+        set(message) == {"role", "content"}
+        for message in authority["display"]["preview_messages"]
+    )
+    assert authority["display_title"] == "Notion handoff"
     assert authority["selected_skill_id"] == "authority_scope_expansion"
     assert authority["substitution_axis"] == "authority"
     serialized = json.dumps(payload)
-    assert "principal_prompt" not in serialized
-    assert "checker_template" not in serialized
+    for forbidden_token in FORBIDDEN_PUBLIC_TOKENS:
+        assert forbidden_token not in serialized
     for raw_history in RAW_HISTORY_STRINGS:
         assert raw_history not in serialized
+
+
+def test_scenario_listing_projects_authority_initial_messages(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    fixture = load_scenario(
+        ROOT / "scenarios" / "authority_agent_history_delegation_laundering.yaml"
+    )
+
+    response = client.get("/api/scenarios")
+
+    assert response.status_code == 200
+    authority = _scenario(response.json()["scenarios"], AUTHORITY_SCENARIO_ID)
+    assert authority["display"]["preview_messages"] == [
+        {"role": message["role"], "content": message["content"]}
+        for message in fixture.initial_messages
+    ]
+
+
+def test_scenario_listing_uses_principal_prompt_without_history(
+    tmp_path: Path,
+) -> None:
+    client = _client(tmp_path)
+    fixture = load_scenario(ROOT / "scenarios" / "instruction_typescript_any.yaml")
+
+    response = client.get("/api/scenarios")
+
+    assert response.status_code == 200
+    scenario = _scenario(response.json()["scenarios"], "instruction_typescript_any")
+    assert scenario["display"]["preview_messages"] == [
+        {"role": "user", "content": fixture.principal_prompt}
+    ]
+
+
+def test_scenario_listing_omits_private_scenario_fields(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    fixture = load_scenario(
+        ROOT / "scenarios" / "authority_agent_history_delegation_laundering.yaml"
+    )
+
+    response = client.get("/api/scenarios")
+
+    assert response.status_code == 200
+    serialized = json.dumps(response.json())
+    for forbidden_token in FORBIDDEN_PUBLIC_TOKENS:
+        assert forbidden_token not in serialized
+    assert fixture.generation_instruction not in serialized
+    assert fixture.trace_template is not None
+    assert fixture.trace_template.divergence_point not in serialized
+    assert fixture.checker_template is not None
+    for evidence in fixture.checker_template.evidence:
+        assert evidence not in serialized
 
 
 def test_agui_endpoint_returns_text_event_stream(tmp_path: Path) -> None:

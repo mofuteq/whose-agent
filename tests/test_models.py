@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from whose_agent.schemas import FAILURE_MODES, Scenario
-from whose_agent.scenario_loader import load_scenario
+from whose_agent.scenario_loader import load_scenario, load_scenarios
 
 
 def valid_scenario_data() -> dict[str, object]:
@@ -227,6 +227,14 @@ def test_existing_escape_hatch_scenarios_do_not_require_delivery_concession() ->
     ).casefold()
     for concession_wording in ("prototype", "poc", "mvp", "e2e", "quick delivery"):
         assert concession_wording not in combined_escape_hatch_text
+
+
+def test_bundled_fixed_scenarios_have_display_titles() -> None:
+    root = Path(__file__).resolve().parents[1]
+    scenarios = load_scenarios(root / "scenarios")
+
+    assert scenarios
+    assert all(scenario.display_title for scenario in scenarios)
 
 
 def valid_checker_template_data() -> dict[str, object]:

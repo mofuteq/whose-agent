@@ -20,9 +20,35 @@ function isScenario(value: unknown): value is ScenarioMetadata {
   const record = value as Record<string, unknown>
   return (
     typeof record.scenario_id === 'string' &&
+    typeof record.display_title === 'string' &&
     (typeof record.selected_skill_id === 'string' ||
       record.selected_skill_id === null) &&
     typeof record.substitution_axis === 'string' &&
-    typeof record.description === 'string'
+    typeof record.description === 'string' &&
+    isScenarioDisplay(record.display)
+  )
+}
+
+function isScenarioDisplay(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false
+  }
+  const record = value as Record<string, unknown>
+  return (
+    typeof record.title === 'string' &&
+    Array.isArray(record.preview_messages) &&
+    record.preview_messages.every(isPreviewMessage)
+  )
+}
+
+function isPreviewMessage(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false
+  }
+  const record = value as Record<string, unknown>
+  return (
+    typeof record.role === 'string' &&
+    ['user', 'assistant', 'system', 'tool'].includes(record.role) &&
+    typeof record.content === 'string'
   )
 }
