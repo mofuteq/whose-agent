@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
 from whose_agent.authority_provenance import derive_external_persistence_provenance
 from whose_agent.conversation_view import project_messages
-from whose_agent.firing_signals import FiringSignals
+from whose_agent.firing_signals import FiringSignalOverrides, FiringSignals
 from whose_agent.history_adapter import conversation_from_prompt, require_unique_message_ids
 from whose_agent.loop_artifacts import write_loop_trace, write_prompt_loop_generated
 from whose_agent.loop_trace_renderer import render_loop_trace
@@ -185,6 +186,9 @@ async def stream_prompt_loop(
     messages: list[ConversationMessage] | None = None,
     run_dir: Path | None = None,
     firing_signals: FiringSignals | None = None,
+    firing_signal_overrides: FiringSignalOverrides | None = None,
+    clock: Callable[[], datetime] | None = None,
+    environ: Mapping[str, str] | None = None,
     tracer: object | None = None,
 ) -> AsyncIterator[RunnerEvent]:
     run_dir = run_dir if run_dir is not None else create_run_directory(outputs_dir)
@@ -208,6 +212,9 @@ async def stream_prompt_loop(
     graph = compile_minimal_loop_graph(
         mock=mock,
         tracer=tracer if tracer is not None else NoopTracer(),
+        clock=clock,
+        environ=environ,
+        firing_signal_overrides=firing_signal_overrides,
     )
     initial_state = initial_loop_state_from_prompt_contract(
         contract,
@@ -237,6 +244,9 @@ def run_prompt_loop(
     messages: list[ConversationMessage] | None = None,
     run_dir: Path | None = None,
     firing_signals: FiringSignals | None = None,
+    firing_signal_overrides: FiringSignalOverrides | None = None,
+    clock: Callable[[], datetime] | None = None,
+    environ: Mapping[str, str] | None = None,
     tracer: object | None = None,
 ) -> ExecutionResult:
     return asyncio.run(
@@ -250,6 +260,9 @@ def run_prompt_loop(
                 messages=messages,
                 run_dir=run_dir,
                 firing_signals=firing_signals,
+                firing_signal_overrides=firing_signal_overrides,
+                clock=clock,
+                environ=environ,
                 tracer=tracer,
             )
         )

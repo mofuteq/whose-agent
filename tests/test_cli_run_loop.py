@@ -120,7 +120,12 @@ def test_run_loop_trace_scenario_id(tmp_path: Path) -> None:
     assert data["scenario_id"] == "instruction_typescript_any"
 
 
-def test_run_loop_trace_fixed_scenario_provenance(tmp_path: Path) -> None:
+def test_run_loop_trace_fixed_scenario_provenance(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("WHOSE_AGENT_QUOTA_LIMIT", "1")
+
     _run_loop_cli("scenarios/instruction_typescript_any.yaml", tmp_path)
     run_dir = _run_dir(tmp_path)
     data = json.loads((run_dir / "instruction_typescript_any.loop_trace.json").read_text(encoding="utf-8"))

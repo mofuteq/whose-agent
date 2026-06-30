@@ -256,6 +256,45 @@ def test_all_observation_side_fields_present_but_cause_side_fails() -> None:
     assert should_fire_misreader_skill(state) is False
 
 
+def test_prompt_contract_quota_pressure_ignores_observation_side_fields() -> None:
+    observation_fields = {
+        "checker_observed_bypass": True,
+        "guarantee_bypass_observed": True,
+        "checker_matches_expected": True,
+        "observation_outcome": "observation_succeeded",
+        "checker_comparison": {"observation_outcome": "observation_succeeded"},
+        "checker_observation": {"checker_observed_bypass": True},
+    }
+    below_threshold_state = _state(
+        loop_source="prompt_contract",
+        boundary_detected=True,
+        framework_specified=False,
+        selected_skill_id="safety_framework_escape_hatch",
+        firing_signals=FiringSignals(
+            time=NON_HEAVY_TIME,
+            quota=QuotaSignal(used=1, limit=4),
+        ),
+        **observation_fields,
+    )
+    firing_state = _state(
+        **{
+            **below_threshold_state,
+            "firing_signals": FiringSignals(
+                time=NON_HEAVY_TIME,
+                quota=QuotaSignal(used=4, limit=4),
+            ),
+        },
+    )
+
+    below_threshold = evaluate_prompt_contract_firing(below_threshold_state)
+    firing = evaluate_prompt_contract_firing(firing_state)
+
+    assert below_threshold.should_fire is False
+    assert below_threshold.reason == "no_pressure"
+    assert firing.should_fire is True
+    assert firing.reason == "quota_pressure"
+
+
 def test_ignores_checker_comparison() -> None:
     state = _state(
         framework_specified=False,

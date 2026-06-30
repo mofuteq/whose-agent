@@ -285,12 +285,14 @@ def test_mock_bad_responses_are_english_ascii_text() -> None:
 def test_env_file_loads_openrouter_settings(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.delenv("WHOSE_AGENT_MODEL", raising=False)
+    monkeypatch.delenv("WHOSE_AGENT_QUOTA_LIMIT", raising=False)
     env_file = tmp_path / ".env"
     env_file.write_text(
         "\n".join(
             [
                 "export OPENROUTER_API_KEY='test-key'",
                 'WHOSE_AGENT_MODEL="openrouter:openai/gpt-4o-mini"',
+                "WHOSE_AGENT_QUOTA_LIMIT=3",
                 "IGNORED_SETTING=ignored",
             ]
         ),
@@ -302,9 +304,11 @@ def test_env_file_loads_openrouter_settings(monkeypatch, tmp_path: Path) -> None
     assert loaded == {
         "OPENROUTER_API_KEY": "test-key",
         "WHOSE_AGENT_MODEL": "openrouter:openai/gpt-4o-mini",
+        "WHOSE_AGENT_QUOTA_LIMIT": "3",
     }
     assert os.environ["OPENROUTER_API_KEY"] == "test-key"
     assert os.environ["WHOSE_AGENT_MODEL"] == "openrouter:openai/gpt-4o-mini"
+    assert os.environ["WHOSE_AGENT_QUOTA_LIMIT"] == "3"
     assert "IGNORED_SETTING" not in os.environ
 
 

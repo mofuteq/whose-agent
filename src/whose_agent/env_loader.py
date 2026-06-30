@@ -9,6 +9,7 @@ from dotenv import dotenv_values
 ENV_KEYS = {
     "OPENROUTER_API_KEY",
     "WHOSE_AGENT_MODEL",
+    "WHOSE_AGENT_QUOTA_LIMIT",
     "LANGFUSE_PUBLIC_KEY",
     "LANGFUSE_SECRET_KEY",
     "LANGFUSE_BASE_URL",

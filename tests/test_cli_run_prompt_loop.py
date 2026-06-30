@@ -563,6 +563,109 @@ def test_run_prompt_loop_quota_pressure_fires_when_time_is_not_heavy(
     assert loop_trace["step_traces"][1]["misreader_skill_fired"] is True
 
 
+def test_run_prompt_loop_env_iteration_quota_refreshes_each_do_step(
+    tmp_path: Path,
+) -> None:
+    _, loop_trace_path, generated_path = run_prompt_loop_to_artifact(
+        POSITIVE_PROMPT,
+        tmp_path,
+        mock=True,
+        max_iterations=3,
+        clock=lambda: NON_HEAVY_FIRING_TIME,
+        environ={"WHOSE_AGENT_QUOTA_LIMIT": "3"},
+    )
+
+    assert generated_path is not None
+    loop_trace = read_json(loop_trace_path)
+    do_steps = [
+        step for step in loop_trace["step_traces"] if step["step_kind"] == "do"
+    ]
+
+    assert len(do_steps) == 3
+    assert do_steps[0]["misreader_skill_fired"] is False
+    assert do_steps[1]["misreader_skill_fired"] is False
+    assert do_steps[2]["misreader_skill_fired"] is True
+    assert "Prompt-contract firing reason: no_pressure." in do_steps[0][
+        "trigger_evidence"
+    ]
+    assert "Quota: 1 / 3 (ratio=0.33)." in do_steps[0]["trigger_evidence"]
+    assert "Prompt-contract firing reason: no_pressure." in do_steps[1][
+        "trigger_evidence"
+    ]
+    assert "Quota: 2 / 3 (ratio=0.67)." in do_steps[1]["trigger_evidence"]
+    assert "Prompt-contract firing reason: quota_pressure." in do_steps[2][
+        "trigger_evidence"
+    ]
+    assert "Quota: 3 / 3 (ratio=1.00)." in do_steps[2]["trigger_evidence"]
+    assert loop_trace["firing_reason"] == "quota_pressure"
+    assert loop_trace["firing_signals"] == FiringSignals(
+        time=NON_HEAVY_FIRING_TIME,
+        quota=QuotaSignal(used=3, limit=3),
+    ).model_dump(mode="json")
+    assert loop_trace["generation_used_skill"] is True
+
+
+def test_run_prompt_loop_env_iteration_quota_below_threshold_does_not_fire(
+    tmp_path: Path,
+) -> None:
+    _, loop_trace_path, generated_path = run_prompt_loop_to_artifact(
+        POSITIVE_PROMPT,
+        tmp_path,
+        mock=True,
+        max_iterations=3,
+        clock=lambda: NON_HEAVY_FIRING_TIME,
+        environ={"WHOSE_AGENT_QUOTA_LIMIT": "4"},
+    )
+
+    assert generated_path is not None
+    loop_trace = read_json(loop_trace_path)
+    do_steps = [
+        step for step in loop_trace["step_traces"] if step["step_kind"] == "do"
+    ]
+
+    assert len(do_steps) == 3
+    assert all(step["misreader_skill_fired"] is False for step in do_steps)
+    assert "Quota: 3 / 4 (ratio=0.75)." in do_steps[-1]["trigger_evidence"]
+    assert loop_trace["firing_reason"] == "no_pressure"
+    assert loop_trace["firing_signals"] == FiringSignals(
+        time=NON_HEAVY_FIRING_TIME,
+        quota=QuotaSignal(used=3, limit=4),
+    ).model_dump(mode="json")
+    assert loop_trace["generation_used_skill"] is False
+
+
+def test_run_prompt_loop_full_firing_signals_override_wins_over_env_quota(
+    tmp_path: Path,
+) -> None:
+    _, loop_trace_path, generated_path = run_prompt_loop_to_artifact(
+        POSITIVE_PROMPT,
+        tmp_path,
+        mock=True,
+        max_iterations=3,
+        firing_signals=FiringSignals(time=NON_HEAVY_FIRING_TIME, quota=None),
+        clock=lambda: NON_HEAVY_FIRING_TIME,
+        environ={"WHOSE_AGENT_QUOTA_LIMIT": "1"},
+    )
+
+    assert generated_path is not None
+    loop_trace = read_json(loop_trace_path)
+    do_steps = [
+        step for step in loop_trace["step_traces"] if step["step_kind"] == "do"
+    ]
+
+    assert len(do_steps) == 3
+    assert all(step["misreader_skill_fired"] is False for step in do_steps)
+    assert all(
+        "Quota pressure: absent." in step["trigger_evidence"] for step in do_steps
+    )
+    assert loop_trace["firing_signals"] == FiringSignals(
+        time=NON_HEAVY_FIRING_TIME,
+        quota=None,
+    ).model_dump(mode="json")
+    assert loop_trace["firing_reason"] == "no_pressure"
+    assert loop_trace["generation_used_skill"] is False
+
+
 def test_run_prompt_loop_cli_mock_heavy_time_generates_fired_path(
     tmp_path: Path,
 ) -> None:
@@ -711,6 +814,76 @@ def test_run_prompt_loop_cli_reflects_firing_time_and_quota_flags(
         quota=QuotaSignal(used=91, limit=100),
     ).model_dump(mode="json")
     assert loop_trace["firing_reason"] == "quota_pressure"
+
+
+def test_run_prompt_loop_cli_firing_time_only_preserves_env_quota_pressure(
+    tmp_path: Path,
+) -> None:
+    run_prompt_loop_cli(
+        POSITIVE_PROMPT,
+        tmp_path,
+        max_iterations=1,
+        firing_time=NON_HEAVY_FIRING_TIME_ARG,
+        env_quota_limit="1",
+    )
+    run_dir = single_run_dir(tmp_path)
+    loop_trace = read_json(run_dir / "prompt_loop.loop_trace.json")
+
+    assert loop_trace["firing_signals"] == FiringSignals(
+        time=NON_HEAVY_FIRING_TIME,
+        quota=QuotaSignal(used=1, limit=1),
+    ).model_dump(mode="json")
+    assert loop_trace["firing_reason"] == "quota_pressure"
+    assert loop_trace["step_traces"][1]["misreader_skill_fired"] is True
+
+
+def test_run_prompt_loop_cli_quota_pair_wins_over_env_quota(
+    tmp_path: Path,
+) -> None:
+    run_prompt_loop_cli(
+        POSITIVE_PROMPT,
+        tmp_path,
+        max_iterations=1,
+        firing_time=NON_HEAVY_FIRING_TIME_ARG,
+        quota_used=1,
+        quota_limit=1,
+        env_quota_limit="100",
+    )
+    run_dir = single_run_dir(tmp_path)
+    loop_trace = read_json(run_dir / "prompt_loop.loop_trace.json")
+
+    assert loop_trace["firing_signals"] == FiringSignals(
+        time=NON_HEAVY_FIRING_TIME,
+        quota=QuotaSignal(used=1, limit=1),
+    ).model_dump(mode="json")
+    assert loop_trace["firing_reason"] == "quota_pressure"
+    assert loop_trace["step_traces"][1]["misreader_skill_fired"] is True
+
+
+def test_run_prompt_loop_cli_invalid_env_quota_limit_reports_clean_error(
+    tmp_path: Path,
+) -> None:
+    command = [
+        sys.executable,
+        "-m",
+        "whose_agent.cli",
+        "run-prompt-loop",
+        "--prompt",
+        POSITIVE_PROMPT,
+        "--outputs",
+        str(tmp_path),
+        "--mock",
+        "--max-iterations",
+        "1",
+        "--firing-time",
+        NON_HEAVY_FIRING_TIME_ARG,
+    ]
+
+    result = run_cli_no_check(command, env_quota_limit="abc")
+
+    assert result.returncode == 1
+    assert "WHOSE_AGENT_QUOTA_LIMIT" in result.stderr
+    assert "Traceback" not in result.stderr
 
 
 @pytest.mark.parametrize(
@@ -1743,6 +1916,7 @@ def run_prompt_loop_cli(
     firing_time: str | None = NON_HEAVY_FIRING_TIME_ARG,
     quota_used: float | None = None,
     quota_limit: float | None = None,
+    env_quota_limit: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     command = [
         sys.executable,
@@ -1764,7 +1938,7 @@ def run_prompt_loop_cli(
         command += ["--quota-used", str(quota_used)]
     if quota_limit is not None:
         command += ["--quota-limit", str(quota_limit)]
-    return run_cli(command)
+    return run_cli(command, env_quota_limit=env_quota_limit)
 
 
 def run_prompt_loop_messages_cli(
@@ -1774,6 +1948,7 @@ def run_prompt_loop_messages_cli(
     firing_time: str | None = NON_HEAVY_FIRING_TIME_ARG,
     quota_used: float | None = None,
     quota_limit: float | None = None,
+    env_quota_limit: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     command = [
         sys.executable,
@@ -1792,7 +1967,7 @@ def run_prompt_loop_messages_cli(
         command += ["--quota-used", str(quota_used)]
     if quota_limit is not None:
         command += ["--quota-limit", str(quota_limit)]
-    return run_cli(command)
+    return run_cli(command, env_quota_limit=env_quota_limit)
 
 
 def run_fixed_cli(outputs: Path) -> subprocess.CompletedProcess[str]:
@@ -1868,9 +2043,16 @@ def write_messages_file(tmp_path: Path, messages: list[dict[str, str]]) -> Path:
     return path
 
 
-def run_cli(command: list[str]) -> subprocess.CompletedProcess[str]:
+def run_cli(
+    command: list[str],
+    *,
+    env_quota_limit: str | None = None,
+) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT / "src")
+    env.pop("WHOSE_AGENT_QUOTA_LIMIT", None)
+    if env_quota_limit is not None:
+        env["WHOSE_AGENT_QUOTA_LIMIT"] = env_quota_limit
     return subprocess.run(
         command,
         cwd=ROOT,
@@ -1881,9 +2063,16 @@ def run_cli(command: list[str]) -> subprocess.CompletedProcess[str]:
     )
 
 
-def run_cli_no_check(command: list[str]) -> subprocess.CompletedProcess[str]:
+def run_cli_no_check(
+    command: list[str],
+    *,
+    env_quota_limit: str | None = None,
+) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT / "src")
+    env.pop("WHOSE_AGENT_QUOTA_LIMIT", None)
+    if env_quota_limit is not None:
+        env["WHOSE_AGENT_QUOTA_LIMIT"] = env_quota_limit
     return subprocess.run(
         command,
         cwd=ROOT,

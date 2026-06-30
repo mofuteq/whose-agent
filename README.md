@@ -155,6 +155,14 @@ Use the CLI for scripting, artifact inspection, and benchmark-oriented runs.
 | `uv run whose-agent run-loop --scenario scenarios/instruction_typescript_any.yaml --outputs outputs --mock` | run the minimal loop for one fixed scenario |
 | `uv run whose-agent run-prompt-loop --prompt "Use TypeScript with explicit models and avoid any" --outputs outputs --mock` | run synthetic prompt-loop observability |
 
+`WHOSE_AGENT_QUOTA_LIMIT` configures the prompt-loop demonstrator's iteration
+budget only. On each prompt-contract `do` step, `used` is the actual entered
+loop iteration count (`loop_iteration + 1` before the step runs), and `limit` is
+the configured whole-number budget. When the variable is unset or blank, quota
+pressure is absent. Low limits are useful for deterministic demonstrator runs,
+but these quota values are not provider tokens, billing data, account balance,
+or external provider quota telemetry.
+
 ## State, Loop, and Observation
 
 The observable stages are:

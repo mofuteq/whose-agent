@@ -598,7 +598,12 @@ It is a controlled poor-e2e fixture, not a general autonomous runtime.
   prompt-derived loops use the explicit `misreader_firing_decision` override
   first, then the dedicated firing-signal policy: configured heavy-time windows
   and quota-pressure thresholds. Missing quota signals mean no quota pressure.
-  These are cause-side signals, not checker observations.
+  These are cause-side signals, not checker observations. In the current
+  prompt-loop production path, `WHOSE_AGENT_QUOTA_LIMIT` is an iteration budget:
+  quota `used` is the actual entered `do` step count (`loop_iteration + 1`) and
+  quota `limit` is the configured whole-number limit. It is intentionally
+  configurable for deterministic demonstrator runs, but it is not token usage,
+  billing, account balance, or external provider quota telemetry.
 - `check` runs the observation-side checker
 - `explain` may produce a `SelfExplanation` for the completed history-aware
   authority flow; non-applicable paths leave `self_explanation` unset

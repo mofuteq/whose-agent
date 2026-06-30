@@ -725,6 +725,7 @@ class WhoseAgentState(TypedDict, total=False):
     selected_skill_perspective: str | None
     misreader_firing_decision: bool | None
     firing_signals: FiringSignals | None
+    firing_signals_explicit: bool
     firing_reason: PromptFiringReason | None
     skill_triggered: bool
     misreader_skill_fired: bool

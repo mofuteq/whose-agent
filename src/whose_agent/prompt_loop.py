@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime
 from pathlib import Path
 
-from whose_agent.firing_signals import FiringSignals, production_firing_signals
+from whose_agent.firing_signals import FiringSignalOverrides, FiringSignals
 from whose_agent.loop_artifacts import (
     write_loop_trace,
     write_prompt_loop_generated,
@@ -43,7 +43,6 @@ def initial_loop_state_from_prompt_contract(
     misreader_firing_decision: bool | None = None,
     firing_signals: FiringSignals | None = None,
     messages: list[ConversationMessage] | None = None,
-    clock: Callable[[], datetime] | None = None,
 ) -> WhoseAgentState:
     """Convert a prompt contract into the existing minimal-loop state shape."""
     scenario = _scenario_from_prompt_contract(contract)
@@ -62,11 +61,8 @@ def initial_loop_state_from_prompt_contract(
     state["framework_specified"] = contract.framework_specified
     state["selected_skill_id"] = contract.selected_skill_id
     state["misreader_firing_decision"] = misreader_firing_decision
-    state["firing_signals"] = (
-        firing_signals
-        if firing_signals is not None
-        else production_firing_signals(clock=clock)
-    )
+    state["firing_signals"] = firing_signals
+    state["firing_signals_explicit"] = firing_signals is not None
     state["firing_reason"] = None
     state["loop_source"] = "prompt_contract"
     state["prompt_contract_status"] = contract.status
@@ -92,8 +88,10 @@ def run_prompt_loop_to_artifact(
     max_iterations: int = 1,
     misreader_firing_decision: bool | None = None,
     firing_signals: FiringSignals | None = None,
+    firing_signal_overrides: FiringSignalOverrides | None = None,
     messages: list[ConversationMessage] | None = None,
     clock: Callable[[], datetime] | None = None,
+    environ: Mapping[str, str] | None = None,
     tracer: object | None = None,
 ) -> tuple[Path, Path, Path | None]:
     """Detect a prompt contract, run the minimal loop, and write artifacts."""
@@ -114,14 +112,19 @@ def run_prompt_loop_to_artifact(
         )
     contract_path = write_prompt_contract(contract, output_dir)
 
-    graph = compile_minimal_loop_graph(mock=mock, tracer=tracer)
+    graph = compile_minimal_loop_graph(
+        mock=mock,
+        tracer=tracer,
+        clock=clock,
+        environ=environ,
+        firing_signal_overrides=firing_signal_overrides,
+    )
     initial_state = initial_loop_state_from_prompt_contract(
         contract,
         max_iterations=max_iterations,
         misreader_firing_decision=misreader_firing_decision,
         firing_signals=firing_signals,
         messages=canonical_messages,
-        clock=clock,
     )
     initial_state["prompt_contract_artifact"] = contract_path.name
     state = graph.invoke(initial_state)

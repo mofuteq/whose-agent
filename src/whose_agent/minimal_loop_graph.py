@@ -21,6 +21,8 @@ firing.
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable, Mapping
+from datetime import datetime
 from typing import Any, cast
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -42,7 +44,11 @@ from whose_agent.checker import (
 )
 from whose_agent.classifier import classify_scenario
 from whose_agent.conversation_view import project_messages
-from whose_agent.firing_signals import PromptFiringEvaluation
+from whose_agent.firing_signals import (
+    FiringSignalOverrides,
+    PromptFiringEvaluation,
+    resolve_firing_signals,
+)
 from whose_agent.history_adapter import (
     append_assistant_message,
     initial_conversation_messages,
@@ -154,6 +160,7 @@ def initial_loop_state_from_scenario(
         "selected_skill_perspective": None,
         "misreader_firing_decision": None,
         "firing_signals": None,
+        "firing_signals_explicit": False,
         "firing_reason": None,
         "skill_triggered": False,
         "misreader_skill_fired": False,
@@ -201,16 +208,26 @@ def compile_minimal_loop_graph(
     mock: bool = False,
     tracer: Any | None = None,
     checkpointer: BaseCheckpointSaver | None = None,
+    clock: Callable[[], datetime] | None = None,
+    environ: Mapping[str, str] | None = None,
+    firing_signal_overrides: FiringSignalOverrides | None = None,
 ) -> Any:
-    return build_minimal_loop_graph(mock=mock, tracer=tracer).compile(
-        checkpointer=checkpointer
-    )
+    return build_minimal_loop_graph(
+        mock=mock,
+        tracer=tracer,
+        clock=clock,
+        environ=environ,
+        firing_signal_overrides=firing_signal_overrides,
+    ).compile(checkpointer=checkpointer)
 
 
 def build_minimal_loop_graph(
     *,
     mock: bool = False,
     tracer: Any | None = None,
+    clock: Callable[[], datetime] | None = None,
+    environ: Mapping[str, str] | None = None,
+    firing_signal_overrides: FiringSignalOverrides | None = None,
 ) -> StateGraph:
     tracer = tracer if tracer is not None else NoopTracer()
     graph = StateGraph(WhoseAgentState)
@@ -250,7 +267,12 @@ def build_minimal_loop_graph(
         authority_provenance_active = _uses_authority_provenance(state)
 
         # Cause-side firing condition only. Checker observation is never read here.
-        firing_evaluation = _evaluate_do_step_firing(state)
+        firing_evaluation = _evaluate_do_step_firing(
+            state,
+            clock=clock,
+            environ=environ,
+            firing_signal_overrides=firing_signal_overrides,
+        )
         if firing_evaluation is not None:
             state = {
                 **state,
@@ -712,10 +734,24 @@ def _route_after_check(state: WhoseAgentState) -> str:
 
 def _evaluate_do_step_firing(
     state: WhoseAgentState,
+    *,
+    clock: Callable[[], datetime] | None,
+    environ: Mapping[str, str] | None,
+    firing_signal_overrides: FiringSignalOverrides | None,
 ) -> PromptFiringEvaluation | None:
     if state.get("loop_source") != "prompt_contract":
         return None
-    return evaluate_prompt_contract_firing(state)
+    if bool(state.get("firing_signals_explicit", False)):
+        return evaluate_prompt_contract_firing(state)
+
+    iteration_used = int(state.get("loop_iteration", 0)) + 1
+    signals = resolve_firing_signals(
+        iteration_used=iteration_used,
+        clock=clock,
+        environ=environ,
+        overrides=firing_signal_overrides,
+    )
+    return evaluate_prompt_contract_firing({**state, "firing_signals": signals})
 
 
 def _do_authority_provenance_step(

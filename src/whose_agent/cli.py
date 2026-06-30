@@ -8,7 +8,11 @@ from pathlib import Path
 from whose_agent.bad_response import BadResponseError
 from whose_agent.checker import CheckerError
 from whose_agent.env_loader import load_env_file
-from whose_agent.firing_signals import FiringSignals, QuotaSignal
+from whose_agent.firing_signals import (
+    FiringSignalConfigurationError,
+    FiringSignalOverrides,
+    QuotaSignal,
+)
 from whose_agent.authority_provenance import (
     derive_external_persistence_provenance,
 )
@@ -148,22 +152,22 @@ def run_prompt_loop_command(args: argparse.Namespace) -> int:
     )
     try:
         prompt, messages = _prompt_input_from_args(args)
-        firing_signals = _firing_signals_from_args(args)
+        firing_signal_overrides = _firing_signal_overrides_from_args(args)
+        result = run_prompt_loop(
+            run_id=run_dir.name,
+            prompt=prompt,
+            outputs_dir=Path(args.outputs),
+            run_dir=run_dir,
+            mock=args.mock,
+            max_iterations=args.max_iterations,
+            firing_signal_overrides=firing_signal_overrides,
+            messages=messages,
+            tracer=tracer,
+        )
     except (MessageHistoryError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         tracer.flush()
         return 1
-    result = run_prompt_loop(
-        run_id=run_dir.name,
-        prompt=prompt,
-        outputs_dir=Path(args.outputs),
-        run_dir=run_dir,
-        mock=args.mock,
-        max_iterations=args.max_iterations,
-        firing_signals=firing_signals,
-        messages=messages,
-        tracer=tracer,
-    )
     generated_emitted = PROMPT_LOOP_GENERATED_FILENAME in result.artifact_names
     explanation_emitted = "prompt_loop.explanation.json" in result.artifact_names
 
@@ -307,7 +311,9 @@ def _parse_firing_time(value: str) -> datetime:
         ) from exc
 
 
-def _firing_signals_from_args(args: argparse.Namespace) -> FiringSignals:
+def _firing_signal_overrides_from_args(
+    args: argparse.Namespace,
+) -> FiringSignalOverrides | None:
     quota_used = args.quota_used
     quota_limit = args.quota_limit
     if (quota_used is None) != (quota_limit is None):
@@ -321,10 +327,9 @@ def _firing_signals_from_args(args: argparse.Namespace) -> FiringSignals:
         if quota_used is not None and quota_limit is not None
         else None
     )
-    return FiringSignals(
-        time=args.firing_time or datetime.now().astimezone(),
-        quota=quota,
-    )
+    if args.firing_time is None and quota is None:
+        return None
+    return FiringSignalOverrides(time=args.firing_time, quota=quota)
 
 
 def _prompt_input_from_args(
@@ -348,6 +353,7 @@ def main(argv: list[str] | None = None) -> int:
         BadResponseError,
         CheckerError,
         MessageHistoryError,
+        FiringSignalConfigurationError,
         PromptContractDetectorError,
         ReflectionError,
     ) as exc:
