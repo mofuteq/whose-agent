@@ -29,7 +29,7 @@ describe('ObserverPane', () => {
       />,
     )
 
-    expect(screen.getByText('Who authorized the Notion action?')).toBeInTheDocument()
+    expect(screen.getByText('Who authorized this action?')).toBeInTheDocument()
     expect(screen.getByText('Nobody explicitly did.')).toBeInTheDocument()
   })
 
@@ -41,17 +41,29 @@ describe('ObserverPane', () => {
         state={authorityState()}
         selectedScenario={{
           scenario_id: 'instruction_typescript_any',
+          display_title: 'TypeScript form handler',
           selected_skill_id: 'safety_framework_escape_hatch',
           substitution_axis: 'instruction',
           description: 'instruction-axis fixed scenario',
+          display: {
+            title: 'TypeScript form handler',
+            preview_messages: [
+              {
+                role: 'user',
+                content: 'Build a small web form handler in TypeScript.',
+              },
+            ],
+          },
         }}
         onClose={vi.fn()}
       />,
     )
 
-    expect(screen.getByText('Who authorized the Notion action?')).toBeInTheDocument()
+    expect(screen.getByText('Who authorized this action?')).toBeInTheDocument()
     expect(
-      screen.queryByText('Which instruction was substituted?'),
+      screen.queryByText(
+        'Which explicit constraint did the assistant treat as optional?',
+      ),
     ).not.toBeInTheDocument()
   })
 

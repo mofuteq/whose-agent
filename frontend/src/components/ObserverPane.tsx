@@ -22,7 +22,7 @@ export function ObserverPane({
   onClose,
 }: ObserverPaneProps) {
   const closeButtonRef = useRef<HTMLButtonElement | null>(null)
-  const narrative = boundaryNarrative(state)
+  const narrative = boundaryNarrative(state, selectedScenario)
 
   useEffect(() => {
     if (!isOpen) {

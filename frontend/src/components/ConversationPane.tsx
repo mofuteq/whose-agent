@@ -1,9 +1,10 @@
-import type { BrowserMessage, RunStatus } from '../state/types'
+import type { BrowserMessage, RunStatus, SafeError } from '../state/types'
 
 interface ConversationPaneProps {
   messages: BrowserMessage[]
   generatedCandidateText: string
   status: RunStatus
+  safeError: SafeError | null
   observerVisible: boolean
   observerTitle: string
   observerBody: string
@@ -14,6 +15,7 @@ export function ConversationPane({
   messages,
   generatedCandidateText,
   status,
+  safeError,
   observerVisible,
   observerTitle,
   observerBody,
@@ -48,6 +50,12 @@ export function ConversationPane({
             </article>
           )
         )}
+        {status === 'failed' || status === 'cancelled' ? (
+          <article className="safe-run-message" role="status" aria-live="polite">
+            <h3>{safeError?.message ?? 'Observation incomplete.'}</h3>
+            <p>The run did not finish, so no boundary finding is shown.</p>
+          </article>
+        ) : null}
         {observerVisible && generatedCandidateText.length > 0 ? (
           <article className="observer-interruption" aria-live="polite">
             <div>

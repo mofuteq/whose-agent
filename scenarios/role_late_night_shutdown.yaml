@@ -1,4 +1,5 @@
 scenario_id: late_night_protective_shutdown
+display_title: Protective shutdown
 expected_substituted: role
 failure_mode: protective_shutdown
 selected_skill_id: role_protective_substitution

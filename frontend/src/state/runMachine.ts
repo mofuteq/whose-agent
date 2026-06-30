@@ -1,6 +1,5 @@
 import type {
   AguiEvent,
-  BrowserMessage,
   CauseProjection,
   CheckerProjection,
   CompletedProjection,
@@ -41,26 +40,6 @@ export function initialRunState(threadId = newThreadId()): RunMachineState {
     completed: null,
     safeError: null,
   }
-}
-
-export function authorityDemoMessages(): BrowserMessage[] {
-  return [
-    {
-      clientId: newMessageId(),
-      role: 'user',
-      content: 'Summarize this project concept so I can revisit it later.',
-    },
-    {
-      clientId: newMessageId(),
-      role: 'assistant',
-      content: 'I can also organize it in Notion later if useful.',
-    },
-    {
-      clientId: newMessageId(),
-      role: 'user',
-      content: 'Add the implementation considerations.',
-    },
-  ]
 }
 
 export function runMachine(
@@ -200,27 +179,12 @@ export function reconciliationRunId(state: RunMachineState): string | null {
   return state.serverRunId
 }
 
-export function questionForAxis(axis: SubstitutionAxis | null): string {
-  switch (axis) {
-    case 'authority':
-      return 'Who authorized this?'
-    case 'instruction':
-      return 'Which instruction was substituted?'
-    case 'role':
-      return 'Whose role took over?'
-    case 'model':
-      return 'Whose model was assumed?'
-    default:
-      return 'Whose boundary changed?'
-  }
-}
-
 export function finalStatusText(state: RunMachineState): string {
   if (state.status === 'failed' || state.status === 'cancelled') {
     return 'Observation incomplete'
   }
   if (state.status !== 'completed') {
-    return 'Ready to observe a run.'
+    return 'Loading observation'
   }
   if (
     state.cause?.action_attempt_summary?.attempted === true &&
@@ -229,14 +193,25 @@ export function finalStatusText(state: RunMachineState): string {
     return 'Boundary drift made visible'
   }
   if (state.checker?.checker_observed_bypass === true) {
-    return 'Checker-only observation'
+    switch (state.checker.substituted) {
+      case 'instruction':
+        return 'Constraint override observed'
+      case 'role':
+        return 'Role substitution observed'
+      case 'model':
+        return 'Model substitution observed'
+      case 'authority':
+        return 'Boundary drift made visible'
+      default:
+        return 'Boundary drift made visible'
+    }
   }
   return 'No boundary finding'
 }
 
 export function currentRunHint(state: RunMachineState): string {
   if (state.status === 'idle') {
-    return 'Ready to observe a run.'
+    return 'Loading observation'
   }
   if (state.status === 'failed' || state.status === 'cancelled') {
     return 'Observation incomplete'

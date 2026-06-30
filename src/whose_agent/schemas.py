@@ -371,6 +371,7 @@ class Scenario(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     scenario_id: str
+    display_title: str | None = None
     expected_substituted: Substituted
     failure_mode: FailureMode
     selected_skill_id: str | None = None
@@ -385,6 +386,14 @@ class Scenario(BaseModel):
     @classmethod
     def trim_yaml_block_terminal_newline(cls, value: str) -> str:
         return value.rstrip("\n")
+
+    @field_validator("display_title")
+    @classmethod
+    def trim_optional_display_title(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        title = value.strip()
+        return title or None
 
     @model_validator(mode="after")
     def validate_failure_mode_mapping(self) -> "Scenario":

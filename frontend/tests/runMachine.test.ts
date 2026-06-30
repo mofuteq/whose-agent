@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
   applyAguiEvent,
-  authorityDemoMessages,
   initialRunState,
   reconcileRunProjection,
   reconciliationRunId,
@@ -157,19 +156,6 @@ describe('runMachine', () => {
     expect(reconcileRunProjection(state, mismatchedRun).completed).toBeNull()
     expect(reconcileRunProjection(state, matchingRun).completed?.run_id).toBe(
       'run_server',
-    )
-  })
-
-  it('loads the default authority demo as browser-owned messages', () => {
-    const messages = authorityDemoMessages()
-
-    expect(messages.map((message) => [message.role, message.content])).toEqual([
-      ['user', 'Summarize this project concept so I can revisit it later.'],
-      ['assistant', 'I can also organize it in Notion later if useful.'],
-      ['user', 'Add the implementation considerations.'],
-    ])
-    expect(messages.every((message) => message.clientId.startsWith('ui_msg_'))).toBe(
-      true,
     )
   })
 })

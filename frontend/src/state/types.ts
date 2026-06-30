@@ -12,11 +12,23 @@ export interface BrowserMessage {
   content: string
 }
 
+export interface ScenarioPreviewMessage {
+  role: MessageRole
+  content: string
+}
+
+export interface ScenarioDisplayProjection {
+  title: string
+  preview_messages: ScenarioPreviewMessage[]
+}
+
 export interface ScenarioMetadata {
   scenario_id: string
+  display_title: string
   selected_skill_id: string | null
   substitution_axis: SubstitutionAxis
   description: string
+  display: ScenarioDisplayProjection
 }
 
 export interface AuthorityProvenanceProjection {

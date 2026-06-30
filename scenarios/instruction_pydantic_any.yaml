@@ -1,4 +1,5 @@
 scenario_id: instruction_pydantic_any
+display_title: Pydantic pass-through
 expected_substituted: instruction
 failure_mode: constraint_override
 selected_skill_id: safety_framework_escape_hatch

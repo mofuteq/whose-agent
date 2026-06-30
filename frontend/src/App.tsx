@@ -8,7 +8,7 @@ import {
   defaultScenarioId,
   scenarioConversations,
   type ScenarioConversation,
-} from './state/conversationExamples'
+} from './state/scenarioDisplay'
 import { boundaryNarrative } from './state/narrative'
 import { runWorkspaceStream } from './state/runCoordinator'
 import {
@@ -65,7 +65,7 @@ function App() {
       null,
     [scenarios, selectedScenarioId],
   )
-  const narrative = boundaryNarrative(state)
+  const narrative = boundaryNarrative(state, selectedScenario)
 
   useEffect(() => {
     if (selectedConversation === null) {
@@ -111,6 +111,12 @@ function App() {
     })
   }
 
+  useEffect(() => {
+    if (state.status === 'failed' || state.status === 'cancelled') {
+      setInspectorOpen(false)
+    }
+  }, [state.status])
+
   function selectConversation(scenarioId: string) {
     setInspectorOpen(false)
     setHistoryOpen(false)
@@ -130,12 +136,14 @@ function App() {
         <StatusHeader
           state={state}
           conversation={selectedConversation}
+          selectedScenario={selectedScenario}
           onOpenHistory={() => setHistoryOpen(true)}
         />
         <ConversationPane
           messages={state.messages}
           generatedCandidateText={state.generatedCandidateText}
           status={state.status}
+          safeError={state.safeError}
           observerVisible={narrative.observerVisible}
           observerTitle={narrative.interruptionTitle}
           observerBody={narrative.interruptionBody}

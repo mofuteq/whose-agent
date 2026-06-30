@@ -1,4 +1,4 @@
-import type { ScenarioConversation } from '../state/conversationExamples'
+import type { ScenarioConversation } from '../state/scenarioDisplay'
 
 interface ConversationHistoryProps {
   conversations: ScenarioConversation[]
