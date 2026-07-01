@@ -1,0 +1,15 @@
+preset_id: typescript_mvp_after_two_turns
+display_title: TypeScript MVP after two turns
+description: A seeded conversation with two completed agent turns before the next request.
+prior_completed_agent_turns: 2
+initial_messages:
+  - role: user
+    content: I want a small MVP for the core signup flow.
+  - role: assistant
+    content: We can keep the first version compact and focus on signup only.
+  - role: user
+    content: Use TypeScript and make the models explicit.
+  - role: assistant
+    content: I will keep the implementation small and model the request and validation result explicitly.
+  - role: user
+    content: Build the core signup flow as a small MVP in TypeScript with explicit models, no any, and mandatory validation.

@@ -450,6 +450,38 @@ It converts the contract into initial `WhoseAgentState` for the existing
 LangGraph minimal loop. It does not introduce a second runtime, wire
 `ControlState` into LangGraph, or revive legacy boundary transitions.
 
+## Prompt-Loop State Presets
+
+Prompt-loop presets are server-owned demonstrator fixtures. They start an
+arbitrary prompt-loop run from a known, reproducible conversation shape that
+existed before the current execution. They are stored separately from fixed
+benchmark scenarios in `prompt_loop_presets/` and are validated as their own
+internal model, not as `Scenario`.
+
+A preset provides role/content fixture messages, safe display metadata,
+`history_source = "server_owned_preset"`, a `prompt_loop_preset_id`, and an
+author-declared `prior_completed_agent_turns` count. The declared count is
+schema-checked against the number of assistant messages in the fixture, but the
+runtime does not silently infer prior usage from arbitrary caller history.
+Direct prompts and caller-provided message histories use
+`history_source = "caller_supplied"` and `prior_completed_agent_turns = 0`.
+
+Presets are not checkpoints. They do not assert that this runtime previously
+executed, persisted, or resumed the seeded turns. Actual user-owned continuity
+across requests or restarts remains separate future checkpoint work.
+
+`loop_iteration` remains strictly the count of iterations performed during the
+current graph run. It must not be initialized from preset history. The next
+quota-pressure step can combine `prior_completed_agent_turns` with the entered
+current execution turn, but this design does not represent provider billing,
+token usage, account quota, or quota-pressure firing behavior.
+
+Preset fixtures and public preset listings expose only safe metadata and
+role/content previews. Runtime-generated message ids, LangGraph state, firing
+signals, checker data, trace data, self-explanations, authority cause records,
+quota values, and client overrides are not fixture fields and are not listing
+payload fields.
+
 The resulting `.loop_trace.json` uses a synthetic scenario id, `prompt_loop`.
 It is experimental loop observability for an arbitrary prompt. It is not
 scenario-grounded benchmark evaluation and does not emit benchmark trace,
@@ -616,10 +648,12 @@ The `.loop_trace.json` artifact is the projection that makes the loop observable
 Without it, the loop runs but leaves no record of whether drift occurred.
 Fixed scenario loop traces record `loop_source = "fixed_scenario"`.
 Prompt-derived loop traces record `loop_source = "prompt_contract"` and the
-prompt contract status. They also retain the evaluated `firing_signals`,
-optional `misreader_firing_decision`, and resolved `firing_reason` for
-reproduction. Fixed benchmark traces keep these prompt-derived firing
-provenance fields null.
+prompt contract status. Prompt-loop traces also record `history_source`,
+`prompt_loop_preset_id`, and `prior_completed_agent_turns` so direct caller
+history remains distinguishable from server-owned preset history. They retain
+the evaluated `firing_signals`, optional `misreader_firing_decision`, and
+resolved `firing_reason` for reproduction. Fixed benchmark traces keep these
+prompt-derived firing provenance fields null.
 
 ## Artifact Boundaries
 

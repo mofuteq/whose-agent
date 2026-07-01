@@ -154,6 +154,7 @@ Use the CLI for scripting, artifact inspection, and benchmark-oriented runs.
 | `uv run whose-agent detect-contract --prompt "Use TypeScript with explicit models and avoid any" --outputs outputs --mock` | inspect an arbitrary prompt contract |
 | `uv run whose-agent run-loop --scenario scenarios/instruction_typescript_any.yaml --outputs outputs --mock` | run the minimal loop for one fixed scenario |
 | `uv run whose-agent run-prompt-loop --prompt "Use TypeScript with explicit models and avoid any" --outputs outputs --mock` | run synthetic prompt-loop observability |
+| `uv run whose-agent run-prompt-loop --preset typescript_mvp_after_two_turns --outputs outputs --mock` | run from a server-owned prompt-loop preset |
 
 ## State, Loop, and Observation
 
@@ -176,6 +177,26 @@ checking does not decide whether drift fired, and explanation is not an
 authorization verdict. It cannot modify, repair, or reinterpret cause records
 or checker results.
 
+### Prompt-Loop Presets
+
+Prompt-loop presets are reproducible demonstrator state fixtures stored under
+`prompt_loop_presets/`. A preset seeds canonical fixture conversation content,
+safe display metadata, explicit `prior_completed_agent_turns`, and provenance
+that the history came from a server-owned fixture.
+
+Presets are not checkpoints. They do not claim that this runtime previously
+executed and persisted those turns. Checkpointing for user-owned continuity
+across requests or restarts remains separate future work.
+
+Caller-provided prompts or message histories are `caller_supplied` and always
+start with `prior_completed_agent_turns = 0`; assistant messages in caller
+history are not inferred as runtime execution. Only validated server-owned
+presets may declare nonzero prior completed turns. `loop_iteration` still
+counts iterations performed during the current graph run only. Future quota
+pressure can combine declared prior completed turns with the next real
+execution turn; no provider billing, token, account quota, or quota-pressure
+wiring is represented by presets.
+
 ## AG-UI Host
 
 The local host is an AG-UI-compatible SSE execution and observation transport.
@@ -185,6 +206,7 @@ It is not a production-ready authenticated API.
 |---|---|
 | `GET /health` | health check |
 | `GET /api/scenarios` | safe fixed-scenario picker metadata |
+| `GET /api/prompt-loop-presets` | safe prompt-loop preset picker metadata |
 | `POST /agui` | AG-UI SSE execution endpoint |
 | `GET /api/runs/{run_id}` | local in-memory public run projection |
 
@@ -262,6 +284,7 @@ Minimal prompt-loop request:
 ## Repository Map
 
 - `scenarios/`: fixed benchmark fixtures.
+- `prompt_loop_presets/`: server-owned prompt-loop demonstrator fixtures.
 - `skills/`: human-authored substitution perspectives.
 - `src/whose_agent/`: runtime, CLI, AG-UI host, projections, and schemas.
 - `tests/`: regression tests for benchmark, prompt-loop, and transport

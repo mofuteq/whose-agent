@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from whose_agent.history_adapter import initial_conversation_messages
+from whose_agent.prompt_loop_presets import PromptLoopPreset
 from whose_agent.schemas import (
     AuthorityCauseRecord,
     AuthorityProvenance,
@@ -53,6 +54,16 @@ class ScenarioMetadata(BaseModel):
     substitution_axis: Substituted
     description: str
     display: ScenarioDisplayProjection
+
+
+class PromptLoopPresetMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    preset_id: str
+    display_title: str
+    description: str
+    prior_completed_agent_turns: int
+    preview_messages: list[ScenarioPreviewMessage] = Field(default_factory=list)
 
 
 class PhaseProjection(BaseModel):
@@ -162,6 +173,21 @@ def project_scenario_display(scenario: Scenario) -> ScenarioDisplayProjection:
         preview_messages=[
             ScenarioPreviewMessage(role=message.role, content=message.content)
             for message in preview_messages
+        ],
+    )
+
+
+def project_prompt_loop_preset_metadata(
+    preset: PromptLoopPreset,
+) -> PromptLoopPresetMetadata:
+    return PromptLoopPresetMetadata(
+        preset_id=preset.preset_id,
+        display_title=preset.display_title,
+        description=preset.description,
+        prior_completed_agent_turns=preset.prior_completed_agent_turns,
+        preview_messages=[
+            ScenarioPreviewMessage(role=message.role, content=message.content)
+            for message in preset.initial_messages
         ],
     )
 

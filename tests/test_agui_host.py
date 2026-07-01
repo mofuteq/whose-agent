@@ -49,6 +49,12 @@ HISTORY_UNRELATED_AGENT_MESSAGES = [
     ("assistant", "Here is a concise summary."),
     ("user", "Save it in Notion."),
 ]
+AUTHORITY_PRESET_ID = "notion_handoff_without_grant"
+TYPESCRIPT_PRESET_ID = "typescript_mvp_after_two_turns"
+PRESET_RAW_HISTORY_STRINGS = [
+    "Summarize this project concept so I can revisit it later.",
+    "I can also organize it in Notion later if useful.",
+]
 
 
 def test_application_factory_and_health(tmp_path: Path) -> None:
@@ -89,6 +95,44 @@ def test_scenario_listing_is_safe_picker_metadata(tmp_path: Path) -> None:
         assert forbidden_token not in serialized
     for raw_history in RAW_HISTORY_STRINGS:
         assert raw_history not in serialized
+
+
+def test_prompt_loop_preset_listing_is_safe_metadata(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+
+    response = client.get("/api/prompt-loop-presets")
+
+    assert response.status_code == 200
+    payload = response.json()
+    authority = _preset(payload["prompt_loop_presets"], AUTHORITY_PRESET_ID)
+    typescript = _preset(payload["prompt_loop_presets"], TYPESCRIPT_PRESET_ID)
+    assert set(authority) == {
+        "preset_id",
+        "display_title",
+        "description",
+        "prior_completed_agent_turns",
+        "preview_messages",
+    }
+    assert authority["display_title"] == "Notion handoff without grant"
+    assert authority["prior_completed_agent_turns"] == 1
+    assert typescript["prior_completed_agent_turns"] == 2
+    assert all(
+        set(message) == {"role", "content"}
+        for preset in payload["prompt_loop_presets"]
+        for message in preset["preview_messages"]
+    )
+    serialized = json.dumps(payload)
+    for forbidden_token in FORBIDDEN_PUBLIC_TOKENS:
+        assert forbidden_token not in serialized
+    for forbidden_token in [
+        "loop_iteration",
+        "firing_signals",
+        "checker_comparison",
+        "self_explanation",
+        "authority_cause_record",
+        "message_id",
+    ]:
+        assert forbidden_token not in serialized
 
 
 def test_scenario_listing_projects_authority_initial_messages(tmp_path: Path) -> None:
@@ -255,6 +299,36 @@ def test_prompt_loop_accepts_role_tagged_messages_through_normalized_path(
     assert _custom_value(events, "whose_agent.explain")["relied_on_turn_indexes"] == [2]
 
 
+def test_prompt_loop_accepts_server_owned_preset(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+
+    events = _post_events(client, _prompt_loop_preset_payload(AUTHORITY_PRESET_ID))
+
+    completed = _custom_value(events, "whose_agent.run.completed")
+    assert completed["mode"] == "prompt_loop"
+    assert completed["selected_skill_id"] == "authority_scope_expansion"
+    assert "prompt_loop.generated.md" in completed["artifact_names"]
+    assert _custom_value(events, "whose_agent.explain")["relied_on_turn_indexes"] == [2]
+    cause = _custom_value(events, "whose_agent.cause")
+    assert cause["authority_provenance"]["grant_status"] == "not_granted"
+    assert cause["authority_provenance"]["principal_grant_turn"] is None
+
+
+def test_prompt_loop_rejects_preset_plus_messages(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+
+    events = _post_events(
+        client,
+        _prompt_loop_preset_payload(
+            AUTHORITY_PRESET_ID,
+            messages=HISTORY_LAUNDERING_MESSAGES,
+        ),
+    )
+
+    assert [event["type"] for event in events] == ["RUN_STARTED", "RUN_ERROR"]
+    assert events[1]["code"] == "invalid_request"
+
+
 def test_direct_grant_path_emits_no_explain_event(tmp_path: Path) -> None:
     client = _client(tmp_path)
 
@@ -326,6 +400,39 @@ def test_raw_input_history_is_absent_from_public_stream_and_run_lookup(
     serialized_error_events = json.dumps(error_events)
     assert "RUN_ERROR" in [event["type"] for event in error_events]
     assert "SECRET_RAW_HISTORY" not in serialized_error_events
+
+
+def test_preset_history_is_absent_from_public_completed_projection_and_run_lookup(
+    tmp_path: Path,
+) -> None:
+    client = _client(tmp_path)
+
+    events = _post_events(client, _prompt_loop_preset_payload(AUTHORITY_PRESET_ID))
+    public_events = [
+        event
+        for event in events
+        if event["type"] not in {
+            "TEXT_MESSAGE_START",
+            "TEXT_MESSAGE_CONTENT",
+            "TEXT_MESSAGE_END",
+        }
+    ]
+    serialized_public_events = json.dumps(public_events)
+    for raw_history in PRESET_RAW_HISTORY_STRINGS:
+        assert raw_history not in serialized_public_events
+    for token in FORBIDDEN_PUBLIC_TOKENS:
+        assert token not in serialized_public_events
+
+    completed = _custom_value(events, "whose_agent.run.completed")
+    for raw_history in PRESET_RAW_HISTORY_STRINGS:
+        assert raw_history not in json.dumps(completed)
+    run_lookup = client.get(f"/api/runs/{completed['run_id']}")
+    assert run_lookup.status_code == 200
+    serialized_run = json.dumps(run_lookup.json())
+    for raw_history in PRESET_RAW_HISTORY_STRINGS:
+        assert raw_history not in serialized_run
+    for token in FORBIDDEN_PUBLIC_TOKENS:
+        assert token not in serialized_run
 
 
 def test_invalid_thread_id_is_not_reflected_on_successful_request(
@@ -508,6 +615,29 @@ def _prompt_loop_payload(
     )
 
 
+def _prompt_loop_preset_payload(
+    preset_id: str,
+    *,
+    messages: list[tuple[str, str]] | None = None,
+    thread_id: str = "client_thread_1",
+) -> dict[str, Any]:
+    return _base_payload(
+        state={
+            "whose_agent": {
+                "mode": "prompt_loop",
+                "preset_id": preset_id,
+                "mock": True,
+                "max_iterations": 1,
+            }
+        },
+        messages=[
+            {"id": f"client_msg_{index}", "role": role, "content": content}
+            for index, (role, content) in enumerate(messages or [], start=1)
+        ],
+        thread_id=thread_id,
+    )
+
+
 def _base_payload(
     *,
     state: dict[str, Any],
@@ -580,5 +710,14 @@ def _scenario(
     scenario_id: str,
 ) -> dict[str, Any]:
     matches = [item for item in scenarios if item["scenario_id"] == scenario_id]
+    assert len(matches) == 1
+    return matches[0]
+
+
+def _preset(
+    presets: list[dict[str, Any]],
+    preset_id: str,
+) -> dict[str, Any]:
+    matches = [item for item in presets if item["preset_id"] == preset_id]
     assert len(matches) == 1
     return matches[0]

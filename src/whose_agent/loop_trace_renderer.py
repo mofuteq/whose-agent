@@ -18,6 +18,11 @@ def render_loop_trace(state: WhoseAgentState) -> LoopTrace:
     return LoopTrace(
         scenario_id=scenario.scenario_id,
         loop_source=state.get("loop_source", "fixed_scenario"),
+        history_source=state.get("history_source"),
+        prompt_loop_preset_id=state.get("prompt_loop_preset_id"),
+        prior_completed_agent_turns=int(
+            state.get("prior_completed_agent_turns", 0)
+        ),
         boundary_detected=bool(state.get("boundary_detected", False)),
         substitution_axis=state.get("substitution_axis"),
         delegated_boundary=state.get("delegated_boundary"),

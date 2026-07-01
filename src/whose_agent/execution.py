@@ -9,7 +9,7 @@ from typing import Literal
 from whose_agent.authority_provenance import derive_external_persistence_provenance
 from whose_agent.conversation_view import project_messages
 from whose_agent.firing_signals import FiringSignals
-from whose_agent.history_adapter import conversation_from_prompt, require_unique_message_ids
+from whose_agent.history_adapter import require_unique_message_ids
 from whose_agent.loop_artifacts import write_loop_trace, write_prompt_loop_generated
 from whose_agent.loop_trace_renderer import render_loop_trace
 from whose_agent.minimal_loop_graph import compile_minimal_loop_graph
@@ -21,20 +21,28 @@ from whose_agent.prompt_loop import (
     _should_emit_prompt_loop_generated,
     initial_loop_state_from_prompt_contract,
 )
+from whose_agent.prompt_loop_seed import (
+    DEFAULT_PROMPT_LOOP_PRESETS_DIR,
+    PromptLoopSeed,
+    resolve_prompt_loop_seed,
+)
 from whose_agent.public_projection import (
     CauseProjection,
     CheckerProjection,
     CompletedProjection,
     ExplainProjection,
     PhaseProjection,
+    PromptLoopPresetMetadata,
     RunMode,
     ScenarioMetadata,
     project_cause,
     project_checker,
     project_completed,
     project_explain,
+    project_prompt_loop_preset_metadata,
     project_scenario_metadata,
 )
+from whose_agent.prompt_loop_presets import load_prompt_loop_presets
 from whose_agent.run_directory import create_run_directory
 from whose_agent.scenario_loader import load_scenario, load_scenarios
 from whose_agent.schemas import (
@@ -125,6 +133,15 @@ def list_fixed_scenarios(scenarios_dir: Path) -> list[ScenarioMetadata]:
     ]
 
 
+def list_server_prompt_loop_presets(
+    presets_dir: Path,
+) -> list[PromptLoopPresetMetadata]:
+    return [
+        project_prompt_loop_preset_metadata(preset)
+        for preset in load_prompt_loop_presets(presets_dir)
+    ]
+
+
 def load_known_scenario(scenarios_dir: Path, scenario_id: str) -> Scenario | None:
     for scenario in load_scenarios(scenarios_dir):
         if scenario.scenario_id == scenario_id:
@@ -178,19 +195,40 @@ def run_fixed_scenarios(
 async def stream_prompt_loop(
     *,
     run_id: str,
-    prompt: str,
     outputs_dir: Path,
     mock: bool,
     max_iterations: int,
+    prompt: str | None = None,
     messages: list[ConversationMessage] | None = None,
+    preset_id: str | None = None,
+    presets_dir: Path = DEFAULT_PROMPT_LOOP_PRESETS_DIR,
+    seed: PromptLoopSeed | None = None,
     run_dir: Path | None = None,
     firing_signals: FiringSignals | None = None,
     tracer: object | None = None,
 ) -> AsyncIterator[RunnerEvent]:
     run_dir = run_dir if run_dir is not None else create_run_directory(outputs_dir)
-    canonical_messages = (
-        list(messages) if messages is not None else conversation_from_prompt(prompt)
-    )
+    if seed is not None:
+        resolved_seed = seed
+    elif preset_id is not None:
+        resolved_seed = resolve_prompt_loop_seed(
+            prompt=prompt,
+            messages=messages,
+            preset_id=preset_id,
+            presets_dir=presets_dir,
+        )
+    elif messages is not None:
+        resolved_seed = resolve_prompt_loop_seed(
+            messages=messages,
+            presets_dir=presets_dir,
+        )
+    else:
+        resolved_seed = resolve_prompt_loop_seed(
+            prompt=prompt,
+            presets_dir=presets_dir,
+        )
+    prompt = resolved_seed.current_principal_prompt
+    canonical_messages = list(resolved_seed.messages)
     require_unique_message_ids(canonical_messages)
     authority_provenance = derive_external_persistence_provenance(
         project_messages(canonical_messages)
@@ -214,6 +252,9 @@ async def stream_prompt_loop(
         max_iterations=max_iterations,
         firing_signals=firing_signals,
         messages=canonical_messages,
+        history_source=resolved_seed.history_source,
+        prompt_loop_preset_id=resolved_seed.prompt_loop_preset_id,
+        prior_completed_agent_turns=resolved_seed.prior_completed_agent_turns,
     )
     initial_state["prompt_contract_artifact"] = contract_path.name
 
@@ -230,11 +271,14 @@ async def stream_prompt_loop(
 def run_prompt_loop(
     *,
     run_id: str,
-    prompt: str,
     outputs_dir: Path,
     mock: bool,
     max_iterations: int,
+    prompt: str | None = None,
     messages: list[ConversationMessage] | None = None,
+    preset_id: str | None = None,
+    presets_dir: Path = DEFAULT_PROMPT_LOOP_PRESETS_DIR,
+    seed: PromptLoopSeed | None = None,
     run_dir: Path | None = None,
     firing_signals: FiringSignals | None = None,
     tracer: object | None = None,
@@ -248,6 +292,9 @@ def run_prompt_loop(
                 mock=mock,
                 max_iterations=max_iterations,
                 messages=messages,
+                preset_id=preset_id,
+                presets_dir=presets_dir,
+                seed=seed,
                 run_dir=run_dir,
                 firing_signals=firing_signals,
                 tracer=tracer,
