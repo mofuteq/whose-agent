@@ -453,18 +453,48 @@ LangGraph minimal loop. It does not introduce a second runtime, wire
 ## Prompt-Loop State Presets
 
 Prompt-loop presets are server-owned demonstrator fixtures. They start an
-arbitrary prompt-loop run from a known, reproducible conversation shape that
+arbitrary prompt-loop run from known, reproducible completed prior history that
 existed before the current execution. They are stored separately from fixed
 benchmark scenarios in `prompt_loop_presets/` and are validated as their own
 internal model, not as `Scenario`.
 
-A preset provides role/content fixture messages, safe display metadata,
-`history_source = "server_owned_preset"`, a `prompt_loop_preset_id`, and an
-author-declared `prior_completed_agent_turns` count. The declared count is
-schema-checked against the number of assistant messages in the fixture, but the
-runtime does not silently infer prior usage from arbitrary caller history.
-Direct prompts and caller-provided message histories use
+A preset provides only completed role/content fixture messages, safe display
+metadata, an editable `suggested_next_prompt`, `history_source =
+"server_owned_preset"`, a `prompt_loop_preset_id`, and an author-declared
+`prior_completed_agent_turns` count. Nonempty preset history begins with `user`,
+alternates `user` then `assistant`, and ends with `assistant`. The declared
+prior-turn count is schema-checked against the number of assistant messages in
+the fixture, but the runtime does not silently infer prior usage from arbitrary
+caller history.
+
+`suggested_next_prompt` is not canonical conversation history. It is safe
+display metadata for the browser composer, where the user can edit or replace it
+before Send. Selecting a preset only displays the prior transcript and draft; it
+must not call an LLM, run contract detection, or create a synthetic current user
+message. On Send, the server appends the exact submitted prompt as the current
+canonical user turn:
+
+```text
+canonical_messages = preset_initial_messages + [submitted_user_message]
+```
+
+The submitted message is created server-side through the same message adapter
+path as direct prompt input. It is the current principal turn; the suggested
+draft has no runtime effect unless the user submits that exact text.
+
+The accepted prompt-loop input modes are:
+
+| input | history_source | prior_completed_agent_turns |
+|---|---|---|
+| direct prompt | `caller_supplied` | `0` |
+| caller-provided messages | `caller_supplied` | `0` |
+| server-owned `preset_id` plus submitted prompt | `server_owned_preset` | fixture declaration |
+
+Direct prompts and caller-provided message histories therefore use
 `history_source = "caller_supplied"` and `prior_completed_agent_turns = 0`.
+The API and CLI do not accept client-provided prior-turn counts, initial loop
+state, firing signals, quota usage, preset message overrides, or seed
+provenance overrides.
 
 Presets are not checkpoints. They do not assert that this runtime previously
 executed, persisted, or resumed the seeded turns. Actual user-owned continuity
@@ -476,11 +506,16 @@ quota-pressure step can combine `prior_completed_agent_turns` with the entered
 current execution turn, but this design does not represent provider billing,
 token usage, account quota, or quota-pressure firing behavior.
 
+The current browser workspace demonstrates one live current turn from a seed.
+After completion, it preserves the transcript for inspection but does not imply
+durable server-side thread continuation. The next action is a reset, a new
+conversation starter, or a new custom observation.
+
 Preset fixtures and public preset listings expose only safe metadata and
-role/content previews. Runtime-generated message ids, LangGraph state, firing
-signals, checker data, trace data, self-explanations, authority cause records,
-quota values, and client overrides are not fixture fields and are not listing
-payload fields.
+role/content previews plus `suggested_next_prompt`. Runtime-generated message
+ids, LangGraph state, loop iteration, firing signals, checker data, trace data,
+self-explanations, authority cause records, quota values, and client overrides
+are not fixture fields and are not listing payload fields.
 
 The resulting `.loop_trace.json` uses a synthetic scenario id, `prompt_loop`.
 It is experimental loop observability for an arbitrary prompt. It is not
@@ -650,8 +685,10 @@ Fixed scenario loop traces record `loop_source = "fixed_scenario"`.
 Prompt-derived loop traces record `loop_source = "prompt_contract"` and the
 prompt contract status. Prompt-loop traces also record `history_source`,
 `prompt_loop_preset_id`, and `prior_completed_agent_turns` so direct caller
-history remains distinguishable from server-owned preset history. They retain
-the evaluated `firing_signals`, optional `misreader_firing_decision`, and
+history remains distinguishable from server-owned preset history. They do not
+copy raw preset fixture messages into loop traces, run lookup payloads, checker
+artifacts, self-explanation artifacts, or public completed projections. They
+retain the evaluated `firing_signals`, optional `misreader_firing_decision`, and
 resolved `firing_reason` for reproduction. Fixed benchmark traces keep these
 prompt-derived firing provenance fields null.
 

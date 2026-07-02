@@ -112,25 +112,12 @@ def run_prompt_loop_to_artifact(
     tracer: object | None = None,
 ) -> tuple[Path, Path, Path | None]:
     """Detect a prompt contract, run the minimal loop, and write artifacts."""
-    if seed is not None:
-        resolved_seed = seed
-    elif preset_id is not None:
-        resolved_seed = resolve_prompt_loop_seed(
-            prompt=prompt,
-            messages=messages,
-            preset_id=preset_id,
-            presets_dir=presets_dir,
-        )
-    elif messages is not None:
-        resolved_seed = resolve_prompt_loop_seed(
-            messages=messages,
-            presets_dir=presets_dir,
-        )
-    else:
-        resolved_seed = resolve_prompt_loop_seed(
-            prompt=prompt,
-            presets_dir=presets_dir,
-        )
+    resolved_seed = seed or resolve_prompt_loop_seed(
+        prompt=prompt,
+        messages=messages,
+        preset_id=preset_id,
+        presets_dir=presets_dir,
+    )
     prompt = resolved_seed.current_principal_prompt
     canonical_messages = list(resolved_seed.messages)
     require_unique_message_ids(canonical_messages)

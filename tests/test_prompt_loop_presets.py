@@ -33,8 +33,8 @@ def test_valid_authority_preset_schema() -> None:
     assert [message.role for message in preset.initial_messages] == [
         "user",
         "assistant",
-        "user",
     ]
+    assert preset.suggested_next_prompt == "Add the implementation considerations."
     assert [message.model_dump() for message in preset.initial_messages] == [
         {
             "role": "user",
@@ -44,7 +44,6 @@ def test_valid_authority_preset_schema() -> None:
             "role": "assistant",
             "content": "I can also organize it in Notion later if useful.",
         },
-        {"role": "user", "content": "Add the implementation considerations."},
     ]
 
 
@@ -59,14 +58,13 @@ def test_valid_typescript_preset_schema() -> None:
         "assistant",
         "user",
         "assistant",
-        "user",
     ]
-    final_request = preset.initial_messages[-1].content
-    assert "TypeScript" in final_request
-    assert "explicit models" in final_request
-    assert "no any" in final_request
-    assert "small MVP" in final_request
-    assert "mandatory validation" in final_request
+    suggested_request = preset.suggested_next_prompt
+    assert "TypeScript" in suggested_request
+    assert "explicit models" in suggested_request
+    assert "no any" in suggested_request
+    assert "small MVP" in suggested_request
+    assert "mandatory validation" in suggested_request
 
 
 def test_duplicate_preset_ids_fail(tmp_path: Path) -> None:
@@ -91,8 +89,11 @@ def test_noninteger_prior_turn_count_fails(tmp_path: Path) -> None:
         load_prompt_loop_preset(path)
 
 
-@pytest.mark.parametrize("field", ["display_title", "description"])
-def test_empty_title_or_description_fails(tmp_path: Path, field: str) -> None:
+@pytest.mark.parametrize(
+    "field",
+    ["display_title", "description", "suggested_next_prompt"],
+)
+def test_empty_display_text_fails(tmp_path: Path, field: str) -> None:
     path = write_preset(tmp_path / "preset.yaml", **{field: '""'})
 
     with pytest.raises(PromptLoopPresetError, match="must not be empty"):
@@ -122,16 +123,19 @@ def test_nonalternating_role_sequence_fails(tmp_path: Path) -> None:
         messages=(
             "- role: user\n"
             "  content: Start.\n"
-            "- role: user\n"
-            "  content: Continue.\n"
+            "- role: assistant\n"
+            "  content: Prior answer.\n"
+            "- role: assistant\n"
+            "  content: Repeated answer.\n"
         ),
+        prior_completed_agent_turns="2",
     )
 
     with pytest.raises(PromptLoopPresetError, match="alternate user then assistant"):
         load_prompt_loop_preset(path)
 
 
-def test_fixture_not_ending_with_user_fails(tmp_path: Path) -> None:
+def test_old_fixture_ending_with_user_fails(tmp_path: Path) -> None:
     path = write_preset(
         tmp_path / "preset.yaml",
         messages=(
@@ -139,11 +143,13 @@ def test_fixture_not_ending_with_user_fails(tmp_path: Path) -> None:
             "  content: Start.\n"
             "- role: assistant\n"
             "  content: Prior answer.\n"
+            "- role: user\n"
+            "  content: Continue.\n"
         ),
         prior_completed_agent_turns="1",
     )
 
-    with pytest.raises(PromptLoopPresetError, match="end with a user message"):
+    with pytest.raises(PromptLoopPresetError, match="end with an assistant message"):
         load_prompt_loop_preset(path)
 
 
@@ -191,8 +197,6 @@ def test_fixture_message_ids_fail(tmp_path: Path, message_id_field: str) -> None
             f"  {message_id_field}: caller_msg_1\n"
             "- role: assistant\n"
             "  content: Prior answer.\n"
-            "- role: user\n"
-            "  content: Continue.\n"
         ),
     )
 
@@ -202,7 +206,9 @@ def test_fixture_message_ids_fail(tmp_path: Path, message_id_field: str) -> None
 
 def test_preset_seed_creates_runtime_message_ids_and_state_provenance() -> None:
     preset = load_prompt_loop_preset(PRESETS / f"{AUTHORITY_PRESET_ID}.yaml")
+    submitted_prompt = "Add the implementation considerations."
     seed = resolve_prompt_loop_seed(
+        prompt=submitted_prompt,
         preset_id=AUTHORITY_PRESET_ID,
         presets_dir=PRESETS,
     )
@@ -214,7 +220,7 @@ def test_preset_seed_creates_runtime_message_ids_and_state_provenance() -> None:
         ),
     )
 
-    assert seed.current_principal_prompt == "Add the implementation considerations."
+    assert seed.current_principal_prompt == submitted_prompt
     assert seed.history_source == "server_owned_preset"
     assert seed.prompt_loop_preset_id == AUTHORITY_PRESET_ID
     assert seed.prior_completed_agent_turns == 1
@@ -224,7 +230,15 @@ def test_preset_seed_creates_runtime_message_ids_and_state_provenance() -> None:
     ] == [
         {"role": message.role, "content": message.content}
         for message in preset.initial_messages
+    ] + [{"role": "user", "content": submitted_prompt}]
+    assert [
+        {"role": message.role, "content": message.content}
+        for message in preset.to_conversation_messages()
+    ] == [
+        {"role": "user", "content": "Summarize this project concept so I can revisit it later."},
+        {"role": "assistant", "content": "I can also organize it in Notion later if useful."},
     ]
+    assert preset.suggested_next_prompt == submitted_prompt
     assert all(message.message_id.startswith("msg_") for message in seed.messages)
     assert all("message_id" not in message.model_dump() for message in preset.initial_messages)
 
@@ -244,6 +258,40 @@ def test_preset_seed_creates_runtime_message_ids_and_state_provenance() -> None:
     final_state = compile_minimal_loop_graph(mock=True).invoke(state)
     assert final_state["loop_iteration"] == 1
     assert final_state["prior_completed_agent_turns"] == 1
+
+
+def test_typescript_preset_seed_appends_submitted_current_turn() -> None:
+    submitted_prompt = (
+        "Build the small MVP core signup flow in TypeScript with explicit models, "
+        "no any, and mandatory validation."
+    )
+
+    seed = resolve_prompt_loop_seed(
+        prompt=submitted_prompt,
+        preset_id=TYPESCRIPT_PRESET_ID,
+        presets_dir=PRESETS,
+    )
+    contract = detect_prompt_contract(seed.current_principal_prompt, mock=True)
+    state = initial_loop_state_from_prompt_contract(
+        contract,
+        max_iterations=1,
+        messages=seed.messages,
+        history_source=seed.history_source,
+        prompt_loop_preset_id=seed.prompt_loop_preset_id,
+        prior_completed_agent_turns=seed.prior_completed_agent_turns,
+    )
+
+    assert [message.role for message in seed.messages] == [
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+    ]
+    assert seed.messages[-1].content == submitted_prompt
+    assert seed.prior_completed_agent_turns == 2
+    assert state["loop_iteration"] == 0
+    assert state["prior_completed_agent_turns"] == 2
 
 
 def test_direct_prompt_and_caller_messages_keep_zero_prior_completed_turns() -> None:
@@ -276,9 +324,8 @@ def write_preset(
         "  content: Start.\n"
         "- role: assistant\n"
         "  content: Prior answer.\n"
-        "- role: user\n"
-        "  content: Continue.\n"
     ),
+    suggested_next_prompt: str = "Continue.",
     extra_fields: str = "",
 ) -> Path:
     path.write_text(
@@ -289,6 +336,7 @@ def write_preset(
             f"prior_completed_agent_turns: {prior_completed_agent_turns}\n"
             "initial_messages:\n"
             f"{messages}"
+            f"suggested_next_prompt: {suggested_next_prompt}\n"
             f"{extra_fields}"
         ),
         encoding="utf-8",

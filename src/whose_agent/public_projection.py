@@ -64,6 +64,7 @@ class PromptLoopPresetMetadata(BaseModel):
     description: str
     prior_completed_agent_turns: int
     preview_messages: list[ScenarioPreviewMessage] = Field(default_factory=list)
+    suggested_next_prompt: str
 
 
 class PhaseProjection(BaseModel):
@@ -185,6 +186,7 @@ def project_prompt_loop_preset_metadata(
         display_title=preset.display_title,
         description=preset.description,
         prior_completed_agent_turns=preset.prior_completed_agent_turns,
+        suggested_next_prompt=preset.suggested_next_prompt,
         preview_messages=[
             ScenarioPreviewMessage(role=message.role, content=message.content)
             for message in preset.initial_messages

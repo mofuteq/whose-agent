@@ -183,8 +183,11 @@ export function finalStatusText(state: RunMachineState): string {
   if (state.status === 'failed' || state.status === 'cancelled') {
     return 'Observation incomplete'
   }
+  if (state.status === 'idle') {
+    return 'Ready to send'
+  }
   if (state.status !== 'completed') {
-    return 'Loading observation'
+    return 'Observing'
   }
   if (
     state.cause?.action_attempt_summary?.attempted === true &&
@@ -211,7 +214,7 @@ export function finalStatusText(state: RunMachineState): string {
 
 export function currentRunHint(state: RunMachineState): string {
   if (state.status === 'idle') {
-    return 'Loading observation'
+    return 'Ready to send'
   }
   if (state.status === 'failed' || state.status === 'cancelled') {
     return 'Observation incomplete'

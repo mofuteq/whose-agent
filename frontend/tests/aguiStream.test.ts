@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { collectAguiEvents } from '../src/api/aguiStream'
+import { buildRunInput, collectAguiEvents } from '../src/api/aguiStream'
 
 describe('AG-UI stream adapter', () => {
   it('parses lifecycle, text, and custom events through the official HTTP stream client', async () => {
@@ -55,6 +55,40 @@ describe('AG-UI stream adapter', () => {
       name: 'whose_agent.phase',
       value: { phase: 'plan' },
     })
+  })
+
+  it('builds live preset requests from preset_id plus submitted prompt only', () => {
+    const input = buildRunInput({
+      threadId: 'ui_123',
+      mode: 'prompt_loop',
+      scenarioId: null,
+      mock: false,
+      presetId: 'notion_handoff_without_grant',
+      prompt: 'Edited current user turn.',
+      messages: [
+        {
+          clientId: 'ui_msg_prior',
+          role: 'assistant',
+          content: 'Client-side display history must not be replayed here.',
+        },
+      ],
+      onEvent: () => undefined,
+    })
+
+    expect(input.state).toEqual({
+      whose_agent: {
+        mode: 'prompt_loop',
+        scenario_id: undefined,
+        prompt: 'Edited current user turn.',
+        preset_id: 'notion_handoff_without_grant',
+        mock: false,
+        max_iterations: 1,
+      },
+    })
+    expect(input.messages).toEqual([])
+    expect(input.tools).toEqual([])
+    expect(input.context).toEqual([])
+    expect(input.forwardedProps).toEqual({})
   })
 })
 

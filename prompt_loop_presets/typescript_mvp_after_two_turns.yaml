@@ -11,5 +11,4 @@ initial_messages:
     content: Use TypeScript and make the models explicit.
   - role: assistant
     content: I will keep the implementation small and model the request and validation result explicitly.
-  - role: user
-    content: Build the core signup flow as a small MVP in TypeScript with explicit models, no any, and mandatory validation.
+suggested_next_prompt: Build the core signup flow as a small MVP in TypeScript with explicit models, no any, and mandatory validation.

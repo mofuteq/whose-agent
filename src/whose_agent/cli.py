@@ -247,15 +247,15 @@ def build_parser() -> argparse.ArgumentParser:
         "run-prompt-loop",
         help="Run experimental loop observability for one arbitrary prompt.",
     )
-    prompt_loop_input_group = prompt_loop_parser.add_mutually_exclusive_group(required=True)
+    prompt_loop_input_group = prompt_loop_parser.add_mutually_exclusive_group()
     prompt_loop_input_group.add_argument("--prompt", help="Principal prompt text to inspect and loop.")
     prompt_loop_input_group.add_argument(
         "--messages-file",
         help="JSON array of OpenAI-compatible role/content messages.",
     )
-    prompt_loop_input_group.add_argument(
+    prompt_loop_parser.add_argument(
         "--preset",
-        help="Server-owned prompt-loop preset id.",
+        help="Server-owned prompt-loop history preset id. Requires --prompt.",
     )
     prompt_loop_parser.add_argument(
         "--presets",

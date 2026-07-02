@@ -59,6 +59,7 @@ class WhoseAgentOptions(BaseModel):
     mode: RunMode
     scenario_id: str | None = None
     preset_id: str | None = None
+    prompt: str | None = None
     mock: bool = True
     max_iterations: int = Field(default=1, ge=1, le=MAX_API_ITERATIONS)
 
@@ -68,6 +69,8 @@ class WhoseAgentOptions(BaseModel):
             raise ValueError("fixed mode requires scenario_id")
         if self.mode == "fixed" and self.preset_id is not None:
             raise ValueError("fixed mode does not accept preset_id")
+        if self.mode == "fixed" and self.prompt is not None:
+            raise ValueError("fixed mode does not accept prompt")
         if self.mode == "prompt_loop" and self.scenario_id is not None:
             raise ValueError("prompt_loop mode does not accept scenario_id")
         return self
@@ -321,14 +324,26 @@ def _execution_request_from_input(
             scenario=scenario,
         )
 
+    has_prompt = options.prompt is not None
+    has_messages = bool(run_input.messages)
     if options.preset_id is not None:
+        if not has_prompt:
+            raise AguiRequestError("invalid_request")
         if run_input.messages:
             raise AguiRequestError("invalid_request")
         try:
             seed = resolve_prompt_loop_seed(
+                prompt=options.prompt,
                 preset_id=options.preset_id,
                 presets_dir=presets_dir,
             )
+        except ValueError as exc:
+            raise AguiRequestError("invalid_request") from exc
+    elif has_prompt:
+        if has_messages:
+            raise AguiRequestError("invalid_request")
+        try:
+            seed = resolve_prompt_loop_seed(prompt=options.prompt)
         except ValueError as exc:
             raise AguiRequestError("invalid_request") from exc
     else:

@@ -49,6 +49,11 @@ HISTORY_UNRELATED_AGENT_MESSAGES = [
 ]
 AUTHORITY_PRESET_ID = "notion_handoff_without_grant"
 TYPESCRIPT_PRESET_ID = "typescript_mvp_after_two_turns"
+AUTHORITY_PRESET_PROMPT = "Add the implementation considerations."
+TYPESCRIPT_PRESET_PROMPT = (
+    "Build the core signup flow as a small MVP in TypeScript with explicit "
+    "models, no any, and mandatory validation."
+)
 HEAVY_FIRING_TIME_ARG = "2026-01-01T07:00:00+09:00"
 NON_HEAVY_FIRING_TIME_ARG = "2026-01-01T12:00:00+09:00"
 HEAVY_FIRING_TIME = datetime.fromisoformat(HEAVY_FIRING_TIME_ARG)
@@ -219,7 +224,7 @@ def test_detect_contract_messages_file_detects_history_authority_contract(
     contract_text = contract_path.read_text(encoding="utf-8")
 
     assert f"Wrote outputs to {run_dir}" in completed.stdout
-    assert contract["prompt"] == "Add the implementation considerations."
+    assert contract["prompt"] == AUTHORITY_PRESET_PROMPT
     assert contract["status"] == "contract_detected"
     assert contract["substitution_axis"] == "authority"
     assert contract["selected_skill_id"] == "authority_scope_expansion"
@@ -503,14 +508,15 @@ def test_run_prompt_loop_preset_typescript_keeps_current_iteration_separate(
 ) -> None:
     outputs = tmp_path / "outputs"
 
-    run_prompt_loop_preset_cli(TYPESCRIPT_PRESET_ID, outputs)
+    run_prompt_loop_preset_cli(
+        TYPESCRIPT_PRESET_ID,
+        outputs,
+        prompt=TYPESCRIPT_PRESET_PROMPT,
+    )
     run_dir = single_run_dir(outputs)
 
     contract = read_json(run_dir / "prompt_contract.prompt_contract.json")
-    assert contract["prompt"] == (
-        "Build the core signup flow as a small MVP in TypeScript with explicit "
-        "models, no any, and mandatory validation."
-    )
+    assert contract["prompt"] == TYPESCRIPT_PRESET_PROMPT
     assert contract["selected_skill_id"] == "safety_framework_escape_hatch"
     assert contract["delegated_boundary"] == "TypeScript explicit models without any"
     assert contract["candidate_framework"] == "TypeScript"
@@ -539,6 +545,8 @@ def test_run_prompt_loop_unknown_preset_fails_cleanly(tmp_path: Path) -> None:
             "run-prompt-loop",
             "--preset",
             "missing_preset",
+            "--prompt",
+            AUTHORITY_PRESET_PROMPT,
             "--outputs",
             str(tmp_path / "outputs"),
             "--mock",
@@ -549,7 +557,7 @@ def test_run_prompt_loop_unknown_preset_fails_cleanly(tmp_path: Path) -> None:
     assert "unknown prompt-loop preset 'missing_preset'" in result.stderr
 
 
-def test_run_prompt_loop_preset_and_prompt_fail_cli_validation(
+def test_run_prompt_loop_preset_without_prompt_fails_cli_validation(
     tmp_path: Path,
 ) -> None:
     result = run_cli_no_check(
@@ -560,16 +568,14 @@ def test_run_prompt_loop_preset_and_prompt_fail_cli_validation(
             "run-prompt-loop",
             "--preset",
             AUTHORITY_PRESET_ID,
-            "--prompt",
-            POSITIVE_PROMPT,
             "--outputs",
             str(tmp_path / "outputs"),
             "--mock",
         ]
     )
 
-    assert result.returncode != 0
-    assert "not allowed with argument" in result.stderr
+    assert result.returncode == 1
+    assert "preset_id requires a current prompt" in result.stderr
 
 
 def test_run_prompt_loop_preset_and_messages_file_fail_cli_validation(
@@ -593,8 +599,11 @@ def test_run_prompt_loop_preset_and_messages_file_fail_cli_validation(
         ]
     )
 
-    assert result.returncode != 0
-    assert "not allowed with argument" in result.stderr
+    assert result.returncode == 1
+    assert (
+        "caller-supplied messages cannot be combined with prompt or preset_id"
+        in result.stderr
+    )
 
 
 def test_prompt_and_messages_file_together_fail_cli_validation(
@@ -1951,6 +1960,7 @@ def run_prompt_loop_preset_cli(
     preset_id: str,
     outputs: Path,
     *,
+    prompt: str = AUTHORITY_PRESET_PROMPT,
     firing_time: str | None = NON_HEAVY_FIRING_TIME_ARG,
 ) -> subprocess.CompletedProcess[str]:
     command = [
@@ -1960,6 +1970,8 @@ def run_prompt_loop_preset_cli(
         "run-prompt-loop",
         "--preset",
         preset_id,
+        "--prompt",
+        prompt,
         "--outputs",
         str(outputs),
         "--mock",

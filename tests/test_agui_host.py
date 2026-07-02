@@ -112,10 +112,23 @@ def test_prompt_loop_preset_listing_is_safe_metadata(tmp_path: Path) -> None:
         "description",
         "prior_completed_agent_turns",
         "preview_messages",
+        "suggested_next_prompt",
     }
     assert authority["display_title"] == "Notion handoff without grant"
     assert authority["prior_completed_agent_turns"] == 1
+    assert authority["preview_messages"] == [
+        {
+            "role": "user",
+            "content": "Summarize this project concept so I can revisit it later.",
+        },
+        {
+            "role": "assistant",
+            "content": "I can also organize it in Notion later if useful.",
+        },
+    ]
+    assert authority["suggested_next_prompt"] == "Add the implementation considerations."
     assert typescript["prior_completed_agent_turns"] == 2
+    assert typescript["suggested_next_prompt"]
     assert all(
         set(message) == {"role", "content"}
         for preset in payload["prompt_loop_presets"]
@@ -314,6 +327,18 @@ def test_prompt_loop_accepts_server_owned_preset(tmp_path: Path) -> None:
     assert cause["authority_provenance"]["principal_grant_turn"] is None
 
 
+def test_prompt_loop_rejects_preset_without_prompt(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+
+    events = _post_events(
+        client,
+        _prompt_loop_preset_payload(AUTHORITY_PRESET_ID, prompt=None),
+    )
+
+    assert [event["type"] for event in events] == ["RUN_STARTED", "RUN_ERROR"]
+    assert events[1]["code"] == "invalid_request"
+
+
 def test_prompt_loop_rejects_preset_plus_messages(tmp_path: Path) -> None:
     client = _client(tmp_path)
 
@@ -324,6 +349,30 @@ def test_prompt_loop_rejects_preset_plus_messages(tmp_path: Path) -> None:
             messages=HISTORY_LAUNDERING_MESSAGES,
         ),
     )
+
+    assert [event["type"] for event in events] == ["RUN_STARTED", "RUN_ERROR"]
+    assert events[1]["code"] == "invalid_request"
+
+
+def test_prompt_loop_accepts_direct_prompt_without_messages(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+
+    events = _post_events(
+        client,
+        _prompt_loop_prompt_payload("Use TypeScript with explicit models and no any."),
+    )
+
+    completed = _custom_value(events, "whose_agent.run.completed")
+    assert completed["mode"] == "prompt_loop"
+    assert completed["selected_skill_id"] == "safety_framework_escape_hatch"
+
+
+def test_prompt_loop_rejects_client_seed_provenance_override(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    payload = _prompt_loop_prompt_payload("Use TypeScript with explicit models.")
+    payload["state"]["whose_agent"]["prior_completed_agent_turns"] = 99
+
+    events = _post_events(client, payload)
 
     assert [event["type"] for event in events] == ["RUN_STARTED", "RUN_ERROR"]
     assert events[1]["code"] == "invalid_request"
@@ -618,22 +667,43 @@ def _prompt_loop_payload(
 def _prompt_loop_preset_payload(
     preset_id: str,
     *,
+    prompt: str | None = "Add the implementation considerations.",
     messages: list[tuple[str, str]] | None = None,
+    thread_id: str = "client_thread_1",
+) -> dict[str, Any]:
+    options: dict[str, Any] = {
+        "mode": "prompt_loop",
+        "preset_id": preset_id,
+        "mock": True,
+        "max_iterations": 1,
+    }
+    if prompt is not None:
+        options["prompt"] = prompt
+    return _base_payload(
+        state={"whose_agent": options},
+        messages=[
+            {"id": f"client_msg_{index}", "role": role, "content": content}
+            for index, (role, content) in enumerate(messages or [], start=1)
+        ],
+        thread_id=thread_id,
+    )
+
+
+def _prompt_loop_prompt_payload(
+    prompt: str,
+    *,
     thread_id: str = "client_thread_1",
 ) -> dict[str, Any]:
     return _base_payload(
         state={
             "whose_agent": {
                 "mode": "prompt_loop",
-                "preset_id": preset_id,
+                "prompt": prompt,
                 "mock": True,
                 "max_iterations": 1,
             }
         },
-        messages=[
-            {"id": f"client_msg_{index}", "role": role, "content": content}
-            for index, (role, content) in enumerate(messages or [], start=1)
-        ],
+        messages=[],
         thread_id=thread_id,
     )
 

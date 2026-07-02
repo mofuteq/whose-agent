@@ -16,6 +16,7 @@ ALLOWED_PRESET_FIELDS = {
     "description",
     "prior_completed_agent_turns",
     "initial_messages",
+    "suggested_next_prompt",
 }
 ALLOWED_MESSAGE_FIELDS = {"role", "content"}
 
@@ -56,8 +57,15 @@ class PromptLoopPreset(BaseModel):
     description: str
     prior_completed_agent_turns: int = Field(ge=0)
     initial_messages: tuple[PromptLoopPresetMessage, ...] = Field(min_length=1)
+    suggested_next_prompt: str
 
-    @field_validator("preset_id", "display_title", "description", mode="before")
+    @field_validator(
+        "preset_id",
+        "display_title",
+        "description",
+        "suggested_next_prompt",
+        mode="before",
+    )
     @classmethod
     def normalize_required_text(cls, value: object) -> str:
         if not isinstance(value, str):
@@ -79,8 +87,8 @@ class PromptLoopPreset(BaseModel):
         roles = [message.role for message in self.initial_messages]
         if roles[0] != "user":
             raise ValueError("initial_messages must begin with a user message")
-        if roles[-1] != "user":
-            raise ValueError("initial_messages must end with a user message")
+        if roles[-1] != "assistant":
+            raise ValueError("initial_messages must end with an assistant message")
         for index, role in enumerate(roles):
             expected = "user" if index % 2 == 0 else "assistant"
             if role != expected:

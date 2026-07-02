@@ -31,6 +31,15 @@ export interface ScenarioMetadata {
   display: ScenarioDisplayProjection
 }
 
+export interface PromptLoopPresetMetadata {
+  preset_id: string
+  display_title: string
+  description: string
+  prior_completed_agent_turns: number
+  preview_messages: ScenarioPreviewMessage[]
+  suggested_next_prompt: string
+}
+
 export interface AuthorityProvenanceProjection {
   action_kind: string
   target: string

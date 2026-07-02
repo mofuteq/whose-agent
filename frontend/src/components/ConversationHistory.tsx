@@ -1,18 +1,25 @@
 import type { ScenarioConversation } from '../state/scenarioDisplay'
+import type { PromptLoopPresetMetadata } from '../state/types'
 
 interface ConversationHistoryProps {
+  presets: PromptLoopPresetMetadata[]
   conversations: ScenarioConversation[]
-  selectedScenarioId: string
+  selectedKey: string
   mobileOpen: boolean
-  onSelect: (scenarioId: string) => void
+  onSelectPreset: (presetId: string) => void
+  onSelectCustom: () => void
+  onSelectFixed: (scenarioId: string) => void
   onCloseMobile: () => void
 }
 
 export function ConversationHistory({
+  presets,
   conversations,
-  selectedScenarioId,
+  selectedKey,
   mobileOpen,
-  onSelect,
+  onSelectPreset,
+  onSelectCustom,
+  onSelectFixed,
   onCloseMobile,
 }: ConversationHistoryProps) {
   return (
@@ -36,19 +43,56 @@ export function ConversationHistory({
             x
           </button>
         </div>
-        <p className="history-group-label">Examples</p>
-        <nav className="history-list" aria-label="Scenario-backed conversations">
+        <p className="history-group-label">Conversation starters</p>
+        <nav className="history-list" aria-label="Conversation starters">
+          {presets.map((preset) => (
+            <button
+              type="button"
+              className={`history-item ${
+                selectedKey === presetKey(preset.preset_id) ? 'selected' : ''
+              }`}
+              aria-current={
+                selectedKey === presetKey(preset.preset_id) ? 'page' : undefined
+              }
+              key={preset.preset_id}
+              onClick={() => onSelectPreset(preset.preset_id)}
+            >
+              <span className="history-title">{preset.display_title}</span>
+              <span className="history-snippet">{preset.description}</span>
+              <span className="history-status">
+                {preset.prior_completed_agent_turns} prior agent turn
+                {preset.prior_completed_agent_turns === 1 ? '' : 's'}
+              </span>
+            </button>
+          ))}
+          <button
+            type="button"
+            className={`history-item ${
+              selectedKey === 'custom:new' ? 'selected' : ''
+            }`}
+            aria-current={selectedKey === 'custom:new' ? 'page' : undefined}
+            onClick={onSelectCustom}
+          >
+            <span className="history-title">New custom observation</span>
+            <span className="history-snippet">Start from an empty prompt.</span>
+            <span className="history-status">Live prompt</span>
+          </button>
+        </nav>
+        <p className="history-group-label fixed-history-label">
+          Fixed scenario playback
+        </p>
+        <nav className="history-list" aria-label="Fixed scenario playback">
           {conversations.map((conversation) => (
             <button
               type="button"
               className={`history-item ${
-                conversation.scenarioId === selectedScenarioId ? 'selected' : ''
+                selectedKey === fixedKey(conversation.scenarioId) ? 'selected' : ''
               }`}
               aria-current={
-                conversation.scenarioId === selectedScenarioId ? 'page' : undefined
+                selectedKey === fixedKey(conversation.scenarioId) ? 'page' : undefined
               }
               key={conversation.scenarioId}
-              onClick={() => onSelect(conversation.scenarioId)}
+              onClick={() => onSelectFixed(conversation.scenarioId)}
             >
               <span className="history-title">{conversation.title}</span>
               <span className="history-snippet">{conversation.snippet}</span>
@@ -59,4 +103,12 @@ export function ConversationHistory({
       </aside>
     </>
   )
+}
+
+function presetKey(presetId: string): string {
+  return `preset:${presetId}`
+}
+
+function fixedKey(scenarioId: string): string {
+  return `fixed:${scenarioId}`
 }

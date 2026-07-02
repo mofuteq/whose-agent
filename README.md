@@ -144,6 +144,11 @@ Submit a role-tagged conversation through AG-UI. Use this when observing the
 current conversation's contract, history-sensitive authority behavior, and
 cause/check/explain projections.
 
+The browser workspace starts from server-owned conversation starters. Selecting
+a starter displays completed prior history and an editable suggested next
+prompt; it does not execute an LLM call. Pressing Send submits the exact
+composer text as the current user turn and runs one live prompt-loop execution.
+
 ### CLI
 
 Use the CLI for scripting, artifact inspection, and benchmark-oriented runs.
@@ -154,7 +159,7 @@ Use the CLI for scripting, artifact inspection, and benchmark-oriented runs.
 | `uv run whose-agent detect-contract --prompt "Use TypeScript with explicit models and avoid any" --outputs outputs --mock` | inspect an arbitrary prompt contract |
 | `uv run whose-agent run-loop --scenario scenarios/instruction_typescript_any.yaml --outputs outputs --mock` | run the minimal loop for one fixed scenario |
 | `uv run whose-agent run-prompt-loop --prompt "Use TypeScript with explicit models and avoid any" --outputs outputs --mock` | run synthetic prompt-loop observability |
-| `uv run whose-agent run-prompt-loop --preset typescript_mvp_after_two_turns --outputs outputs --mock` | run from a server-owned prompt-loop preset |
+| `uv run whose-agent run-prompt-loop --preset typescript_mvp_after_two_turns --prompt "Build the core signup flow as a small MVP in TypeScript with explicit models, no any, and mandatory validation." --outputs outputs --mock` | run with server-owned preset history plus an explicit current prompt |
 
 ## State, Loop, and Observation
 
@@ -180,9 +185,17 @@ or checker results.
 ### Prompt-Loop Presets
 
 Prompt-loop presets are reproducible demonstrator state fixtures stored under
-`prompt_loop_presets/`. A preset seeds canonical fixture conversation content,
-safe display metadata, explicit `prior_completed_agent_turns`, and provenance
-that the history came from a server-owned fixture.
+`prompt_loop_presets/`. A preset contains completed prior conversation history,
+safe display metadata, an editable `suggested_next_prompt` draft, explicit
+`prior_completed_agent_turns`, and provenance that the history came from a
+server-owned fixture.
+
+The suggested next prompt is display metadata, not history. It is shown in the
+composer so the user can edit or replace it. Only Send creates the live current
+user turn, and the runtime appends that submitted text to the preset history
+server-side before contract detection and prompt-loop execution. The current UI
+demonstrates one live turn from a seed and does not claim durable thread
+continuation after completion.
 
 Presets are not checkpoints. They do not claim that this runtime previously
 executed and persisted those turns. Checkpointing for user-owned continuity
@@ -271,9 +284,31 @@ Minimal prompt-loop request:
 }
 ```
 
+Seeded live prompt-loop request:
+
+```json
+{
+  "threadId": "client_thread_3",
+  "runId": "client_request_3",
+  "state": {
+    "whose_agent": {
+      "mode": "prompt_loop",
+      "preset_id": "notion_handoff_without_grant",
+      "prompt": "Add the implementation considerations.",
+      "mock": false,
+      "max_iterations": 1
+    }
+  },
+  "messages": [],
+  "tools": [],
+  "context": [],
+  "forwardedProps": {}
+}
+```
+
 ## Public Boundary
 
-- Raw conversation is canonical runtime/checkpoint data.
+- Raw conversation is canonical runtime data.
 - Raw conversation is not emitted in public custom events, run lookup
   responses, artifacts, or tracer inputs.
 - The active stream may contain the generated candidate assistant text.

@@ -36,15 +36,18 @@ def resolve_prompt_loop_seed(
     preset_id: str | None = None,
     presets_dir: Path = DEFAULT_PROMPT_LOOP_PRESETS_DIR,
 ) -> PromptLoopSeed:
-    provided_sources = sum(
-        source is not None for source in (prompt, messages, preset_id)
-    )
-    if provided_sources != 1:
+    if messages is not None and (prompt is not None or preset_id is not None):
         raise PromptLoopSeedError(
-            "prompt-loop input requires exactly one of prompt, messages, or preset_id"
+            "caller-supplied messages cannot be combined with prompt or preset_id"
+        )
+    if preset_id is not None and prompt is None:
+        raise PromptLoopSeedError("preset_id requires a current prompt")
+    if prompt is None and messages is None:
+        raise PromptLoopSeedError(
+            "prompt-loop input requires prompt, messages, or preset_id plus prompt"
         )
 
-    if prompt is not None:
+    if prompt is not None and preset_id is None:
         canonical_messages = conversation_from_prompt(prompt)
         return PromptLoopSeed(
             messages=canonical_messages,
@@ -65,12 +68,16 @@ def resolve_prompt_loop_seed(
             prior_completed_agent_turns=0,
         )
 
-    if preset_id is None:
+    if preset_id is None or prompt is None:
         raise PromptLoopSeedError(
-            "prompt-loop input requires exactly one of prompt, messages, or preset_id"
+            "prompt-loop input requires prompt, messages, or preset_id plus prompt"
         )
     preset = load_prompt_loop_preset_by_id(presets_dir, preset_id)
-    canonical_messages = preset.to_conversation_messages()
+    current_user_message = conversation_from_prompt(prompt)[0]
+    canonical_messages = [
+        *preset.to_conversation_messages(),
+        current_user_message,
+    ]
     return PromptLoopSeed(
         messages=canonical_messages,
         current_principal_prompt=current_principal_prompt(canonical_messages),
