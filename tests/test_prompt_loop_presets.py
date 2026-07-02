@@ -30,6 +30,7 @@ def test_valid_authority_preset_schema() -> None:
     assert preset.preset_id == AUTHORITY_PRESET_ID
     assert preset.display_title == "Notion handoff without grant"
     assert preset.prior_completed_agent_turns == 1
+    assert preset.actor_mode == "authority_self_originated_delegation_laundering"
     assert [message.role for message in preset.initial_messages] == [
         "user",
         "assistant",
@@ -53,6 +54,7 @@ def test_valid_typescript_preset_schema() -> None:
     assert preset.preset_id == TYPESCRIPT_PRESET_ID
     assert preset.display_title == "TypeScript MVP after two turns"
     assert preset.prior_completed_agent_turns == 2
+    assert preset.actor_mode is None
     assert [message.role for message in preset.initial_messages] == [
         "user",
         "assistant",
@@ -160,6 +162,16 @@ def test_prior_turn_count_must_match_assistant_message_count(tmp_path: Path) -> 
         load_prompt_loop_preset(path)
 
 
+def test_invalid_actor_mode_fails(tmp_path: Path) -> None:
+    path = write_preset(
+        tmp_path / "preset.yaml",
+        actor_mode="client_selected_actor",
+    )
+
+    with pytest.raises(PromptLoopPresetError, match="actor_mode"):
+        load_prompt_loop_preset(path)
+
+
 @pytest.mark.parametrize(
     "forbidden_field",
     [
@@ -224,6 +236,7 @@ def test_preset_seed_creates_runtime_message_ids_and_state_provenance() -> None:
     assert seed.history_source == "server_owned_preset"
     assert seed.prompt_loop_preset_id == AUTHORITY_PRESET_ID
     assert seed.prior_completed_agent_turns == 1
+    assert seed.actor_mode == "authority_self_originated_delegation_laundering"
     assert [
         {"role": message.role, "content": message.content}
         for message in seed.messages
@@ -248,16 +261,23 @@ def test_preset_seed_creates_runtime_message_ids_and_state_provenance() -> None:
         messages=seed.messages,
         history_source=seed.history_source,
         prompt_loop_preset_id=seed.prompt_loop_preset_id,
+        prompt_loop_actor_mode=seed.actor_mode,
         prior_completed_agent_turns=seed.prior_completed_agent_turns,
     )
 
     assert state["loop_iteration"] == 0
     assert state["history_source"] == "server_owned_preset"
     assert state["prompt_loop_preset_id"] == AUTHORITY_PRESET_ID
+    assert state["prompt_loop_actor_mode"] == (
+        "authority_self_originated_delegation_laundering"
+    )
     assert state["prior_completed_agent_turns"] == 1
     final_state = compile_minimal_loop_graph(mock=True).invoke(state)
     assert final_state["loop_iteration"] == 1
     assert final_state["prior_completed_agent_turns"] == 1
+    assert final_state["prompt_loop_actor_mode"] == (
+        "authority_self_originated_delegation_laundering"
+    )
 
 
 def test_typescript_preset_seed_appends_submitted_current_turn() -> None:
@@ -278,6 +298,7 @@ def test_typescript_preset_seed_appends_submitted_current_turn() -> None:
         messages=seed.messages,
         history_source=seed.history_source,
         prompt_loop_preset_id=seed.prompt_loop_preset_id,
+        prompt_loop_actor_mode=seed.actor_mode,
         prior_completed_agent_turns=seed.prior_completed_agent_turns,
     )
 
@@ -290,8 +311,10 @@ def test_typescript_preset_seed_appends_submitted_current_turn() -> None:
     ]
     assert seed.messages[-1].content == submitted_prompt
     assert seed.prior_completed_agent_turns == 2
+    assert seed.actor_mode is None
     assert state["loop_iteration"] == 0
     assert state["prior_completed_agent_turns"] == 2
+    assert state["prompt_loop_actor_mode"] is None
 
 
 def test_direct_prompt_and_caller_messages_keep_zero_prior_completed_turns() -> None:
@@ -310,6 +333,7 @@ def test_direct_prompt_and_caller_messages_keep_zero_prior_completed_turns() -> 
         assert seed.history_source == "caller_supplied"
         assert seed.prompt_loop_preset_id is None
         assert seed.prior_completed_agent_turns == 0
+        assert seed.actor_mode is None
 
 
 def write_preset(
@@ -326,14 +350,17 @@ def write_preset(
         "  content: Prior answer.\n"
     ),
     suggested_next_prompt: str = "Continue.",
+    actor_mode: str | None = None,
     extra_fields: str = "",
 ) -> Path:
+    actor_mode_line = f"actor_mode: {actor_mode}\n" if actor_mode is not None else ""
     path.write_text(
         (
             f"preset_id: {preset_id}\n"
             f"display_title: {display_title}\n"
             f"description: {description}\n"
             f"prior_completed_agent_turns: {prior_completed_agent_turns}\n"
+            f"{actor_mode_line}"
             "initial_messages:\n"
             f"{messages}"
             f"suggested_next_prompt: {suggested_next_prompt}\n"

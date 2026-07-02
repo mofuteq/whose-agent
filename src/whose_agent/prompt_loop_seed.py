@@ -10,7 +10,11 @@ from whose_agent.history_adapter import (
     require_unique_message_ids,
 )
 from whose_agent.prompt_loop_presets import load_prompt_loop_preset_by_id
-from whose_agent.schemas import ConversationMessage, HistorySource
+from whose_agent.schemas import (
+    ConversationMessage,
+    HistorySource,
+    PromptLoopActorMode,
+)
 
 
 DEFAULT_PROMPT_LOOP_PRESETS_DIR = Path("prompt_loop_presets")
@@ -27,6 +31,7 @@ class PromptLoopSeed:
     history_source: HistorySource
     prompt_loop_preset_id: str | None
     prior_completed_agent_turns: int
+    actor_mode: PromptLoopActorMode | None
 
 
 def resolve_prompt_loop_seed(
@@ -55,6 +60,7 @@ def resolve_prompt_loop_seed(
             history_source="caller_supplied",
             prompt_loop_preset_id=None,
             prior_completed_agent_turns=0,
+            actor_mode=None,
         )
 
     if messages is not None:
@@ -66,6 +72,7 @@ def resolve_prompt_loop_seed(
             history_source="caller_supplied",
             prompt_loop_preset_id=None,
             prior_completed_agent_turns=0,
+            actor_mode=None,
         )
 
     if preset_id is None or prompt is None:
@@ -84,6 +91,7 @@ def resolve_prompt_loop_seed(
         history_source="server_owned_preset",
         prompt_loop_preset_id=preset.preset_id,
         prior_completed_agent_turns=preset.prior_completed_agent_turns,
+        actor_mode=preset.actor_mode,
     )
 
 

@@ -7,7 +7,11 @@ import re
 from whose_agent.authority_provenance import history_supports_authority_contract
 from whose_agent.bad_response import DEFAULT_MODEL
 from whose_agent.llm_result import extract_output
-from whose_agent.schemas import AuthorityProvenance, PromptContract
+from whose_agent.schemas import (
+    AuthorityProvenance,
+    PromptContract,
+    PromptLoopActorMode,
+)
 from whose_agent.skill_catalog import (
     SkillCatalogError,
     create_skills_capability,
@@ -38,6 +42,7 @@ def detect_prompt_contract(
     *,
     mock: bool = False,
     authority_provenance: AuthorityProvenance | None = None,
+    prompt_loop_actor_mode: PromptLoopActorMode | None = None,
 ) -> PromptContract:
     prompt_text = prompt.strip()
     if not prompt_text:
@@ -50,6 +55,16 @@ def detect_prompt_contract(
     available_skill_ids = sorted(available_skill_axes)
     if history_supports_authority_contract(authority_provenance):
         return _contract_from_authority_provenance(
+            prompt_text,
+            available_skill_ids,
+            authority_provenance=authority_provenance,
+        )
+    if (
+        prompt_loop_actor_mode == "authority_self_originated_delegation_laundering"
+        and authority_provenance is not None
+        and authority_provenance.prior_agent_proposal_turn is not None
+    ):
+        return _contract_from_authority_actor_mode(
             prompt_text,
             available_skill_ids,
             authority_provenance=authority_provenance,
@@ -332,6 +347,34 @@ def _contract_from_authority_provenance(
             "persistence proposal without an explicit principal grant."
         ),
         detection_reason=detection_reason,
+    )
+
+
+def _contract_from_authority_actor_mode(
+    prompt: str,
+    available_skill_ids: list[str],
+    *,
+    authority_provenance: AuthorityProvenance,
+) -> PromptContract:
+    delegated_boundary = (
+        "External persistence to "
+        f"{authority_provenance.target} must be evaluated against principal authority"
+    )
+    return _mock_supported_or_unsupported(
+        prompt,
+        available_skill_ids,
+        skill_id=AUTHORITY_SCOPE_SKILL_ID,
+        substitution_axis="authority",
+        delegated_boundary=delegated_boundary,
+        skill_selection_reason=(
+            "A server-owned prompt-loop preset actor mode selects the authority "
+            "perspective so the generated external-persistence attempt, if any, "
+            "can be evaluated after generation."
+        ),
+        detection_reason=(
+            "Server-owned preset actor mode is active for a completed history "
+            "with an earlier agent-authored external-persistence proposal."
+        ),
     )
 
 

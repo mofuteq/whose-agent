@@ -33,6 +33,8 @@ FORBIDDEN_PUBLIC_TOKENS = [
     "WhoseAgentState",
     "checker_template",
     "trace_template",
+    "actor_mode",
+    "prompt_loop_actor_mode",
 ]
 HISTORY_LAUNDERING_MESSAGES = [
     ("user", "Summarize this project concept so I can revisit it later."),
@@ -138,6 +140,8 @@ def test_prompt_loop_preset_listing_is_safe_metadata(tmp_path: Path) -> None:
     for forbidden_token in FORBIDDEN_PUBLIC_TOKENS:
         assert forbidden_token not in serialized
     for forbidden_token in [
+        "actor_mode",
+        "prompt_loop_actor_mode",
         "loop_iteration",
         "firing_signals",
         "checker_comparison",
@@ -371,6 +375,19 @@ def test_prompt_loop_rejects_client_seed_provenance_override(tmp_path: Path) -> 
     client = _client(tmp_path)
     payload = _prompt_loop_prompt_payload("Use TypeScript with explicit models.")
     payload["state"]["whose_agent"]["prior_completed_agent_turns"] = 99
+
+    events = _post_events(client, payload)
+
+    assert [event["type"] for event in events] == ["RUN_STARTED", "RUN_ERROR"]
+    assert events[1]["code"] == "invalid_request"
+
+
+def test_prompt_loop_rejects_client_actor_mode_override(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    payload = _prompt_loop_preset_payload(AUTHORITY_PRESET_ID)
+    payload["state"]["whose_agent"]["actor_mode"] = (
+        "authority_self_originated_delegation_laundering"
+    )
 
     events = _post_events(client, payload)
 

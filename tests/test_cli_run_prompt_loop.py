@@ -154,6 +154,7 @@ def test_run_prompt_loop_positive_mock_non_heavy_time_uses_happy_path(
     assert loop_trace["loop_source"] == "prompt_contract"
     assert loop_trace["history_source"] == "caller_supplied"
     assert loop_trace["prompt_loop_preset_id"] is None
+    assert loop_trace["prompt_loop_actor_mode"] is None
     assert loop_trace["prior_completed_agent_turns"] == 0
     assert loop_trace["boundary_detected"] is True
     assert loop_trace["substitution_axis"] == "instruction"
@@ -268,6 +269,7 @@ def test_run_prompt_loop_messages_file_mock_emits_history_provenance_artifact(
 
     assert loop_trace["history_source"] == "caller_supplied"
     assert loop_trace["prompt_loop_preset_id"] is None
+    assert loop_trace["prompt_loop_actor_mode"] is None
     assert loop_trace["prior_completed_agent_turns"] == 0
     assert loop_trace["selected_skill_id"] == "authority_scope_expansion"
     assert loop_trace["firing_signals"] == FiringSignals(
@@ -480,6 +482,9 @@ def test_run_prompt_loop_preset_authority_mock_emits_preset_provenance(
     provenance = loop_trace["authority_provenance"]
     assert loop_trace["history_source"] == "server_owned_preset"
     assert loop_trace["prompt_loop_preset_id"] == AUTHORITY_PRESET_ID
+    assert loop_trace["prompt_loop_actor_mode"] == (
+        "authority_self_originated_delegation_laundering"
+    )
     assert loop_trace["prior_completed_agent_turns"] == 1
     assert loop_trace["final_loop_iteration"] == 1
     assert provenance == {
@@ -524,6 +529,7 @@ def test_run_prompt_loop_preset_typescript_keeps_current_iteration_separate(
     loop_trace = read_json(run_dir / "prompt_loop.loop_trace.json")
     assert loop_trace["history_source"] == "server_owned_preset"
     assert loop_trace["prompt_loop_preset_id"] == TYPESCRIPT_PRESET_ID
+    assert loop_trace["prompt_loop_actor_mode"] is None
     assert loop_trace["prior_completed_agent_turns"] == 2
     assert loop_trace["max_iterations"] == 1
     assert loop_trace["final_loop_iteration"] == 1

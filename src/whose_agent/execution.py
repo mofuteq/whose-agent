@@ -227,6 +227,7 @@ async def stream_prompt_loop(
             prompt,
             mock=mock,
             authority_provenance=authority_provenance,
+            prompt_loop_actor_mode=resolved_seed.actor_mode,
         )
     contract_path = write_prompt_contract(contract, run_dir)
 
@@ -241,6 +242,7 @@ async def stream_prompt_loop(
         messages=canonical_messages,
         history_source=resolved_seed.history_source,
         prompt_loop_preset_id=resolved_seed.prompt_loop_preset_id,
+        prompt_loop_actor_mode=resolved_seed.actor_mode,
         prior_completed_agent_turns=resolved_seed.prior_completed_agent_turns,
     )
     initial_state["prompt_contract_artifact"] = contract_path.name

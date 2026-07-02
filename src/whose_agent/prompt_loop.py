@@ -30,6 +30,7 @@ from whose_agent.schemas import (
     ConversationMessage,
     EXPECTED_FAILURE_BY_SUBSTITUTED,
     HistorySource,
+    PromptLoopActorMode,
     PromptContract,
     Scenario,
     ScenarioCheckerTemplate,
@@ -51,6 +52,7 @@ def initial_loop_state_from_prompt_contract(
     messages: list[ConversationMessage] | None = None,
     history_source: HistorySource = "caller_supplied",
     prompt_loop_preset_id: str | None = None,
+    prompt_loop_actor_mode: PromptLoopActorMode | None = None,
     prior_completed_agent_turns: int = 0,
     clock: Callable[[], datetime] | None = None,
 ) -> WhoseAgentState:
@@ -80,6 +82,7 @@ def initial_loop_state_from_prompt_contract(
     state["loop_source"] = "prompt_contract"
     state["history_source"] = history_source
     state["prompt_loop_preset_id"] = prompt_loop_preset_id
+    state["prompt_loop_actor_mode"] = prompt_loop_actor_mode
     state["prior_completed_agent_turns"] = prior_completed_agent_turns
     state["prompt_contract_status"] = contract.status
     state["prompt_contract_boundary_detected"] = contract.boundary_detected
@@ -131,6 +134,7 @@ def run_prompt_loop_to_artifact(
             prompt,
             mock=mock,
             authority_provenance=authority_provenance,
+            prompt_loop_actor_mode=resolved_seed.actor_mode,
         )
     contract_path = write_prompt_contract(contract, output_dir)
 
@@ -143,6 +147,7 @@ def run_prompt_loop_to_artifact(
         messages=canonical_messages,
         history_source=resolved_seed.history_source,
         prompt_loop_preset_id=resolved_seed.prompt_loop_preset_id,
+        prompt_loop_actor_mode=resolved_seed.actor_mode,
         prior_completed_agent_turns=resolved_seed.prior_completed_agent_turns,
         clock=clock,
     )

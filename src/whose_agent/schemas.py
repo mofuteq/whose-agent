@@ -42,6 +42,7 @@ ObservationOutcome = Literal[
 ]
 LoopSource = Literal["fixed_scenario", "prompt_contract"]
 HistorySource = Literal["caller_supplied", "server_owned_preset"]
+PromptLoopActorMode = Literal["authority_self_originated_delegation_laundering"]
 PromptContractStatus = Literal[
     "contract_detected",
     "no_contract_detected",
@@ -639,6 +640,7 @@ class LoopTrace(BaseModel):
     loop_source: LoopSource = "fixed_scenario"
     history_source: HistorySource | None = None
     prompt_loop_preset_id: str | None = None
+    prompt_loop_actor_mode: PromptLoopActorMode | None = None
     prior_completed_agent_turns: int = Field(default=0, ge=0)
     boundary_detected: bool = False
     substitution_axis: SubstitutionAxis | None = None
@@ -724,6 +726,7 @@ class WhoseAgentState(TypedDict, total=False):
     prompt_loop_generated_step_index: int | None
     history_source: HistorySource | None
     prompt_loop_preset_id: str | None
+    prompt_loop_actor_mode: PromptLoopActorMode | None
     prior_completed_agent_turns: int
     authority_provenance: AuthorityProvenance | None
     authority_cause_record: AuthorityCauseRecord | None
@@ -788,6 +791,7 @@ __all__ = [
     "Principal",
     "PromptContract",
     "PromptContractStatus",
+    "PromptLoopActorMode",
     "Reflection",
     "Scenario",
     "ScenarioCheckerTemplate",

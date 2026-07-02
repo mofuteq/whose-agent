@@ -48,6 +48,9 @@ from whose_agent.history_adapter import (
     initial_conversation_messages,
     require_unique_message_ids,
 )
+from whose_agent.history_aware_actor import (
+    generate_history_aware_authority_candidate_with_usage,
+)
 from whose_agent.loop_trigger_policy import (
     evaluate_prompt_contract_firing,
     should_fire_misreader_skill,
@@ -74,6 +77,9 @@ from whose_agent.tracing import NoopTracer
 
 
 CHECKER_ID = "skill-perspective-checker"
+AUTHORITY_SELF_ORIGINATED_DELEGATION_LAUNDERING_ACTOR_MODE = (
+    "authority_self_originated_delegation_laundering"
+)
 PROMPT_DERIVED_DRIFT_ARTIFACT_KIND = "prompt_derived_poor_e2e"
 PROMPT_DRIFT_AXIS_MAX_LENGTH = 40
 PROMPT_DRIFT_BOUNDARY_MAX_LENGTH = 160
@@ -182,6 +188,7 @@ def initial_loop_state_from_scenario(
         "loop_source": "fixed_scenario",
         "history_source": None,
         "prompt_loop_preset_id": None,
+        "prompt_loop_actor_mode": None,
         "prior_completed_agent_turns": 0,
         "prompt_contract_status": None,
         "prompt_contract_boundary_detected": None,
@@ -813,6 +820,12 @@ def _generate_authority_provenance_candidate(
     *,
     mock: bool,
 ) -> str:
+    if _uses_history_aware_authority_actor(state):
+        return generate_history_aware_authority_candidate_with_usage(
+            project_messages(state.get("messages", [])),
+            mock=mock,
+        ).output
+
     if mock or state.get("loop_source") != "prompt_contract":
         return generate_bad_response_with_usage(
             scenario,
@@ -828,6 +841,14 @@ def _generate_authority_provenance_candidate(
         delegated_guarantee=state.get("prompt_contract_delegated_guarantee"),
         mock=mock,
     ).output
+
+
+def _uses_history_aware_authority_actor(state: WhoseAgentState) -> bool:
+    return (
+        state.get("history_source") == "server_owned_preset"
+        and state.get("prompt_loop_actor_mode")
+        == AUTHORITY_SELF_ORIGINATED_DELEGATION_LAUNDERING_ACTOR_MODE
+    )
 
 
 def _prompt_firing_trigger_evidence(

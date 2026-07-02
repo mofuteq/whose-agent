@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from whose_agent.history_adapter import normalize_role_tagged_messages
 from whose_agent.schemas import ConversationMessage
+from whose_agent.schemas import PromptLoopActorMode
 
 
 ALLOWED_PRESET_FIELDS = {
@@ -17,6 +18,7 @@ ALLOWED_PRESET_FIELDS = {
     "prior_completed_agent_turns",
     "initial_messages",
     "suggested_next_prompt",
+    "actor_mode",
 }
 ALLOWED_MESSAGE_FIELDS = {"role", "content"}
 
@@ -58,6 +60,7 @@ class PromptLoopPreset(BaseModel):
     prior_completed_agent_turns: int = Field(ge=0)
     initial_messages: tuple[PromptLoopPresetMessage, ...] = Field(min_length=1)
     suggested_next_prompt: str
+    actor_mode: PromptLoopActorMode | None = None
 
     @field_validator(
         "preset_id",

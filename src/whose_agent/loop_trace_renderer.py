@@ -20,6 +20,7 @@ def render_loop_trace(state: WhoseAgentState) -> LoopTrace:
         loop_source=state.get("loop_source", "fixed_scenario"),
         history_source=state.get("history_source"),
         prompt_loop_preset_id=state.get("prompt_loop_preset_id"),
+        prompt_loop_actor_mode=state.get("prompt_loop_actor_mode"),
         prior_completed_agent_turns=int(
             state.get("prior_completed_agent_turns", 0)
         ),
