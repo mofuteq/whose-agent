@@ -46,8 +46,10 @@ from whose_agent.prompt_loop_presets import load_prompt_loop_presets
 from whose_agent.run_directory import create_run_directory
 from whose_agent.scenario_loader import load_scenario, load_scenarios
 from whose_agent.schemas import (
+    AuthorityProvenance,
     ConversationMessage,
     PromptContract,
+    PromptLoopActorMode,
     Scenario,
     WhoseAgentState,
 )
@@ -220,15 +222,12 @@ async def stream_prompt_loop(
     authority_provenance = derive_external_persistence_provenance(
         project_messages(canonical_messages)
     )
-    if authority_provenance is None:
-        contract = detect_prompt_contract(prompt, mock=mock)
-    else:
-        contract = detect_prompt_contract(
-            prompt,
-            mock=mock,
-            authority_provenance=authority_provenance,
-            prompt_loop_actor_mode=resolved_seed.actor_mode,
-        )
+    contract = await detect_prompt_contract_for_stream(
+        prompt,
+        mock=mock,
+        authority_provenance=authority_provenance,
+        prompt_loop_actor_mode=resolved_seed.actor_mode,
+    )
     contract_path = write_prompt_contract(contract, run_dir)
 
     graph = compile_minimal_loop_graph(
@@ -255,6 +254,22 @@ async def stream_prompt_loop(
         initial_state=initial_state,
     ):
         yield event
+
+
+async def detect_prompt_contract_for_stream(
+    prompt: str,
+    *,
+    mock: bool,
+    authority_provenance: AuthorityProvenance | None,
+    prompt_loop_actor_mode: PromptLoopActorMode | None,
+) -> PromptContract:
+    return await asyncio.to_thread(
+        detect_prompt_contract,
+        prompt,
+        mock=mock,
+        authority_provenance=authority_provenance,
+        prompt_loop_actor_mode=prompt_loop_actor_mode,
+    )
 
 
 def run_prompt_loop(

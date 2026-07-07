@@ -26,6 +26,8 @@ RunStatus = Literal["in_progress", "completed", "failed", "cancelled"]
 SafeErrorCode = Literal[
     "invalid_request",
     "unknown_scenario",
+    "prompt_contract_detection_failed",
+    "live_generation_failed",
     "run_failed",
     "stream_cancelled",
 ]

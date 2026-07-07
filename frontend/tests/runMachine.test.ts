@@ -158,4 +158,30 @@ describe('runMachine', () => {
       'run_server',
     )
   })
+
+  it('maps failed run projection safe codes to user-visible messages', () => {
+    let state = initialRunState('ui_123')
+    state = applyAguiEvent(state, {
+      type: 'RUN_STARTED',
+      threadId: 'ui_123',
+      runId: 'run_server',
+    })
+    const failedRun: RunProjection = {
+      run_id: 'run_server',
+      thread_id: 'ui_123',
+      status: 'failed',
+      mode: 'prompt_loop',
+      result: null,
+      artifact_names: [],
+      safe_error_code: 'live_generation_failed',
+    }
+
+    const reconciled = reconcileRunProjection(state, failedRun)
+
+    expect(reconciled.status).toBe('failed')
+    expect(reconciled.safeError).toEqual({
+      message: 'Could not generate the live assistant response.',
+      code: 'live_generation_failed',
+    })
+  })
 })

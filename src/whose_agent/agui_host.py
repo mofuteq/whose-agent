@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,6 +24,7 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from whose_agent.bad_response import BadResponseError
 from whose_agent.execution import (
     RunnerEvent,
     list_fixed_scenarios,
@@ -31,6 +33,7 @@ from whose_agent.execution import (
     stream_fixed_scenario,
     stream_prompt_loop,
 )
+from whose_agent.history_aware_actor import HistoryAwareActorError
 from whose_agent.history_adapter import (
     MessageHistoryError,
     normalize_role_tagged_messages,
@@ -46,11 +49,14 @@ from whose_agent.public_projection import (
     RunProjection,
     SafeErrorCode,
 )
+from whose_agent.prompt_contract_detector import PromptContractDetectorError
+from whose_agent.prompt_response import PromptResponseError
 from whose_agent.schemas import ConversationMessage, Scenario
 
 
 MAX_API_ITERATIONS = 3
 PUBLIC_THREAD_ID_PATTERN = re.compile(r"^(?=.*[0-9])[A-Za-z0-9_-]{1,128}$")
+logger = logging.getLogger(__name__)
 
 
 class WhoseAgentOptions(BaseModel):
@@ -247,12 +253,21 @@ def create_app(
                     cancelled=True,
                 )
                 raise
-            except Exception:
-                run_registry.fail(run_id=run_id, code="run_failed")
+            except Exception as exc:
+                safe_code = _safe_runtime_error_code(exc)
+                run_registry.fail(run_id=run_id, code=safe_code)
+                logger.exception(
+                    "AG-UI run failed",
+                    extra={
+                        "run_id": run_id,
+                        "mode": execution_request.mode,
+                        "run_kind": execution_request.mode,
+                    },
+                )
                 yield encoder.encode(
                     RunErrorEvent(
-                        message="Run failed.",
-                        code="run_failed",
+                        message=_safe_error_message(safe_code),
+                        code=safe_code,
                     )
                 )
 
@@ -536,7 +551,26 @@ def _safe_error_message(code: SafeErrorCode) -> str:
     messages: dict[SafeErrorCode, str] = {
         "invalid_request": "Invalid request.",
         "unknown_scenario": "Unknown scenario.",
+        "prompt_contract_detection_failed": (
+            "Could not detect the requested boundary for this live prompt."
+        ),
+        "live_generation_failed": "Could not generate the live assistant response.",
         "run_failed": "Run failed.",
         "stream_cancelled": "Stream cancelled.",
     }
     return messages[code]
+
+
+def _safe_runtime_error_code(exc: Exception) -> SafeErrorCode:
+    if isinstance(exc, PromptContractDetectorError):
+        return "prompt_contract_detection_failed"
+    if isinstance(
+        exc,
+        (
+            HistoryAwareActorError,
+            PromptResponseError,
+            BadResponseError,
+        ),
+    ):
+        return "live_generation_failed"
+    return "run_failed"

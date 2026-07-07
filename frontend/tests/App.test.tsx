@@ -202,8 +202,8 @@ describe('App live prompt-loop preset chat', () => {
         type: 'streamEvent',
         event: {
           type: 'RUN_ERROR',
-          message: 'Run failed.',
-          code: 'run_failed',
+          message: 'Could not detect the requested boundary for this live prompt.',
+          code: 'prompt_contract_detection_failed',
         },
       })
     })
@@ -212,7 +212,11 @@ describe('App live prompt-loop preset chat', () => {
     await screen.findByRole('heading', { name: 'Notion handoff without grant' })
     fireEvent.click(screen.getByRole('button', { name: 'Send' }))
 
-    expect(await screen.findByText('Run failed.')).toBeInTheDocument()
+    expect(
+      await screen.findByText(
+        'Could not detect the requested boundary for this live prompt.',
+      ),
+    ).toBeInTheDocument()
     expect(screen.getByText('The run did not finish, so no boundary finding is shown.'))
       .toBeInTheDocument()
     expect(screen.queryByText('Live assistant response.')).not.toBeInTheDocument()
