@@ -10,6 +10,7 @@ from whose_agent.authority_provenance import derive_external_persistence_provena
 from whose_agent.conversation_view import project_messages
 from whose_agent.firing_signals import FiringSignals
 from whose_agent.history_adapter import require_unique_message_ids
+from whose_agent.llm_call_executor import ThreadedLLMCallExecutor
 from whose_agent.loop_artifacts import write_loop_trace, write_prompt_loop_generated
 from whose_agent.loop_trace_renderer import render_loop_trace
 from whose_agent.minimal_loop_graph import compile_minimal_loop_graph
@@ -161,18 +162,24 @@ async def stream_fixed_scenario(
     tracer: object | None = None,
 ) -> AsyncIterator[RunnerEvent]:
     run_dir = run_dir if run_dir is not None else create_run_directory(outputs_dir)
-    graph = compile_fixed_scenario_graph(
-        run_dir=run_dir,
-        tracer=tracer if tracer is not None else NoopTracer(),
-        mock=mock,
-    )
-    async for event in _stream_fixed_scenario_graph(
-        run_id=run_id,
-        scenario=scenario,
-        run_dir=run_dir,
-        graph=graph,
-    ):
-        yield event
+    llm_executor = ThreadedLLMCallExecutor() if not mock else None
+    try:
+        graph = compile_fixed_scenario_graph(
+            run_dir=run_dir,
+            tracer=tracer if tracer is not None else NoopTracer(),
+            mock=mock,
+            llm_executor=llm_executor,
+        )
+        async for event in _stream_fixed_scenario_graph(
+            run_id=run_id,
+            scenario=scenario,
+            run_dir=run_dir,
+            graph=graph,
+        ):
+            yield event
+    finally:
+        if llm_executor is not None:
+            llm_executor.shutdown()
 
 
 def run_fixed_scenarios(
@@ -230,30 +237,36 @@ async def stream_prompt_loop(
     )
     contract_path = write_prompt_contract(contract, run_dir)
 
-    graph = compile_minimal_loop_graph(
-        mock=mock,
-        tracer=tracer if tracer is not None else NoopTracer(),
-    )
-    initial_state = initial_loop_state_from_prompt_contract(
-        contract,
-        max_iterations=max_iterations,
-        firing_signals=firing_signals,
-        messages=canonical_messages,
-        history_source=resolved_seed.history_source,
-        prompt_loop_preset_id=resolved_seed.prompt_loop_preset_id,
-        prompt_loop_actor_mode=resolved_seed.actor_mode,
-        prior_completed_agent_turns=resolved_seed.prior_completed_agent_turns,
-    )
-    initial_state["prompt_contract_artifact"] = contract_path.name
+    llm_executor = ThreadedLLMCallExecutor() if not mock else None
+    try:
+        graph = compile_minimal_loop_graph(
+            mock=mock,
+            tracer=tracer if tracer is not None else NoopTracer(),
+            llm_executor=llm_executor,
+        )
+        initial_state = initial_loop_state_from_prompt_contract(
+            contract,
+            max_iterations=max_iterations,
+            firing_signals=firing_signals,
+            messages=canonical_messages,
+            history_source=resolved_seed.history_source,
+            prompt_loop_preset_id=resolved_seed.prompt_loop_preset_id,
+            prompt_loop_actor_mode=resolved_seed.actor_mode,
+            prior_completed_agent_turns=resolved_seed.prior_completed_agent_turns,
+        )
+        initial_state["prompt_contract_artifact"] = contract_path.name
 
-    async for event in _stream_prompt_loop_graph(
-        run_id=run_id,
-        contract=contract,
-        run_dir=run_dir,
-        graph=graph,
-        initial_state=initial_state,
-    ):
-        yield event
+        async for event in _stream_prompt_loop_graph(
+            run_id=run_id,
+            contract=contract,
+            run_dir=run_dir,
+            graph=graph,
+            initial_state=initial_state,
+        ):
+            yield event
+    finally:
+        if llm_executor is not None:
+            llm_executor.shutdown()
 
 
 async def detect_prompt_contract_for_stream(
@@ -317,28 +330,34 @@ async def _run_fixed_scenarios_async(
 ) -> FixedBatchResult:
     scenarios = load_scenarios(scenarios_dir)
     run_dir = run_dir if run_dir is not None else create_run_directory(outputs_dir)
-    graph = compile_fixed_scenario_graph(
-        run_dir=run_dir,
-        tracer=tracer if tracer is not None else NoopTracer(),
-        mock=mock,
-    )
-    results: list[ExecutionResult] = []
-    for index, scenario in enumerate(scenarios, start=1):
-        result = await _collect_execution_result(
-            _stream_fixed_scenario_graph(
-                run_id=f"fixed_batch_{index}",
-                scenario=scenario,
-                run_dir=run_dir,
-                graph=graph,
-            )
+    llm_executor = ThreadedLLMCallExecutor() if not mock else None
+    try:
+        graph = compile_fixed_scenario_graph(
+            run_dir=run_dir,
+            tracer=tracer if tracer is not None else NoopTracer(),
+            mock=mock,
+            llm_executor=llm_executor,
         )
-        results.append(result)
-    return FixedBatchResult(
-        run_dir=run_dir,
-        scenario_count=len(scenarios),
-        artifact_names=_artifact_names(run_dir),
-        results=results,
-    )
+        results: list[ExecutionResult] = []
+        for index, scenario in enumerate(scenarios, start=1):
+            result = await _collect_execution_result(
+                _stream_fixed_scenario_graph(
+                    run_id=f"fixed_batch_{index}",
+                    scenario=scenario,
+                    run_dir=run_dir,
+                    graph=graph,
+                )
+            )
+            results.append(result)
+        return FixedBatchResult(
+            run_dir=run_dir,
+            scenario_count=len(scenarios),
+            artifact_names=_artifact_names(run_dir),
+            results=results,
+        )
+    finally:
+        if llm_executor is not None:
+            llm_executor.shutdown()
 
 
 async def _stream_fixed_scenario_graph(

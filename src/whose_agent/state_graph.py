@@ -32,6 +32,7 @@ from whose_agent.checker import (
 from whose_agent.classifier import classify_scenario
 from whose_agent.conversation_view import project_messages
 from whose_agent.history_adapter import append_assistant_message, initial_conversation_messages
+from whose_agent.llm_call_executor import LLMCallExecutor
 from whose_agent.llm_result import LLMCallResult
 from whose_agent.schemas import (
     AuthorityCauseRecord,
@@ -190,11 +191,13 @@ def compile_fixed_scenario_graph(
     tracer: Any | None = None,
     mock: bool = False,
     checkpointer: BaseCheckpointSaver | None = None,
+    llm_executor: LLMCallExecutor | None = None,
 ) -> Any:
     return build_fixed_scenario_graph(
         run_dir=run_dir,
         tracer=tracer,
         mock=mock,
+        llm_executor=llm_executor,
     ).compile(checkpointer=checkpointer)
 
 
@@ -203,8 +206,10 @@ def build_fixed_scenario_graph(
     run_dir: Path | None = None,
     tracer: Any | None = None,
     mock: bool = False,
+    llm_executor: LLMCallExecutor | None = None,
 ) -> StateGraph:
     tracer = tracer if tracer is not None else NoopTracer()
+    llm_executor = llm_executor if llm_executor is not None else LLMCallExecutor()
     graph = StateGraph(WhoseAgentState)
 
     def load_scenario(state: WhoseAgentState) -> WhoseAgentState:
@@ -376,7 +381,8 @@ def build_fixed_scenario_graph(
                 mock=mock,
             ),
         ) as span:
-            bad_response_call = generate_bad_response_with_usage(
+            bad_response_call = llm_executor.call(
+                generate_bad_response_with_usage,
                 scenario,
                 classification,
                 selected_skill_id=selected_skill_id,
@@ -398,7 +404,8 @@ def build_fixed_scenario_graph(
                         project_messages(state.get("messages", []))
                     )
                 )
-                action_attempt = extract_external_persistence_attempt(
+                action_attempt = llm_executor.call(
+                    extract_external_persistence_attempt,
                     bad_response,
                     mock=mock,
                 )
@@ -482,7 +489,8 @@ def build_fixed_scenario_graph(
                 mock=mock,
             ),
         ) as span:
-            trace_result = emit_trace_with_usage(
+            trace_result = llm_executor.call(
+                emit_trace_with_usage,
                 scenario,
                 classification,
                 bad_response,
@@ -578,7 +586,8 @@ def build_fixed_scenario_graph(
                 checker_provenance is not None
                 and checker_provenance.prior_agent_proposal_turn is not None
             ):
-                action_attempt = extract_external_persistence_attempt(
+                action_attempt = llm_executor.call(
+                    extract_external_persistence_attempt,
                     bad_response,
                     mock=mock,
                 )
@@ -609,7 +618,8 @@ def build_fixed_scenario_graph(
             checker_kwargs: dict[str, Any] = {"mock": mock}
             if authority_context is not None:
                 checker_kwargs["authority_context"] = authority_context
-            checker_result = check_with_usage(
+            checker_result = llm_executor.call(
+                check_with_usage,
                 scenario,
                 bad_response,
                 **checker_kwargs,
@@ -745,7 +755,8 @@ def build_fixed_scenario_graph(
             ),
         ) as span:
             try:
-                explanation_call = explain_with_usage(
+                explanation_call = llm_executor.call(
+                    explain_with_usage,
                     history,
                     bad_response,
                     checker_observation,

@@ -403,7 +403,7 @@ def test_stream_prompt_loop_detects_contract_off_event_loop_thread(
         calls["detector_kwargs"] = kwargs
         return _typescript_contract(prompt)
 
-    _patch_typescript_live_graph(monkeypatch)
+    _patch_typescript_live_graph(monkeypatch, calls=calls)
     monkeypatch.setattr(
         execution,
         "detect_prompt_contract",
@@ -432,6 +432,8 @@ def test_stream_prompt_loop_detects_contract_off_event_loop_thread(
     events, caught = asyncio.run(collect_stream_events())
 
     assert calls["detector_thread"] != calls["event_loop_thread"]
+    assert calls["response_thread"] != calls["event_loop_thread"]
+    assert calls["checker_thread"] != calls["event_loop_thread"]
     assert calls["detector_prompt"] == _typescript_prompt()
     assert calls["detector_kwargs"] == {
         "mock": False,
@@ -471,16 +473,19 @@ def test_prompt_loop_typescript_preset_live_path_completes_through_agui(
     )
     client = _client(tmp_path)
 
-    events = _post_events(
-        client,
-        _prompt_loop_preset_payload(
-            TYPESCRIPT_PRESET_ID,
-            prompt=_typescript_prompt(),
-            mock=False,
-        ),
-    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", RuntimeWarning)
+        events = _post_events(
+            client,
+            _prompt_loop_preset_payload(
+                TYPESCRIPT_PRESET_ID,
+                prompt=_typescript_prompt(),
+                mock=False,
+            ),
+        )
 
     assert calls["detector"] == 1
+    assert not any("was never awaited" in str(item.message) for item in caught)
     assert "RUN_ERROR" not in [event["type"] for event in events]
     assert "TypeScript signup flow with explicit models" in _streamed_text(events)
     names = _custom_names(events)
@@ -1105,7 +1110,10 @@ def _typescript_contract(prompt: str) -> PromptContract:
     )
 
 
-def _patch_typescript_live_graph(monkeypatch: pytest.MonkeyPatch) -> None:
+def _patch_typescript_live_graph(
+    monkeypatch: pytest.MonkeyPatch,
+    calls: dict[str, Any] | None = None,
+) -> None:
     def fake_contract_response(
         principal_prompt: str,
         *,
@@ -1115,6 +1123,8 @@ def _patch_typescript_live_graph(monkeypatch: pytest.MonkeyPatch) -> None:
         delegated_guarantee: str | None,
         mock: bool = False,
     ) -> LLMCallResult[str]:
+        if calls is not None:
+            calls["response_thread"] = threading.get_ident()
         assert mock is False
         assert "TypeScript" in principal_prompt
         assert substitution_axis == "instruction"
@@ -1134,6 +1144,8 @@ def _patch_typescript_live_graph(monkeypatch: pytest.MonkeyPatch) -> None:
         *,
         mock: bool = False,
     ) -> CheckerEmissionResult:
+        if calls is not None:
+            calls["checker_thread"] = threading.get_ident()
         assert mock is False
         assert "TypeScript signup flow" in bad_response
         return _checker_result(scenario, checker_observed_bypass=False)

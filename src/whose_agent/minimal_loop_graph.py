@@ -51,6 +51,7 @@ from whose_agent.history_adapter import (
 from whose_agent.history_aware_actor import (
     generate_history_aware_authority_candidate_with_usage,
 )
+from whose_agent.llm_call_executor import LLMCallExecutor
 from whose_agent.loop_trigger_policy import (
     evaluate_prompt_contract_firing,
     should_fire_misreader_skill,
@@ -211,18 +212,23 @@ def compile_minimal_loop_graph(
     mock: bool = False,
     tracer: Any | None = None,
     checkpointer: BaseCheckpointSaver | None = None,
+    llm_executor: LLMCallExecutor | None = None,
 ) -> Any:
-    return build_minimal_loop_graph(mock=mock, tracer=tracer).compile(
-        checkpointer=checkpointer
-    )
+    return build_minimal_loop_graph(
+        mock=mock,
+        tracer=tracer,
+        llm_executor=llm_executor,
+    ).compile(checkpointer=checkpointer)
 
 
 def build_minimal_loop_graph(
     *,
     mock: bool = False,
     tracer: Any | None = None,
+    llm_executor: LLMCallExecutor | None = None,
 ) -> StateGraph:
     tracer = tracer if tracer is not None else NoopTracer()
+    llm_executor = llm_executor if llm_executor is not None else LLMCallExecutor()
     graph = StateGraph(WhoseAgentState)
 
     def plan(state: WhoseAgentState) -> WhoseAgentState:
@@ -321,6 +327,7 @@ def build_minimal_loop_graph(
                 classification,
                 selected_skill_id=selected_skill_id,
                 mock=mock,
+                llm_executor=llm_executor,
             )
 
         if _is_unsupported_prompt_contract(state):
@@ -364,7 +371,8 @@ def build_minimal_loop_graph(
                 "step; the misreader skill fires and the artifact crosses the delegated boundary."
             ]
             trigger_evidence = prompt_trigger_evidence + trigger_evidence
-            bad_response = generate_bad_response_with_usage(
+            bad_response = llm_executor.call(
+                generate_bad_response_with_usage,
                 scenario,
                 classification,
                 selected_skill_id=selected_skill_id,
@@ -419,7 +427,8 @@ def build_minimal_loop_graph(
         # Misreader does not fire: generation must not use skill context.
         prompt_contract_preserved = _is_supported_prompt_contract(state)
         if prompt_contract_preserved:
-            bad_response = generate_contract_preserving_response_with_usage(
+            bad_response = llm_executor.call(
+                generate_contract_preserving_response_with_usage,
                 scenario.principal_prompt,
                 substitution_axis=state.get("prompt_contract_substitution_axis"),
                 delegated_boundary=state.get("prompt_contract_delegated_boundary"),
@@ -429,7 +438,8 @@ def build_minimal_loop_graph(
             ).output
             substituted = "none"
         else:
-            bad_response = generate_bad_response_with_usage(
+            bad_response = llm_executor.call(
+                generate_bad_response_with_usage,
                 scenario,
                 classification,
                 mock=mock,
@@ -499,7 +509,8 @@ def build_minimal_loop_graph(
                     checker_provenance is not None
                     and checker_provenance.prior_agent_proposal_turn is not None
                 ):
-                    action_attempt = extract_external_persistence_attempt(
+                    action_attempt = llm_executor.call(
+                        extract_external_persistence_attempt,
                         bad_response,
                         mock=mock,
                     )
@@ -514,7 +525,8 @@ def build_minimal_loop_graph(
             checker_kwargs: dict[str, Any] = {"mock": mock}
             if authority_context is not None:
                 checker_kwargs["authority_context"] = authority_context
-            checker_observation = check_with_usage(
+            checker_observation = llm_executor.call(
+                check_with_usage,
                 scenario,
                 bad_response,
                 **checker_kwargs,
@@ -602,7 +614,8 @@ def build_minimal_loop_graph(
             ),
         ) as span:
             try:
-                explanation_call = explain_with_usage(
+                explanation_call = llm_executor.call(
+                    explain_with_usage,
                     history,
                     bad_response,
                     checker_observation,
@@ -735,18 +748,21 @@ def _do_authority_provenance_step(
     *,
     selected_skill_id: str | None,
     mock: bool,
+    llm_executor: LLMCallExecutor,
 ) -> WhoseAgentState:
     bad_response = _generate_authority_provenance_candidate(
         state,
         scenario,
         classification,
         mock=mock,
+        llm_executor=llm_executor,
     )
     updated_messages = append_assistant_message(
         state.get("messages", []),
         bad_response,
     )
-    action_attempt = extract_external_persistence_attempt(
+    action_attempt = llm_executor.call(
+        extract_external_persistence_attempt,
         bad_response,
         mock=mock,
     )
@@ -819,21 +835,25 @@ def _generate_authority_provenance_candidate(
     classification: Classification,
     *,
     mock: bool,
+    llm_executor: LLMCallExecutor,
 ) -> str:
     if _uses_history_aware_authority_actor(state):
-        return generate_history_aware_authority_candidate_with_usage(
+        return llm_executor.call(
+            generate_history_aware_authority_candidate_with_usage,
             project_messages(state.get("messages", [])),
             mock=mock,
         ).output
 
     if mock or state.get("loop_source") != "prompt_contract":
-        return generate_bad_response_with_usage(
+        return llm_executor.call(
+            generate_bad_response_with_usage,
             scenario,
             classification,
             mock=mock,
         ).output
 
-    return generate_contract_preserving_response_with_usage(
+    return llm_executor.call(
+        generate_contract_preserving_response_with_usage,
         scenario.principal_prompt,
         substitution_axis=state.get("prompt_contract_substitution_axis"),
         delegated_boundary=state.get("prompt_contract_delegated_boundary"),
