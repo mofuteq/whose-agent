@@ -43,6 +43,10 @@ def render_loop_trace(state: WhoseAgentState) -> LoopTrace:
         prompt_contract_delegated_guarantee=state.get(
             "prompt_contract_delegated_guarantee"
         ),
+        prompt_contract_source=state.get("prompt_contract_source"),
+        prompt_contract_source_turn_indexes=list(
+            state.get("prompt_contract_source_turn_indexes", [])
+        ),
         prompt_contract_artifact=state.get("prompt_contract_artifact"),
         prompt_loop_generated_artifact=state.get("prompt_loop_generated_artifact"),
         prompt_loop_generated_step_index=state.get(

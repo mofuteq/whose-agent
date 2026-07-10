@@ -56,13 +56,17 @@ from whose_agent.loop_trigger_policy import (
     evaluate_prompt_contract_firing,
     should_fire_misreader_skill,
 )
-from whose_agent.prompt_response import generate_contract_preserving_response_with_usage
+from whose_agent.prompt_response import (
+    generate_contract_preserving_response_with_usage,
+    generate_history_aware_prompt_loop_candidate_with_usage,
+)
 from whose_agent.schemas import (
     AuthorityCauseRecord,
     AuthorityProvenance,
     CheckerObservation,
     ConversationMessage,
     Classification,
+    PromptContract,
     Scenario,
     SelfExplanation,
     StepKind,
@@ -197,6 +201,8 @@ def initial_loop_state_from_scenario(
         "prompt_contract_delegated_boundary": None,
         "prompt_contract_candidate_framework": None,
         "prompt_contract_delegated_guarantee": None,
+        "prompt_contract_source": None,
+        "prompt_contract_source_turn_indexes": [],
         "prompt_contract_artifact": None,
         "prompt_loop_generated_artifact": None,
         "prompt_loop_generated_step_index": None,
@@ -371,15 +377,25 @@ def build_minimal_loop_graph(
                 "step; the misreader skill fires and the artifact crosses the delegated boundary."
             ]
             trigger_evidence = prompt_trigger_evidence + trigger_evidence
-            bad_response = llm_executor.call(
-                generate_bad_response_with_usage,
-                scenario,
-                classification,
-                selected_skill_id=selected_skill_id,
-                selected_skill_perspective=selected_skill_perspective,
-                misreader_skill_fired=True,
-                mock=mock,
-            ).output
+            if _uses_history_aware_prompt_loop_actor(state):
+                bad_response = llm_executor.call(
+                    generate_history_aware_prompt_loop_candidate_with_usage,
+                    project_messages(state.get("messages", [])),
+                    contract=_prompt_contract_from_state(state, scenario),
+                    misreader_skill_fired=True,
+                    selected_skill_perspective=selected_skill_perspective,
+                    mock=mock,
+                ).output
+            else:
+                bad_response = llm_executor.call(
+                    generate_bad_response_with_usage,
+                    scenario,
+                    classification,
+                    selected_skill_id=selected_skill_id,
+                    selected_skill_perspective=selected_skill_perspective,
+                    misreader_skill_fired=True,
+                    mock=mock,
+                ).output
             updated_messages = append_assistant_message(
                 state.get("messages", []),
                 bad_response,
@@ -427,15 +443,25 @@ def build_minimal_loop_graph(
         # Misreader does not fire: generation must not use skill context.
         prompt_contract_preserved = _is_supported_prompt_contract(state)
         if prompt_contract_preserved:
-            bad_response = llm_executor.call(
-                generate_contract_preserving_response_with_usage,
-                scenario.principal_prompt,
-                substitution_axis=state.get("prompt_contract_substitution_axis"),
-                delegated_boundary=state.get("prompt_contract_delegated_boundary"),
-                candidate_framework=state.get("prompt_contract_candidate_framework"),
-                delegated_guarantee=state.get("prompt_contract_delegated_guarantee"),
-                mock=mock,
-            ).output
+            if _uses_history_aware_prompt_loop_actor(state):
+                bad_response = llm_executor.call(
+                    generate_history_aware_prompt_loop_candidate_with_usage,
+                    project_messages(state.get("messages", [])),
+                    contract=_prompt_contract_from_state(state, scenario),
+                    misreader_skill_fired=False,
+                    selected_skill_perspective=None,
+                    mock=mock,
+                ).output
+            else:
+                bad_response = llm_executor.call(
+                    generate_contract_preserving_response_with_usage,
+                    scenario.principal_prompt,
+                    substitution_axis=state.get("prompt_contract_substitution_axis"),
+                    delegated_boundary=state.get("prompt_contract_delegated_boundary"),
+                    candidate_framework=state.get("prompt_contract_candidate_framework"),
+                    delegated_guarantee=state.get("prompt_contract_delegated_guarantee"),
+                    mock=mock,
+                ).output
             substituted = "none"
         else:
             bad_response = llm_executor.call(
@@ -868,6 +894,42 @@ def _uses_history_aware_authority_actor(state: WhoseAgentState) -> bool:
         state.get("history_source") == "server_owned_preset"
         and state.get("prompt_loop_actor_mode")
         == AUTHORITY_SELF_ORIGINATED_DELEGATION_LAUNDERING_ACTOR_MODE
+    )
+
+
+def _uses_history_aware_prompt_loop_actor(state: WhoseAgentState) -> bool:
+    messages = state.get("messages", [])
+    return (
+        state.get("loop_source") == "prompt_contract"
+        and state.get("prompt_contract_status") == "contract_detected"
+        and not _uses_history_aware_authority_actor(state)
+        and len(messages) > 1
+        and messages[-1].role == "user"
+    )
+
+
+def _prompt_contract_from_state(
+    state: WhoseAgentState,
+    scenario: Scenario,
+) -> PromptContract:
+    return PromptContract(
+        prompt=scenario.principal_prompt,
+        boundary_detected=bool(state.get("prompt_contract_boundary_detected", False)),
+        substitution_axis=state.get("prompt_contract_substitution_axis"),
+        delegated_boundary=state.get("prompt_contract_delegated_boundary"),
+        framework_specified=bool(state.get("framework_specified", False)),
+        candidate_framework=state.get("prompt_contract_candidate_framework"),
+        delegated_guarantee=state.get("prompt_contract_delegated_guarantee"),
+        selected_skill_id=state.get("selected_skill_id"),
+        skill_selection_reason="Runtime prompt-loop contract selected this skill.",
+        confidence="high",
+        status=cast(Any, state.get("prompt_contract_status", "contract_detected")),
+        available_skill_ids=[],
+        detection_reason="Runtime state carried the prompt contract into generation.",
+        prompt_contract_source=state.get("prompt_contract_source") or "current_prompt",
+        prompt_contract_source_turn_indexes=list(
+            state.get("prompt_contract_source_turn_indexes", [])
+        ),
     )
 
 

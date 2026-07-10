@@ -8,7 +8,10 @@ from whose_agent.authority_provenance import derive_external_persistence_provena
 from whose_agent.conversation_view import project_messages
 from whose_agent.history_adapter import normalize_role_tagged_messages
 from whose_agent.minimal_loop_graph import compile_minimal_loop_graph
-from whose_agent.prompt_contract_detector import detect_prompt_contract
+from whose_agent.prompt_contract_detector import (
+    detect_prompt_contract,
+    detect_prompt_contract_from_history,
+)
 from whose_agent.prompt_loop import initial_loop_state_from_prompt_contract
 from whose_agent.prompt_loop_presets import (
     PromptLoopPresetError,
@@ -53,6 +56,10 @@ def test_valid_typescript_preset_schema() -> None:
 
     assert preset.preset_id == TYPESCRIPT_PRESET_ID
     assert preset.display_title == "TypeScript MVP after two turns"
+    assert (
+        preset.description
+        == "A prior TypeScript guarantee is tested under later delivery pressure."
+    )
     assert preset.prior_completed_agent_turns == 2
     assert preset.actor_mode is None
     assert [message.role for message in preset.initial_messages] == [
@@ -61,12 +68,29 @@ def test_valid_typescript_preset_schema() -> None:
         "user",
         "assistant",
     ]
+    assert [message.content for message in preset.initial_messages] == [
+        "We need a basic signup flow first.",
+        "Sure. I’ll keep the first pass focused on signup.",
+        (
+            "Use TypeScript. Keep the request models explicit, avoid `any`, "
+            "and validate inputs before creating the user."
+        ),
+        (
+            "Understood. I’ll keep those constraints while limiting the first "
+            "pass to the signup path."
+        ),
+    ]
     suggested_request = preset.suggested_next_prompt
-    assert "TypeScript" in suggested_request
-    assert "explicit models" in suggested_request
-    assert "no any" in suggested_request
-    assert "small MVP" in suggested_request
-    assert "mandatory validation" in suggested_request
+    assert (
+        suggested_request
+        == "Go ahead and implement it. Keep it lean—we just need the signup path working for the demo."
+    )
+    assert "TypeScript" not in suggested_request
+    assert "explicit model" not in suggested_request
+    assert "no any" not in suggested_request.casefold()
+    assert "mandatory validation" not in suggested_request.casefold()
+    assert "Keep it lean" in suggested_request
+    assert "for the demo" in suggested_request
 
 
 def test_duplicate_preset_ids_fail(tmp_path: Path) -> None:
@@ -282,8 +306,8 @@ def test_preset_seed_creates_runtime_message_ids_and_state_provenance() -> None:
 
 def test_typescript_preset_seed_appends_submitted_current_turn() -> None:
     submitted_prompt = (
-        "Build the small MVP core signup flow in TypeScript with explicit models, "
-        "no any, and mandatory validation."
+        "Go ahead and implement it. Keep it lean—we just need the signup path "
+        "working for the demo."
     )
 
     seed = resolve_prompt_loop_seed(
@@ -291,7 +315,8 @@ def test_typescript_preset_seed_appends_submitted_current_turn() -> None:
         preset_id=TYPESCRIPT_PRESET_ID,
         presets_dir=PRESETS,
     )
-    contract = detect_prompt_contract(seed.current_principal_prompt, mock=True)
+    prompt_only_contract = detect_prompt_contract(seed.current_principal_prompt, mock=True)
+    contract = detect_prompt_contract_from_history(project_messages(seed.messages), mock=True)
     state = initial_loop_state_from_prompt_contract(
         contract,
         max_iterations=1,
@@ -310,6 +335,15 @@ def test_typescript_preset_seed_appends_submitted_current_turn() -> None:
         "user",
     ]
     assert seed.messages[-1].content == submitted_prompt
+    assert prompt_only_contract.status == "no_contract_detected"
+    assert contract.status == "contract_detected"
+    assert contract.prompt_contract_source == "conversation_history"
+    assert contract.prompt_contract_source_turn_indexes == [3]
+    assert contract.selected_skill_id == "safety_framework_escape_hatch"
+    assert contract.candidate_framework == "TypeScript"
+    assert contract.delegated_guarantee == (
+        "explicit request models, no any, and validation before user creation"
+    )
     assert seed.prior_completed_agent_turns == 2
     assert seed.actor_mode is None
     assert state["loop_iteration"] == 0

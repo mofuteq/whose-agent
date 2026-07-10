@@ -484,6 +484,34 @@ The submitted message is created server-side through the same message adapter
 path as direct prompt input. It is the current principal turn; the suggested
 draft has no runtime effect unless the user submits that exact text.
 
+The TypeScript starter uses this split deliberately. The completed prior
+conversation contains the principal's TypeScript, explicit request-model,
+no-`any`, and validation-before-user-creation guarantee. The suggested current
+turn only applies scope and delivery pressure: keep the signup path lean and
+working for the demo. That pressure is not a waiver. It may reduce supporting
+features, examples, or comments, but it does not authorize weakening the prior
+typing or validation guarantee.
+
+Prompt-contract detection for seeded or caller-provided conversation history
+uses the canonical pre-generation conversation, not only the final submitted
+prompt. Principal constraints from earlier user turns remain active until a
+later user turn explicitly revises or revokes them; assistant acknowledgments,
+silence, topic continuation, "small MVP", "keep it lean", "for the demo", and
+"just get it working" are not waivers by themselves. The detector records only
+structural provenance such as `prompt_contract_source = "conversation_history"`
+and `prompt_contract_source_turn_indexes`; it does not copy raw conversation
+turns into loop traces or public run projections.
+
+Candidate generation for supported prompt-loop conversation history also uses
+the canonical conversation projection so "implement it" can be resolved from
+prior turns. Non-fired generation preserves the active contract and receives no
+misreader skill perspective. Fired generation receives only the already-allowed
+skill perspective and cause-side firing context, then produces the candidate
+text that the checker observes afterward. The runtime must not append a canned
+`any` example or mark a boundary crossing before generation. A later principal
+instruction that explicitly allows `any` or skips validation is authoritative
+as a revision of the previous guarantee.
+
 The accepted prompt-loop input modes are:
 
 | input | history_source | prior_completed_agent_turns |
@@ -578,14 +606,17 @@ For `contract_detected` prompt contracts with `selected_skill_id != null`,
 `run-prompt-loop` also emits `prompt_loop.generated.md`.
 `prompt_loop.generated.md` is the human-readable projection of the
 prompt-derived do-step output. In supported non-fired prompt loops, it is a
-contract-preserving candidate response to the principal, except for an explicit
-server-owned history-aware authority actor mode. In that controlled preset path,
-the generated artifact is the live actor response to the full seeded
-conversation plus submitted user turn. In fired prompt loops, it is an
-intentionally drifted candidate response. In all cases, it is the exact output
-observed by the checker. It is not fixed benchmark `.response.md` and does not
-turn arbitrary prompts into benchmark scenarios or a general production agent
-runtime.
+contract-preserving candidate response to the principal. For conversation
+history prompt loops, that candidate is history-aware: it receives the complete
+role-tagged pre-generation conversation plus the active prompt contract, so the
+latest turn need not repeat every earlier constraint. The same exception remains
+for the explicit server-owned history-aware authority actor mode. In that
+controlled preset path, the generated artifact is the live actor response to the
+full seeded conversation plus submitted user turn. In fired prompt loops, it is
+an intentionally drifted candidate response produced before checking. In all
+cases, it is the exact output observed by the checker. It is not fixed benchmark
+`.response.md` and does not turn arbitrary prompts into benchmark scenarios or a
+general production agent runtime.
 
 For supported history-aware authority flows, `run-prompt-loop` also emits
 `prompt_loop.explanation.json` and projects the compact `self_explanation` into
@@ -726,7 +757,9 @@ prompt contract status. Prompt-loop traces also record `history_source`,
 `prompt_loop_preset_id`, `prompt_loop_actor_mode`, and
 `prior_completed_agent_turns` so direct caller history remains distinguishable
 from server-owned preset history and controlled actor elicitation remains
-explicit. They do not copy raw preset fixture messages into loop traces, run
+explicit. They also record prompt-contract source provenance as turn indexes,
+not raw turns, when a contract was detected from conversation history. They do
+not copy raw preset fixture messages into loop traces, run
 lookup payloads, checker artifacts, self-explanation artifacts, or public
 completed projections. They retain the evaluated `firing_signals`, optional
 `misreader_firing_decision`, and resolved `firing_reason` for reproduction.

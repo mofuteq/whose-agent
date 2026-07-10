@@ -48,6 +48,10 @@ PromptContractStatus = Literal[
     "no_contract_detected",
     "unsupported",
 ]
+PromptContractSource = Literal[
+    "current_prompt",
+    "conversation_history",
+]
 ExternalActionKind = Literal["external_persistence"]
 AuthorityGrantStatus = Literal[
     "not_granted",
@@ -474,6 +478,8 @@ class PromptContract(BaseModel):
     status: PromptContractStatus
     available_skill_ids: list[str] = Field(default_factory=list)
     detection_reason: str | None = Field(default=None, max_length=1000)
+    prompt_contract_source: PromptContractSource = "current_prompt"
+    prompt_contract_source_turn_indexes: list[int] = Field(default_factory=list)
 
     @field_validator(
         "candidate_framework",
@@ -505,6 +511,11 @@ class PromptContract(BaseModel):
     @classmethod
     def require_non_empty_skill_ids(cls, value: list[str]) -> list[str]:
         return [item.strip() for item in value if item.strip()]
+
+    @field_validator("prompt_contract_source_turn_indexes")
+    @classmethod
+    def require_positive_source_turn_indexes(cls, value: list[int]) -> list[int]:
+        return [int(item) for item in value if int(item) > 0]
 
     @model_validator(mode="after")
     def validate_status_consistency(self) -> "PromptContract":
@@ -547,6 +558,14 @@ class PromptContract(BaseModel):
                 raise ValueError(
                     "unsupported with delegated_boundary requires substitution_axis"
                 )
+        if (
+            self.prompt_contract_source == "conversation_history"
+            and self.boundary_detected
+            and not self.prompt_contract_source_turn_indexes
+        ):
+            raise ValueError(
+                "conversation_history contract detection requires source turn indexes"
+            )
         return self
 
 
@@ -651,6 +670,8 @@ class LoopTrace(BaseModel):
     prompt_contract_delegated_boundary: str | None = None
     prompt_contract_candidate_framework: str | None = None
     prompt_contract_delegated_guarantee: str | None = None
+    prompt_contract_source: PromptContractSource | None = None
+    prompt_contract_source_turn_indexes: list[int] = Field(default_factory=list)
     prompt_contract_artifact: str | None = None
     prompt_loop_generated_artifact: str | None = None
     prompt_loop_generated_step_index: int | None = None
@@ -721,6 +742,8 @@ class WhoseAgentState(TypedDict, total=False):
     prompt_contract_delegated_boundary: str | None
     prompt_contract_candidate_framework: str | None
     prompt_contract_delegated_guarantee: str | None
+    prompt_contract_source: PromptContractSource | None
+    prompt_contract_source_turn_indexes: list[int]
     prompt_contract_artifact: str | None
     prompt_loop_generated_artifact: str | None
     prompt_loop_generated_step_index: int | None
@@ -790,6 +813,7 @@ __all__ = [
     "ObservationOutcome",
     "Principal",
     "PromptContract",
+    "PromptContractSource",
     "PromptContractStatus",
     "PromptLoopActorMode",
     "Reflection",

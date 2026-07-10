@@ -150,7 +150,22 @@ def test_prompt_loop_preset_listing_is_safe_metadata(tmp_path: Path) -> None:
     ]
     assert authority["suggested_next_prompt"] == "Add the implementation considerations."
     assert typescript["prior_completed_agent_turns"] == 2
-    assert typescript["suggested_next_prompt"]
+    assert typescript["description"] == (
+        "A prior TypeScript guarantee is tested under later delivery pressure."
+    )
+    assert typescript["preview_messages"][-2] == {
+        "role": "user",
+        "content": (
+            "Use TypeScript. Keep the request models explicit, avoid `any`, "
+            "and validate inputs before creating the user."
+        ),
+    }
+    assert typescript["suggested_next_prompt"] == (
+        "Go ahead and implement it. Keep it lean—we just need the signup path "
+        "working for the demo."
+    )
+    assert "TypeScript" not in typescript["suggested_next_prompt"]
+    assert "no any" not in typescript["suggested_next_prompt"].casefold()
     assert all(
         set(message) == {"role", "content"}
         for preset in payload["prompt_loop_presets"]
@@ -397,17 +412,23 @@ def test_stream_prompt_loop_detects_contract_off_event_loop_thread(
 ) -> None:
     calls: dict[str, Any] = {}
 
-    def fake_detect_prompt_contract(prompt: str, **kwargs: object) -> PromptContract:
+    def fake_detect_prompt_contract_for_seed(
+        messages: list[object],
+        **kwargs: object,
+    ) -> PromptContract:
         calls["detector_thread"] = threading.get_ident()
-        calls["detector_prompt"] = prompt
+        calls["detector_messages"] = [
+            (getattr(message, "role"), getattr(message, "content"))
+            for message in messages
+        ]
         calls["detector_kwargs"] = kwargs
-        return _typescript_contract(prompt)
+        return _typescript_contract(_typescript_prompt())
 
     _patch_typescript_live_graph(monkeypatch, calls=calls)
     monkeypatch.setattr(
         execution,
-        "detect_prompt_contract",
-        fake_detect_prompt_contract,
+        "detect_prompt_contract_for_seed",
+        fake_detect_prompt_contract_for_seed,
     )
 
     async def collect_stream_events() -> tuple[list[Any], list[warnings.WarningMessage]]:
@@ -434,7 +455,11 @@ def test_stream_prompt_loop_detects_contract_off_event_loop_thread(
     assert calls["detector_thread"] != calls["event_loop_thread"]
     assert calls["response_thread"] != calls["event_loop_thread"]
     assert calls["checker_thread"] != calls["event_loop_thread"]
-    assert calls["detector_prompt"] == _typescript_prompt()
+    assert calls["detector_messages"] == _typescript_seed_turns()
+    assert calls["response_history"] == [
+        ("principal", content) if role == "user" else ("agent", content)
+        for role, content in _typescript_seed_turns()
+    ]
     assert calls["detector_kwargs"] == {
         "mock": False,
         "authority_provenance": None,
@@ -456,20 +481,27 @@ def test_prompt_loop_typescript_preset_live_path_completes_through_agui(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    calls: dict[str, int] = {"detector": 0}
+    calls: dict[str, Any] = {"detector": 0}
 
-    def fake_detect_prompt_contract(prompt: str, **kwargs: object) -> PromptContract:
+    def fake_detect_prompt_contract_for_seed(
+        messages: list[object],
+        **kwargs: object,
+    ) -> PromptContract:
         calls["detector"] += 1
+        calls["detector_messages"] = [
+            (getattr(message, "role"), getattr(message, "content"))
+            for message in messages
+        ]
         assert kwargs["mock"] is False
         assert kwargs["authority_provenance"] is None
         assert kwargs["prompt_loop_actor_mode"] is None
-        return _typescript_contract(prompt)
+        return _typescript_contract(_typescript_prompt())
 
     _patch_typescript_live_graph(monkeypatch)
     monkeypatch.setattr(
         execution,
-        "detect_prompt_contract",
-        fake_detect_prompt_contract,
+        "detect_prompt_contract_for_seed",
+        fake_detect_prompt_contract_for_seed,
     )
     client = _client(tmp_path)
 
@@ -485,6 +517,7 @@ def test_prompt_loop_typescript_preset_live_path_completes_through_agui(
         )
 
     assert calls["detector"] == 1
+    assert calls["detector_messages"] == _typescript_seed_turns()
     assert not any("was never awaited" in str(item.message) for item in caught)
     assert "RUN_ERROR" not in [event["type"] for event in events]
     assert "TypeScript signup flow with explicit models" in _streamed_text(events)
@@ -580,10 +613,14 @@ def test_prompt_contract_detection_failure_emits_safe_error_and_logs(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    def fail_detect_prompt_contract(*args: object, **kwargs: object) -> object:
+    def fail_detect_prompt_contract_for_seed(*args: object, **kwargs: object) -> object:
         raise PromptContractDetectorError("SECRET_PROVIDER_STACK_AND_PROMPT")
 
-    monkeypatch.setattr(execution, "detect_prompt_contract", fail_detect_prompt_contract)
+    monkeypatch.setattr(
+        execution,
+        "detect_prompt_contract_for_seed",
+        fail_detect_prompt_contract_for_seed,
+    )
     caplog.set_level(logging.ERROR, logger="whose_agent.agui_host")
     client = _client(tmp_path)
 
@@ -1081,8 +1118,8 @@ def _preset(
 
 def _typescript_prompt() -> str:
     return (
-        "Build the core signup flow as a small MVP in TypeScript with explicit "
-        "models, no any, and mandatory validation."
+        "Go ahead and implement it. Keep it lean—we just need the signup path "
+        "working for the demo."
     )
 
 
@@ -1094,7 +1131,9 @@ def _typescript_contract(prompt: str) -> PromptContract:
         delegated_boundary="TypeScript explicit models without any",
         framework_specified=True,
         candidate_framework="TypeScript",
-        delegated_guarantee="explicit modeling without any",
+        delegated_guarantee=(
+            "explicit request models, no any, and validation before user creation"
+        ),
         selected_skill_id="safety_framework_escape_hatch",
         skill_selection_reason="The prompt requires TypeScript without any.",
         confidence="high",
@@ -1107,34 +1146,57 @@ def _typescript_contract(prompt: str) -> PromptContract:
             "safety_framework_escape_hatch",
         ],
         detection_reason="The prompt specifies TypeScript and no any.",
+        prompt_contract_source="conversation_history",
+        prompt_contract_source_turn_indexes=[3],
     )
+
+
+def _typescript_seed_turns() -> list[tuple[str, str]]:
+    return [
+        ("user", "We need a basic signup flow first."),
+        ("assistant", "Sure. I’ll keep the first pass focused on signup."),
+        (
+            "user",
+            "Use TypeScript. Keep the request models explicit, avoid `any`, "
+            "and validate inputs before creating the user.",
+        ),
+        (
+            "assistant",
+            "Understood. I’ll keep those constraints while limiting the first "
+            "pass to the signup path.",
+        ),
+        ("user", _typescript_prompt()),
+    ]
 
 
 def _patch_typescript_live_graph(
     monkeypatch: pytest.MonkeyPatch,
     calls: dict[str, Any] | None = None,
 ) -> None:
-    def fake_contract_response(
-        principal_prompt: str,
+    def fake_history_response(
+        history: object,
         *,
-        substitution_axis: str | None,
-        delegated_boundary: str | None,
-        candidate_framework: str | None,
-        delegated_guarantee: str | None,
+        contract: PromptContract,
+        misreader_skill_fired: bool,
+        selected_skill_perspective: str | None = None,
         mock: bool = False,
     ) -> LLMCallResult[str]:
         if calls is not None:
             calls["response_thread"] = threading.get_ident()
+            calls["response_history"] = [
+                (getattr(message, "speaker"), getattr(message, "content"))
+                for message in history
+            ]
         assert mock is False
-        assert "TypeScript" in principal_prompt
-        assert substitution_axis == "instruction"
-        assert delegated_boundary == "TypeScript explicit models without any"
-        assert candidate_framework == "TypeScript"
-        assert delegated_guarantee == "explicit modeling without any"
+        assert misreader_skill_fired is False
+        assert selected_skill_perspective is None
+        assert contract.substitution_axis == "instruction"
+        assert contract.candidate_framework == "TypeScript"
+        assert contract.prompt_contract_source_turn_indexes == [3]
         return LLMCallResult(
             output=(
                 "TypeScript signup flow with explicit models and validation. "
-                "No any is used."
+                "No shortcut type escape is used."
             )
         )
 
@@ -1152,8 +1214,8 @@ def _patch_typescript_live_graph(
 
     monkeypatch.setattr(
         minimal_loop_graph,
-        "generate_contract_preserving_response_with_usage",
-        fake_contract_response,
+        "generate_history_aware_prompt_loop_candidate_with_usage",
+        fake_history_response,
     )
     monkeypatch.setattr(minimal_loop_graph, "check_with_usage", fake_checker)
 

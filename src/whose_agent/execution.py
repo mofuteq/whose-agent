@@ -15,9 +15,9 @@ from whose_agent.loop_artifacts import write_loop_trace, write_prompt_loop_gener
 from whose_agent.loop_trace_renderer import render_loop_trace
 from whose_agent.minimal_loop_graph import compile_minimal_loop_graph
 from whose_agent.prompt_contract_artifacts import write_prompt_contract
-from whose_agent.prompt_contract_detector import detect_prompt_contract
 from whose_agent.prompt_loop import (
     PROMPT_LOOP_SCENARIO_ID,
+    detect_prompt_contract_for_seed,
     _last_do_step_index,
     _should_emit_prompt_loop_generated,
     initial_loop_state_from_prompt_contract,
@@ -230,7 +230,7 @@ async def stream_prompt_loop(
         project_messages(canonical_messages)
     )
     contract = await detect_prompt_contract_for_stream(
-        prompt,
+        canonical_messages,
         mock=mock,
         authority_provenance=authority_provenance,
         prompt_loop_actor_mode=resolved_seed.actor_mode,
@@ -270,15 +270,15 @@ async def stream_prompt_loop(
 
 
 async def detect_prompt_contract_for_stream(
-    prompt: str,
+    messages: list[ConversationMessage],
     *,
     mock: bool,
     authority_provenance: AuthorityProvenance | None,
     prompt_loop_actor_mode: PromptLoopActorMode | None,
 ) -> PromptContract:
     return await asyncio.to_thread(
-        detect_prompt_contract,
-        prompt,
+        detect_prompt_contract_for_seed,
+        messages,
         mock=mock,
         authority_provenance=authority_provenance,
         prompt_loop_actor_mode=prompt_loop_actor_mode,

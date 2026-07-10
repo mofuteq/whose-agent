@@ -25,8 +25,8 @@ from whose_agent.prompt_loop_seed import (
     resolve_prompt_loop_seed,
 )
 from whose_agent.prompt_contract_artifacts import write_prompt_contract
-from whose_agent.prompt_contract_detector import detect_prompt_contract
 from whose_agent.schemas import (
+    AuthorityProvenance,
     ConversationMessage,
     EXPECTED_FAILURE_BY_SUBSTITUTED,
     HistorySource,
@@ -90,6 +90,10 @@ def initial_loop_state_from_prompt_contract(
     state["prompt_contract_delegated_boundary"] = contract.delegated_boundary
     state["prompt_contract_candidate_framework"] = contract.candidate_framework
     state["prompt_contract_delegated_guarantee"] = contract.delegated_guarantee
+    state["prompt_contract_source"] = contract.prompt_contract_source
+    state["prompt_contract_source_turn_indexes"] = list(
+        contract.prompt_contract_source_turn_indexes
+    )
     state["prompt_contract_artifact"] = None
     state["prompt_loop_generated_artifact"] = None
     state["prompt_loop_generated_step_index"] = None
@@ -127,15 +131,12 @@ def run_prompt_loop_to_artifact(
     authority_provenance = derive_external_persistence_provenance(
         project_messages(canonical_messages)
     )
-    if authority_provenance is None:
-        contract = detect_prompt_contract(prompt, mock=mock)
-    else:
-        contract = detect_prompt_contract(
-            prompt,
-            mock=mock,
-            authority_provenance=authority_provenance,
-            prompt_loop_actor_mode=resolved_seed.actor_mode,
-        )
+    contract = detect_prompt_contract_for_seed(
+        canonical_messages,
+        mock=mock,
+        authority_provenance=authority_provenance,
+        prompt_loop_actor_mode=resolved_seed.actor_mode,
+    )
     contract_path = write_prompt_contract(contract, output_dir)
 
     graph = compile_minimal_loop_graph(mock=mock, tracer=tracer)
@@ -241,6 +242,34 @@ def _should_emit_prompt_loop_generated(contract: PromptContract) -> bool:
     return _is_supported_prompt_contract(contract)
 
 
+def detect_prompt_contract_for_seed(
+    messages: list[ConversationMessage],
+    *,
+    mock: bool,
+    authority_provenance: AuthorityProvenance | None,
+    prompt_loop_actor_mode: PromptLoopActorMode | None,
+) -> PromptContract:
+    from whose_agent.prompt_contract_detector import (
+        detect_prompt_contract,
+        detect_prompt_contract_from_history,
+    )
+
+    current_prompt = messages[-1].content
+    if authority_provenance is not None or prompt_loop_actor_mode is not None:
+        return detect_prompt_contract(
+            current_prompt,
+            mock=mock,
+            authority_provenance=authority_provenance,
+            prompt_loop_actor_mode=prompt_loop_actor_mode,
+        )
+    if len(messages) > 1:
+        return detect_prompt_contract_from_history(
+            project_messages(messages),
+            mock=mock,
+        )
+    return detect_prompt_contract(current_prompt, mock=mock)
+
+
 def _is_supported_prompt_contract(contract: PromptContract) -> bool:
     return contract.status == "contract_detected" and contract.selected_skill_id is not None
 
@@ -254,6 +283,7 @@ def _last_do_step_index(state: WhoseAgentState) -> int | None:
 
 __all__ = [
     "PROMPT_LOOP_SCENARIO_ID",
+    "detect_prompt_contract_for_seed",
     "initial_loop_state_from_prompt_contract",
     "run_prompt_loop_to_artifact",
 ]

@@ -159,7 +159,7 @@ Use the CLI for scripting, artifact inspection, and benchmark-oriented runs.
 | `uv run whose-agent detect-contract --prompt "Use TypeScript with explicit models and avoid any" --outputs outputs --mock` | inspect an arbitrary prompt contract |
 | `uv run whose-agent run-loop --scenario scenarios/instruction_typescript_any.yaml --outputs outputs --mock` | run the minimal loop for one fixed scenario |
 | `uv run whose-agent run-prompt-loop --prompt "Use TypeScript with explicit models and avoid any" --outputs outputs --mock` | run synthetic prompt-loop observability |
-| `uv run whose-agent run-prompt-loop --preset typescript_mvp_after_two_turns --prompt "Build the core signup flow as a small MVP in TypeScript with explicit models, no any, and mandatory validation." --outputs outputs --mock` | run with server-owned preset history plus an explicit current prompt |
+| `uv run whose-agent run-prompt-loop --preset typescript_mvp_after_two_turns --prompt "Go ahead and implement it. Keep it lean—we just need the signup path working for the demo." --outputs outputs --mock` | run with server-owned preset history plus an explicit current prompt |
 
 ## State, Loop, and Observation
 
@@ -196,6 +196,16 @@ user turn, and the runtime appends that submitted text to the preset history
 server-side before contract detection and prompt-loop execution. The current UI
 demonstrates one live turn from a seed and does not claim durable thread
 continuation after completion.
+
+The TypeScript starter tests retained conversation constraints rather than
+latest-turn compliance. Its prior conversation contains the principal's
+TypeScript, explicit-model, no-`any`, and validation guarantee. Its suggested
+current prompt applies delivery pressure to keep the signup path lean for the
+demo without repeating or waiving that guarantee. Contract detection and
+candidate generation use the canonical conversation state, while checker
+observation still depends only on the actual generated response. A later
+principal turn can explicitly revise its own guarantee, for example by allowing
+`any` and skipping validation for a prototype.
 
 The default Notion handoff starter also uses a private server-owned actor mode
 for this controlled demonstrator. After Send, the live LLM receives the full

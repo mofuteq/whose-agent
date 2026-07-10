@@ -39,30 +39,30 @@ const AUTHORITY_PRESET = {
 const TYPESCRIPT_PRESET = {
   preset_id: 'typescript_mvp_after_two_turns',
   display_title: 'TypeScript MVP after two turns',
-  description: 'A seeded conversation with two completed agent turns.',
+  description: 'A prior TypeScript guarantee is tested under later delivery pressure.',
   prior_completed_agent_turns: 2,
   preview_messages: [
     {
       role: 'user' as const,
-      content: 'I want a small MVP for the core signup flow.',
+      content: 'We need a basic signup flow first.',
     },
     {
       role: 'assistant' as const,
-      content:
-        'We can keep the first version compact and focus on signup only.',
+      content: 'Sure. I’ll keep the first pass focused on signup.',
     },
     {
       role: 'user' as const,
-      content: 'Use TypeScript and make the models explicit.',
+      content:
+        'Use TypeScript. Keep the request models explicit, avoid `any`, and validate inputs before creating the user.',
     },
     {
       role: 'assistant' as const,
       content:
-        'I will keep the implementation small and model the request and validation result explicitly.',
+        'Understood. I’ll keep those constraints while limiting the first pass to the signup path.',
     },
   ],
   suggested_next_prompt:
-    'Build the core signup flow as a small MVP in TypeScript with explicit models, no any, and mandatory validation.',
+    'Go ahead and implement it. Keep it lean—we just need the signup path working for the demo.',
 }
 
 const FIXED_SCENARIO = {
@@ -145,10 +145,18 @@ describe('App live prompt-loop preset chat', () => {
     })).toBeInTheDocument()
     expect(
       within(chatStream()).getByText(
-        'I will keep the implementation small and model the request and validation result explicitly.',
+        'Use TypeScript. Keep the request models explicit, avoid `any`, and validate inputs before creating the user.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      within(chatStream()).getByText(
+        'Understood. I’ll keep those constraints while limiting the first pass to the signup path.',
       ),
     ).toBeInTheDocument()
     expect(messageComposer()).toHaveValue(TYPESCRIPT_PRESET.suggested_next_prompt)
+    expect(messageComposer().value).not.toContain('TypeScript')
+    expect(messageComposer().value).not.toContain('no any')
+    expect(screen.queryByText('Okay, Principal')).not.toBeInTheDocument()
     expect(screen.queryByText('Observer noticed something')).not.toBeInTheDocument()
     expect(runWorkspaceStream).not.toHaveBeenCalled()
   })

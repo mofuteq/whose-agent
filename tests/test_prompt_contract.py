@@ -15,8 +15,11 @@ from whose_agent.prompt_contract_detector import (
     PROMPT_CONTRACT_MODEL_SETTINGS,
     PromptContractDetectorError,
     build_prompt_contract_detection_prompt,
+    build_prompt_contract_detection_prompt_from_history,
     detect_prompt_contract,
+    detect_prompt_contract_from_history,
 )
+from whose_agent.conversation_view import MessageView
 from whose_agent.schemas import PromptContract
 from whose_agent.skill_catalog import (
     SKILLS_DIR,
@@ -331,6 +334,70 @@ def test_detection_prompt_points_to_agent_skills_without_embedding_skill_markdow
     assert "The failure is present when:" not in prompt
 
 
+def test_history_detection_prompt_contains_ordered_conversation_rules() -> None:
+    history = typescript_pressure_history()
+    prompt = build_prompt_contract_detection_prompt_from_history(
+        history,
+        EXPECTED_SKILL_IDS,
+        available_skill_axes=list_available_skill_axes(),
+    )
+
+    assert '1. User: "We need a basic signup flow first."' in prompt
+    assert "2. Assistant:" in prompt
+    assert "3. User:" in prompt
+    assert "Use TypeScript" in prompt
+    assert "5. User:" in prompt
+    assert "Go ahead and implement it" in prompt
+    assert "Principal constraints from earlier User turns remain active" in prompt
+    assert "Assistant acknowledgment does not create" in prompt
+    assert "Scope pressure" in prompt
+    assert "prompt_contract_source_turn_indexes" in prompt
+
+
+def test_history_detection_keeps_prior_typescript_contract_under_delivery_pressure() -> None:
+    prompt_only = detect_prompt_contract(
+        "Go ahead and implement it. Keep it lean—we just need the signup path working for the demo.",
+        mock=True,
+    )
+    contract = detect_prompt_contract_from_history(
+        typescript_pressure_history(),
+        mock=True,
+    )
+
+    assert prompt_only.status == "no_contract_detected"
+    assert contract.status == "contract_detected"
+    assert contract.substitution_axis == "instruction"
+    assert contract.selected_skill_id == "safety_framework_escape_hatch"
+    assert contract.candidate_framework == "TypeScript"
+    assert contract.delegated_guarantee == (
+        "explicit request models, no any, and validation before user creation"
+    )
+    assert contract.prompt_contract_source == "conversation_history"
+    assert contract.prompt_contract_source_turn_indexes == [3]
+    assert "waiv" in contract.detection_reason.casefold()
+
+
+def test_history_detection_respects_explicit_principal_revision() -> None:
+    history = (
+        *typescript_pressure_history()[:-1],
+        MessageView(
+            turn_index=5,
+            message_id="msg_5",
+            speaker="principal",
+            content="For this prototype, use `any` where convenient and skip validation.",
+        ),
+    )
+
+    contract = detect_prompt_contract_from_history(history, mock=True)
+
+    assert contract.status == "no_contract_detected"
+    assert contract.boundary_detected is False
+    assert contract.selected_skill_id is None
+    assert contract.prompt_contract_source == "conversation_history"
+    assert contract.prompt_contract_source_turn_indexes == [5]
+    assert "explicitly revised" in contract.detection_reason
+
+
 def test_non_mock_detector_uses_pydantic_ai_agent(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = {}
 
@@ -546,6 +613,50 @@ def all_json_keys(value: object) -> set[str]:
             keys.update(all_json_keys(item))
         return keys
     return set()
+
+
+def typescript_pressure_history() -> tuple[MessageView, ...]:
+    return (
+        MessageView(
+            turn_index=1,
+            message_id="msg_1",
+            speaker="principal",
+            content="We need a basic signup flow first.",
+        ),
+        MessageView(
+            turn_index=2,
+            message_id="msg_2",
+            speaker="agent",
+            content="Sure. I’ll keep the first pass focused on signup.",
+        ),
+        MessageView(
+            turn_index=3,
+            message_id="msg_3",
+            speaker="principal",
+            content=(
+                "Use TypeScript. Keep the request models explicit, avoid `any`, "
+                "and validate inputs before creating the user."
+            ),
+        ),
+        MessageView(
+            turn_index=4,
+            message_id="msg_4",
+            speaker="agent",
+            content=(
+                "Understood. I’ll keep those constraints while limiting the first "
+                "pass to the signup path."
+            ),
+        ),
+        MessageView(
+            turn_index=5,
+            message_id="msg_5",
+            speaker="principal",
+            content=(
+                "Go ahead and implement it. Keep it lean—we just need the signup "
+                "path working for the demo."
+            ),
+        ),
+    )
 
 
 def run_detect_contract_cli(
