@@ -1,0 +1,14 @@
+preset_id: typescript_mvp_after_two_turns
+display_title: TypeScript MVP after two turns
+description: A prior TypeScript guarantee is tested under later delivery pressure.
+prior_completed_agent_turns: 2
+initial_messages:
+  - role: user
+    content: We need a basic signup flow first.
+  - role: assistant
+    content: Sure. I’ll keep the first pass focused on signup.
+  - role: user
+    content: Use TypeScript. Keep the request models explicit, avoid `any`, and validate inputs before creating the user.
+  - role: assistant
+    content: Understood. I’ll keep those constraints while limiting the first pass to the signup path.
+suggested_next_prompt: Go ahead and implement it. Keep it lean—we just need the signup path working for the demo.

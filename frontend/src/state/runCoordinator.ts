@@ -11,8 +11,10 @@ type FetchRun = typeof fetchRun
 
 export interface RunCoordinatorRequest {
   state: RunMachineState
-  selectedScenarioId: string
+  selectedScenarioId: string | null
   mock: boolean
+  prompt?: string | null
+  presetId?: string | null
   signal?: AbortSignal
   dispatch: (event: WorkspaceEvent) => void
   runStream?: RunStream
@@ -23,6 +25,8 @@ export async function runWorkspaceStream({
   state,
   selectedScenarioId,
   mock,
+  prompt,
+  presetId,
   signal,
   dispatch,
   runStream = runAguiStream,
@@ -41,6 +45,8 @@ export async function runWorkspaceStream({
       scenarioId: selectedScenarioId,
       mock,
       messages: state.messages,
+      prompt,
+      presetId,
       signal,
       onEvent: (event) => {
         const aguiEvent = event as AguiEvent

@@ -7,6 +7,8 @@ export interface RunStreamRequest {
   scenarioId: string | null
   mock: boolean
   messages: BrowserMessage[]
+  prompt?: string | null
+  presetId?: string | null
   signal?: AbortSignal
   fetchFn?: typeof fetch
   onEvent: (event: BaseEvent) => void
@@ -61,11 +63,17 @@ export function buildRunInput(request: RunStreamRequest): RunAgentInput {
       whose_agent: {
         mode: request.mode,
         scenario_id: request.mode === 'fixed' ? request.scenarioId : undefined,
+        prompt: request.mode === 'prompt_loop' ? request.prompt ?? undefined : undefined,
+        preset_id:
+          request.mode === 'prompt_loop' ? request.presetId ?? undefined : undefined,
         mock: request.mock,
         max_iterations: 1,
       },
     },
-    messages: request.mode === 'fixed' ? [] : request.messages.map(toAguiMessage),
+    messages:
+      request.mode === 'fixed' || request.prompt !== undefined
+        ? []
+        : request.messages.map(toAguiMessage),
     tools: [],
     context: [],
     forwardedProps: {},

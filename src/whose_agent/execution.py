@@ -9,17 +9,23 @@ from typing import Literal
 from whose_agent.authority_provenance import derive_external_persistence_provenance
 from whose_agent.conversation_view import project_messages
 from whose_agent.firing_signals import FiringSignals
-from whose_agent.history_adapter import conversation_from_prompt, require_unique_message_ids
+from whose_agent.history_adapter import require_unique_message_ids
+from whose_agent.llm_call_executor import ThreadedLLMCallExecutor
 from whose_agent.loop_artifacts import write_loop_trace, write_prompt_loop_generated
 from whose_agent.loop_trace_renderer import render_loop_trace
 from whose_agent.minimal_loop_graph import compile_minimal_loop_graph
 from whose_agent.prompt_contract_artifacts import write_prompt_contract
-from whose_agent.prompt_contract_detector import detect_prompt_contract
 from whose_agent.prompt_loop import (
     PROMPT_LOOP_SCENARIO_ID,
+    detect_prompt_contract_for_seed,
     _last_do_step_index,
     _should_emit_prompt_loop_generated,
     initial_loop_state_from_prompt_contract,
+)
+from whose_agent.prompt_loop_seed import (
+    DEFAULT_PROMPT_LOOP_PRESETS_DIR,
+    PromptLoopSeed,
+    resolve_prompt_loop_seed,
 )
 from whose_agent.public_projection import (
     CauseProjection,
@@ -27,19 +33,24 @@ from whose_agent.public_projection import (
     CompletedProjection,
     ExplainProjection,
     PhaseProjection,
+    PromptLoopPresetMetadata,
     RunMode,
     ScenarioMetadata,
     project_cause,
     project_checker,
     project_completed,
     project_explain,
+    project_prompt_loop_preset_metadata,
     project_scenario_metadata,
 )
+from whose_agent.prompt_loop_presets import load_prompt_loop_presets
 from whose_agent.run_directory import create_run_directory
 from whose_agent.scenario_loader import load_scenario, load_scenarios
 from whose_agent.schemas import (
+    AuthorityProvenance,
     ConversationMessage,
     PromptContract,
+    PromptLoopActorMode,
     Scenario,
     WhoseAgentState,
 )
@@ -125,6 +136,15 @@ def list_fixed_scenarios(scenarios_dir: Path) -> list[ScenarioMetadata]:
     ]
 
 
+def list_server_prompt_loop_presets(
+    presets_dir: Path,
+) -> list[PromptLoopPresetMetadata]:
+    return [
+        project_prompt_loop_preset_metadata(preset)
+        for preset in load_prompt_loop_presets(presets_dir)
+    ]
+
+
 def load_known_scenario(scenarios_dir: Path, scenario_id: str) -> Scenario | None:
     for scenario in load_scenarios(scenarios_dir):
         if scenario.scenario_id == scenario_id:
@@ -142,18 +162,24 @@ async def stream_fixed_scenario(
     tracer: object | None = None,
 ) -> AsyncIterator[RunnerEvent]:
     run_dir = run_dir if run_dir is not None else create_run_directory(outputs_dir)
-    graph = compile_fixed_scenario_graph(
-        run_dir=run_dir,
-        tracer=tracer if tracer is not None else NoopTracer(),
-        mock=mock,
-    )
-    async for event in _stream_fixed_scenario_graph(
-        run_id=run_id,
-        scenario=scenario,
-        run_dir=run_dir,
-        graph=graph,
-    ):
-        yield event
+    llm_executor = ThreadedLLMCallExecutor() if not mock else None
+    try:
+        graph = compile_fixed_scenario_graph(
+            run_dir=run_dir,
+            tracer=tracer if tracer is not None else NoopTracer(),
+            mock=mock,
+            llm_executor=llm_executor,
+        )
+        async for event in _stream_fixed_scenario_graph(
+            run_id=run_id,
+            scenario=scenario,
+            run_dir=run_dir,
+            graph=graph,
+        ):
+            yield event
+    finally:
+        if llm_executor is not None:
+            llm_executor.shutdown()
 
 
 def run_fixed_scenarios(
@@ -178,63 +204,98 @@ def run_fixed_scenarios(
 async def stream_prompt_loop(
     *,
     run_id: str,
-    prompt: str,
     outputs_dir: Path,
     mock: bool,
     max_iterations: int,
+    prompt: str | None = None,
     messages: list[ConversationMessage] | None = None,
+    preset_id: str | None = None,
+    presets_dir: Path = DEFAULT_PROMPT_LOOP_PRESETS_DIR,
+    seed: PromptLoopSeed | None = None,
     run_dir: Path | None = None,
     firing_signals: FiringSignals | None = None,
     tracer: object | None = None,
 ) -> AsyncIterator[RunnerEvent]:
     run_dir = run_dir if run_dir is not None else create_run_directory(outputs_dir)
-    canonical_messages = (
-        list(messages) if messages is not None else conversation_from_prompt(prompt)
+    resolved_seed = seed or resolve_prompt_loop_seed(
+        prompt=prompt,
+        messages=messages,
+        preset_id=preset_id,
+        presets_dir=presets_dir,
     )
+    prompt = resolved_seed.current_principal_prompt
+    canonical_messages = list(resolved_seed.messages)
     require_unique_message_ids(canonical_messages)
     authority_provenance = derive_external_persistence_provenance(
         project_messages(canonical_messages)
     )
-    if authority_provenance is None:
-        contract = detect_prompt_contract(prompt, mock=mock)
-    else:
-        contract = detect_prompt_contract(
-            prompt,
-            mock=mock,
-            authority_provenance=authority_provenance,
-        )
+    contract = await detect_prompt_contract_for_stream(
+        canonical_messages,
+        mock=mock,
+        authority_provenance=authority_provenance,
+        prompt_loop_actor_mode=resolved_seed.actor_mode,
+    )
     contract_path = write_prompt_contract(contract, run_dir)
 
-    graph = compile_minimal_loop_graph(
-        mock=mock,
-        tracer=tracer if tracer is not None else NoopTracer(),
-    )
-    initial_state = initial_loop_state_from_prompt_contract(
-        contract,
-        max_iterations=max_iterations,
-        firing_signals=firing_signals,
-        messages=canonical_messages,
-    )
-    initial_state["prompt_contract_artifact"] = contract_path.name
+    llm_executor = ThreadedLLMCallExecutor() if not mock else None
+    try:
+        graph = compile_minimal_loop_graph(
+            mock=mock,
+            tracer=tracer if tracer is not None else NoopTracer(),
+            llm_executor=llm_executor,
+        )
+        initial_state = initial_loop_state_from_prompt_contract(
+            contract,
+            max_iterations=max_iterations,
+            firing_signals=firing_signals,
+            messages=canonical_messages,
+            history_source=resolved_seed.history_source,
+            prompt_loop_preset_id=resolved_seed.prompt_loop_preset_id,
+            prompt_loop_actor_mode=resolved_seed.actor_mode,
+            prior_completed_agent_turns=resolved_seed.prior_completed_agent_turns,
+        )
+        initial_state["prompt_contract_artifact"] = contract_path.name
 
-    async for event in _stream_prompt_loop_graph(
-        run_id=run_id,
-        contract=contract,
-        run_dir=run_dir,
-        graph=graph,
-        initial_state=initial_state,
-    ):
-        yield event
+        async for event in _stream_prompt_loop_graph(
+            run_id=run_id,
+            contract=contract,
+            run_dir=run_dir,
+            graph=graph,
+            initial_state=initial_state,
+        ):
+            yield event
+    finally:
+        if llm_executor is not None:
+            llm_executor.shutdown()
+
+
+async def detect_prompt_contract_for_stream(
+    messages: list[ConversationMessage],
+    *,
+    mock: bool,
+    authority_provenance: AuthorityProvenance | None,
+    prompt_loop_actor_mode: PromptLoopActorMode | None,
+) -> PromptContract:
+    return await asyncio.to_thread(
+        detect_prompt_contract_for_seed,
+        messages,
+        mock=mock,
+        authority_provenance=authority_provenance,
+        prompt_loop_actor_mode=prompt_loop_actor_mode,
+    )
 
 
 def run_prompt_loop(
     *,
     run_id: str,
-    prompt: str,
     outputs_dir: Path,
     mock: bool,
     max_iterations: int,
+    prompt: str | None = None,
     messages: list[ConversationMessage] | None = None,
+    preset_id: str | None = None,
+    presets_dir: Path = DEFAULT_PROMPT_LOOP_PRESETS_DIR,
+    seed: PromptLoopSeed | None = None,
     run_dir: Path | None = None,
     firing_signals: FiringSignals | None = None,
     tracer: object | None = None,
@@ -248,6 +309,9 @@ def run_prompt_loop(
                 mock=mock,
                 max_iterations=max_iterations,
                 messages=messages,
+                preset_id=preset_id,
+                presets_dir=presets_dir,
+                seed=seed,
                 run_dir=run_dir,
                 firing_signals=firing_signals,
                 tracer=tracer,
@@ -266,28 +330,34 @@ async def _run_fixed_scenarios_async(
 ) -> FixedBatchResult:
     scenarios = load_scenarios(scenarios_dir)
     run_dir = run_dir if run_dir is not None else create_run_directory(outputs_dir)
-    graph = compile_fixed_scenario_graph(
-        run_dir=run_dir,
-        tracer=tracer if tracer is not None else NoopTracer(),
-        mock=mock,
-    )
-    results: list[ExecutionResult] = []
-    for index, scenario in enumerate(scenarios, start=1):
-        result = await _collect_execution_result(
-            _stream_fixed_scenario_graph(
-                run_id=f"fixed_batch_{index}",
-                scenario=scenario,
-                run_dir=run_dir,
-                graph=graph,
-            )
+    llm_executor = ThreadedLLMCallExecutor() if not mock else None
+    try:
+        graph = compile_fixed_scenario_graph(
+            run_dir=run_dir,
+            tracer=tracer if tracer is not None else NoopTracer(),
+            mock=mock,
+            llm_executor=llm_executor,
         )
-        results.append(result)
-    return FixedBatchResult(
-        run_dir=run_dir,
-        scenario_count=len(scenarios),
-        artifact_names=_artifact_names(run_dir),
-        results=results,
-    )
+        results: list[ExecutionResult] = []
+        for index, scenario in enumerate(scenarios, start=1):
+            result = await _collect_execution_result(
+                _stream_fixed_scenario_graph(
+                    run_id=f"fixed_batch_{index}",
+                    scenario=scenario,
+                    run_dir=run_dir,
+                    graph=graph,
+                )
+            )
+            results.append(result)
+        return FixedBatchResult(
+            run_dir=run_dir,
+            scenario_count=len(scenarios),
+            artifact_names=_artifact_names(run_dir),
+            results=results,
+        )
+    finally:
+        if llm_executor is not None:
+            llm_executor.shutdown()
 
 
 async def _stream_fixed_scenario_graph(

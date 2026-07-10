@@ -18,6 +18,12 @@ def render_loop_trace(state: WhoseAgentState) -> LoopTrace:
     return LoopTrace(
         scenario_id=scenario.scenario_id,
         loop_source=state.get("loop_source", "fixed_scenario"),
+        history_source=state.get("history_source"),
+        prompt_loop_preset_id=state.get("prompt_loop_preset_id"),
+        prompt_loop_actor_mode=state.get("prompt_loop_actor_mode"),
+        prior_completed_agent_turns=int(
+            state.get("prior_completed_agent_turns", 0)
+        ),
         boundary_detected=bool(state.get("boundary_detected", False)),
         substitution_axis=state.get("substitution_axis"),
         delegated_boundary=state.get("delegated_boundary"),
@@ -36,6 +42,10 @@ def render_loop_trace(state: WhoseAgentState) -> LoopTrace:
         ),
         prompt_contract_delegated_guarantee=state.get(
             "prompt_contract_delegated_guarantee"
+        ),
+        prompt_contract_source=state.get("prompt_contract_source"),
+        prompt_contract_source_turn_indexes=list(
+            state.get("prompt_contract_source_turn_indexes", [])
         ),
         prompt_contract_artifact=state.get("prompt_contract_artifact"),
         prompt_loop_generated_artifact=state.get("prompt_loop_generated_artifact"),

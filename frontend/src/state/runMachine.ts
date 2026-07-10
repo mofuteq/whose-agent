@@ -80,7 +80,10 @@ export function runMachine(
         ...state,
         status: 'cancelled',
         activeTextMessageId: null,
-        safeError: { message: 'Observation incomplete.', code: 'stream_cancelled' },
+        safeError: {
+          message: safeErrorMessageForCode('stream_cancelled'),
+          code: 'stream_cancelled',
+        },
       }
     case 'clientFailure':
       return {
@@ -168,7 +171,7 @@ export function reconcileRunProjection(
     safeError:
       run.status === 'failed' || run.status === 'cancelled'
         ? {
-            message: 'Observation incomplete.',
+            message: safeErrorMessageForCode(run.safe_error_code),
             code: run.safe_error_code,
           }
         : state.safeError,
@@ -183,8 +186,11 @@ export function finalStatusText(state: RunMachineState): string {
   if (state.status === 'failed' || state.status === 'cancelled') {
     return 'Observation incomplete'
   }
+  if (state.status === 'idle') {
+    return 'Ready to send'
+  }
   if (state.status !== 'completed') {
-    return 'Loading observation'
+    return 'Observing'
   }
   if (
     state.cause?.action_attempt_summary?.attempted === true &&
@@ -211,7 +217,7 @@ export function finalStatusText(state: RunMachineState): string {
 
 export function currentRunHint(state: RunMachineState): string {
   if (state.status === 'idle') {
-    return 'Loading observation'
+    return 'Ready to send'
   }
   if (state.status === 'failed' || state.status === 'cancelled') {
     return 'Observation incomplete'
@@ -309,9 +315,29 @@ function addPhase(
 }
 
 function safeErrorFromEvent(message: unknown, code: unknown): SafeError {
+  const safeCode = stringOrNull(code)
   return {
-    message: stringOrNull(message) ?? 'Observation incomplete.',
-    code: stringOrNull(code),
+    message: stringOrNull(message) ?? safeErrorMessageForCode(safeCode),
+    code: safeCode,
+  }
+}
+
+function safeErrorMessageForCode(code: string | null): string {
+  switch (code) {
+    case 'invalid_request':
+      return 'Invalid request.'
+    case 'unknown_scenario':
+      return 'Unknown scenario.'
+    case 'prompt_contract_detection_failed':
+      return 'Could not detect the requested boundary for this live prompt.'
+    case 'live_generation_failed':
+      return 'Could not generate the live assistant response.'
+    case 'run_failed':
+      return 'Run failed.'
+    case 'stream_cancelled':
+      return 'Stream cancelled.'
+    default:
+      return 'Observation incomplete.'
   }
 }
 

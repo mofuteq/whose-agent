@@ -21,8 +21,6 @@ def extract_output(result: Any) -> Any:
 
 def extract_usage_details(result: Any) -> dict[str, int]:
     usage = getattr(result, "usage", None)
-    if callable(usage):
-        usage = usage()
     if usage is None:
         return {}
 

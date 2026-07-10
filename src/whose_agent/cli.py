@@ -27,6 +27,11 @@ from whose_agent.prompt_contract_detector import (
     PromptContractDetectorError,
     detect_prompt_contract,
 )
+from whose_agent.prompt_loop_seed import (
+    DEFAULT_PROMPT_LOOP_PRESETS_DIR,
+    PromptLoopSeed,
+    resolve_prompt_loop_seed,
+)
 from whose_agent.reflection import ReflectionError
 from whose_agent.run_directory import create_run_directory
 from whose_agent.scenario_loader import load_scenario, load_scenarios
@@ -147,7 +152,7 @@ def run_prompt_loop_command(args: argparse.Namespace) -> int:
         session_id=run_dir.name,
     )
     try:
-        prompt, messages = _prompt_input_from_args(args)
+        seed = _prompt_loop_seed_from_args(args)
         firing_signals = _firing_signals_from_args(args)
     except (MessageHistoryError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -155,13 +160,12 @@ def run_prompt_loop_command(args: argparse.Namespace) -> int:
         return 1
     result = run_prompt_loop(
         run_id=run_dir.name,
-        prompt=prompt,
         outputs_dir=Path(args.outputs),
         run_dir=run_dir,
         mock=args.mock,
         max_iterations=args.max_iterations,
         firing_signals=firing_signals,
-        messages=messages,
+        seed=seed,
         tracer=tracer,
     )
     generated_emitted = PROMPT_LOOP_GENERATED_FILENAME in result.artifact_names
@@ -198,6 +202,7 @@ def serve_command(args: argparse.Namespace) -> int:
 
     app = create_app(
         scenarios_dir=Path(args.scenarios),
+        presets_dir=Path(args.presets),
         outputs_dir=Path(args.outputs),
     )
     uvicorn.run(app, host=args.host, port=args.port)
@@ -242,11 +247,20 @@ def build_parser() -> argparse.ArgumentParser:
         "run-prompt-loop",
         help="Run experimental loop observability for one arbitrary prompt.",
     )
-    prompt_loop_input_group = prompt_loop_parser.add_mutually_exclusive_group(required=True)
+    prompt_loop_input_group = prompt_loop_parser.add_mutually_exclusive_group()
     prompt_loop_input_group.add_argument("--prompt", help="Principal prompt text to inspect and loop.")
     prompt_loop_input_group.add_argument(
         "--messages-file",
         help="JSON array of OpenAI-compatible role/content messages.",
+    )
+    prompt_loop_parser.add_argument(
+        "--preset",
+        help="Server-owned prompt-loop history preset id. Requires --prompt.",
+    )
+    prompt_loop_parser.add_argument(
+        "--presets",
+        default=str(DEFAULT_PROMPT_LOOP_PRESETS_DIR),
+        help="Directory containing prompt-loop preset YAML files.",
     )
     prompt_loop_parser.add_argument("--outputs", required=True, help="Directory for generated output files.")
     prompt_loop_parser.add_argument("--env-file", default=".env", help="Path to a dotenv file.")
@@ -287,6 +301,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--outputs",
         default="outputs",
         help="Directory for generated output files.",
+    )
+    serve_parser.add_argument(
+        "--presets",
+        default=str(DEFAULT_PROMPT_LOOP_PRESETS_DIR),
+        help="Directory containing prompt-loop preset YAML files.",
     )
     serve_parser.add_argument(
         "--env-file",
@@ -337,6 +356,21 @@ def _prompt_input_from_args(
     messages = load_message_history_file(Path(messages_file))
     prompt = current_principal_prompt(messages)
     return prompt, messages
+
+
+def _prompt_loop_seed_from_args(args: argparse.Namespace) -> PromptLoopSeed:
+    messages_file = getattr(args, "messages_file", None)
+    messages = (
+        load_message_history_file(Path(messages_file))
+        if messages_file is not None
+        else None
+    )
+    return resolve_prompt_loop_seed(
+        prompt=getattr(args, "prompt", None),
+        messages=messages,
+        preset_id=getattr(args, "preset", None),
+        presets_dir=Path(getattr(args, "presets", DEFAULT_PROMPT_LOOP_PRESETS_DIR)),
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

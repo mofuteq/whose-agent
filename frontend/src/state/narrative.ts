@@ -168,7 +168,7 @@ function headerStatus(
   },
 ): string {
   if (state.status === 'idle') {
-    return 'Loading observation'
+    return 'Ready to send'
   }
   if (state.status === 'running') {
     return 'Observing'
@@ -198,7 +198,7 @@ function headerStatus(
 function statusDetail(kind: BoundaryStatusKind): string {
   switch (kind) {
     case 'idle':
-      return 'Loading observation'
+      return 'Ready to send'
     case 'running':
       return 'Observing'
     case 'observation_incomplete':
@@ -218,7 +218,7 @@ function statusDetail(kind: BoundaryStatusKind): string {
     case 'no_boundary_finding':
       return 'No boundary finding'
     default:
-      return 'Loading observation'
+      return 'Ready to send'
   }
 }
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,17 +24,24 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from whose_agent.bad_response import BadResponseError
 from whose_agent.execution import (
     RunnerEvent,
     list_fixed_scenarios,
+    list_server_prompt_loop_presets,
     load_known_scenario,
     stream_fixed_scenario,
     stream_prompt_loop,
 )
+from whose_agent.history_aware_actor import HistoryAwareActorError
 from whose_agent.history_adapter import (
     MessageHistoryError,
-    current_principal_prompt,
     normalize_role_tagged_messages,
+)
+from whose_agent.prompt_loop_seed import (
+    DEFAULT_PROMPT_LOOP_PRESETS_DIR,
+    PromptLoopSeed,
+    resolve_prompt_loop_seed,
 )
 from whose_agent.public_projection import (
     CompletedProjection,
@@ -41,11 +49,14 @@ from whose_agent.public_projection import (
     RunProjection,
     SafeErrorCode,
 )
+from whose_agent.prompt_contract_detector import PromptContractDetectorError
+from whose_agent.prompt_response import PromptResponseError
 from whose_agent.schemas import ConversationMessage, Scenario
 
 
 MAX_API_ITERATIONS = 3
 PUBLIC_THREAD_ID_PATTERN = re.compile(r"^(?=.*[0-9])[A-Za-z0-9_-]{1,128}$")
+logger = logging.getLogger(__name__)
 
 
 class WhoseAgentOptions(BaseModel):
@@ -53,6 +64,8 @@ class WhoseAgentOptions(BaseModel):
 
     mode: RunMode
     scenario_id: str | None = None
+    preset_id: str | None = None
+    prompt: str | None = None
     mock: bool = True
     max_iterations: int = Field(default=1, ge=1, le=MAX_API_ITERATIONS)
 
@@ -60,6 +73,10 @@ class WhoseAgentOptions(BaseModel):
     def validate_mode_fields(self) -> "WhoseAgentOptions":
         if self.mode == "fixed" and self.scenario_id is None:
             raise ValueError("fixed mode requires scenario_id")
+        if self.mode == "fixed" and self.preset_id is not None:
+            raise ValueError("fixed mode does not accept preset_id")
+        if self.mode == "fixed" and self.prompt is not None:
+            raise ValueError("fixed mode does not accept prompt")
         if self.mode == "prompt_loop" and self.scenario_id is not None:
             raise ValueError("prompt_loop mode does not accept scenario_id")
         return self
@@ -74,6 +91,7 @@ class ExecutionRequest:
     scenario: Scenario | None = None
     prompt: str | None = None
     messages: list[ConversationMessage] | None = None
+    seed: PromptLoopSeed | None = None
 
 
 class AguiRequestError(ValueError):
@@ -123,11 +141,13 @@ class RunRegistry:
 def create_app(
     *,
     scenarios_dir: Path | str = Path("scenarios"),
+    presets_dir: Path | str = DEFAULT_PROMPT_LOOP_PRESETS_DIR,
     outputs_dir: Path | str = Path("outputs"),
     frontend_dist_dir: Path | str | None = Path("frontend/dist"),
     registry: RunRegistry | None = None,
 ) -> FastAPI:
     scenarios_path = Path(scenarios_dir)
+    presets_path = Path(presets_dir)
     outputs_path = Path(outputs_dir)
     frontend_dist_path = (
         Path(frontend_dist_dir) if frontend_dist_dir is not None else None
@@ -149,6 +169,15 @@ def create_app(
             ]
         }
 
+    @app.get("/api/prompt-loop-presets")
+    async def prompt_loop_presets() -> dict[str, list[dict[str, object]]]:
+        return {
+            "prompt_loop_presets": [
+                item.model_dump(mode="json")
+                for item in list_server_prompt_loop_presets(presets_path)
+            ]
+        }
+
     @app.post("/agui")
     async def agui(request: Request) -> StreamingResponse:
         encoder = EventEncoder(accept=request.headers.get("accept"))
@@ -159,6 +188,7 @@ def create_app(
             execution_request = _execution_request_from_input(
                 run_input,
                 scenarios_path,
+                presets_path,
             )
         except AguiRequestError as exc:
             thread_id = _public_thread_id_from_body_or_generated(locals().get("body"))
@@ -223,12 +253,21 @@ def create_app(
                     cancelled=True,
                 )
                 raise
-            except Exception:
-                run_registry.fail(run_id=run_id, code="run_failed")
+            except Exception as exc:
+                safe_code = _safe_runtime_error_code(exc)
+                run_registry.fail(run_id=run_id, code=safe_code)
+                logger.exception(
+                    "AG-UI run failed",
+                    extra={
+                        "run_id": run_id,
+                        "mode": execution_request.mode,
+                        "run_kind": execution_request.mode,
+                    },
+                )
                 yield encoder.encode(
                     RunErrorEvent(
-                        message="Run failed.",
-                        code="run_failed",
+                        message=_safe_error_message(safe_code),
+                        code=safe_code,
                     )
                 )
 
@@ -283,6 +322,7 @@ def _safe_error_response(
 def _execution_request_from_input(
     run_input: RunAgentInput,
     scenarios_dir: Path,
+    presets_dir: Path,
 ) -> ExecutionRequest:
     _reject_client_controlled_execution_surfaces(run_input)
     options = _options_from_state(run_input.state)
@@ -299,15 +339,42 @@ def _execution_request_from_input(
             scenario=scenario,
         )
 
-    messages = _canonical_messages_from_agui(run_input)
-    prompt = current_principal_prompt(messages)
+    has_prompt = options.prompt is not None
+    has_messages = bool(run_input.messages)
+    if options.preset_id is not None:
+        if not has_prompt:
+            raise AguiRequestError("invalid_request")
+        if run_input.messages:
+            raise AguiRequestError("invalid_request")
+        try:
+            seed = resolve_prompt_loop_seed(
+                prompt=options.prompt,
+                preset_id=options.preset_id,
+                presets_dir=presets_dir,
+            )
+        except ValueError as exc:
+            raise AguiRequestError("invalid_request") from exc
+    elif has_prompt:
+        if has_messages:
+            raise AguiRequestError("invalid_request")
+        try:
+            seed = resolve_prompt_loop_seed(prompt=options.prompt)
+        except ValueError as exc:
+            raise AguiRequestError("invalid_request") from exc
+    else:
+        messages = _canonical_messages_from_agui(run_input)
+        try:
+            seed = resolve_prompt_loop_seed(messages=messages)
+        except ValueError as exc:
+            raise AguiRequestError("invalid_request") from exc
     return ExecutionRequest(
         thread_id=thread_id,
         mode="prompt_loop",
         mock=options.mock,
         max_iterations=options.max_iterations,
-        prompt=prompt,
-        messages=messages,
+        prompt=seed.current_principal_prompt,
+        messages=seed.messages,
+        seed=seed,
     )
 
 
@@ -368,15 +435,14 @@ async def _runner_events(
             yield event
         return
 
-    if execution_request.prompt is None or execution_request.messages is None:
-        raise RuntimeError("prompt-loop execution requires prompt and messages")
+    if execution_request.seed is None:
+        raise RuntimeError("prompt-loop execution requires a prompt-loop seed")
     async for event in stream_prompt_loop(
         run_id=run_id,
-        prompt=execution_request.prompt,
         outputs_dir=outputs_dir,
         mock=execution_request.mock,
         max_iterations=execution_request.max_iterations,
-        messages=execution_request.messages,
+        seed=execution_request.seed,
     ):
         yield event
 
@@ -485,7 +551,26 @@ def _safe_error_message(code: SafeErrorCode) -> str:
     messages: dict[SafeErrorCode, str] = {
         "invalid_request": "Invalid request.",
         "unknown_scenario": "Unknown scenario.",
+        "prompt_contract_detection_failed": (
+            "Could not detect the requested boundary for this live prompt."
+        ),
+        "live_generation_failed": "Could not generate the live assistant response.",
         "run_failed": "Run failed.",
         "stream_cancelled": "Stream cancelled.",
     }
     return messages[code]
+
+
+def _safe_runtime_error_code(exc: Exception) -> SafeErrorCode:
+    if isinstance(exc, PromptContractDetectorError):
+        return "prompt_contract_detection_failed"
+    if isinstance(
+        exc,
+        (
+            HistoryAwareActorError,
+            PromptResponseError,
+            BadResponseError,
+        ),
+    ):
+        return "live_generation_failed"
+    return "run_failed"

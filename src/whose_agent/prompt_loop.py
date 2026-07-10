@@ -19,11 +19,18 @@ from whose_agent.authority_provenance import (
 )
 from whose_agent.conversation_view import project_messages
 from whose_agent.history_adapter import conversation_from_prompt, require_unique_message_ids
+from whose_agent.prompt_loop_seed import (
+    DEFAULT_PROMPT_LOOP_PRESETS_DIR,
+    PromptLoopSeed,
+    resolve_prompt_loop_seed,
+)
 from whose_agent.prompt_contract_artifacts import write_prompt_contract
-from whose_agent.prompt_contract_detector import detect_prompt_contract
 from whose_agent.schemas import (
+    AuthorityProvenance,
     ConversationMessage,
     EXPECTED_FAILURE_BY_SUBSTITUTED,
+    HistorySource,
+    PromptLoopActorMode,
     PromptContract,
     Scenario,
     ScenarioCheckerTemplate,
@@ -43,6 +50,10 @@ def initial_loop_state_from_prompt_contract(
     misreader_firing_decision: bool | None = None,
     firing_signals: FiringSignals | None = None,
     messages: list[ConversationMessage] | None = None,
+    history_source: HistorySource = "caller_supplied",
+    prompt_loop_preset_id: str | None = None,
+    prompt_loop_actor_mode: PromptLoopActorMode | None = None,
+    prior_completed_agent_turns: int = 0,
     clock: Callable[[], datetime] | None = None,
 ) -> WhoseAgentState:
     """Convert a prompt contract into the existing minimal-loop state shape."""
@@ -69,12 +80,20 @@ def initial_loop_state_from_prompt_contract(
     )
     state["firing_reason"] = None
     state["loop_source"] = "prompt_contract"
+    state["history_source"] = history_source
+    state["prompt_loop_preset_id"] = prompt_loop_preset_id
+    state["prompt_loop_actor_mode"] = prompt_loop_actor_mode
+    state["prior_completed_agent_turns"] = prior_completed_agent_turns
     state["prompt_contract_status"] = contract.status
     state["prompt_contract_boundary_detected"] = contract.boundary_detected
     state["prompt_contract_substitution_axis"] = contract.substitution_axis
     state["prompt_contract_delegated_boundary"] = contract.delegated_boundary
     state["prompt_contract_candidate_framework"] = contract.candidate_framework
     state["prompt_contract_delegated_guarantee"] = contract.delegated_guarantee
+    state["prompt_contract_source"] = contract.prompt_contract_source
+    state["prompt_contract_source_turn_indexes"] = list(
+        contract.prompt_contract_source_turn_indexes
+    )
     state["prompt_contract_artifact"] = None
     state["prompt_loop_generated_artifact"] = None
     state["prompt_loop_generated_step_index"] = None
@@ -85,7 +104,7 @@ def initial_loop_state_from_prompt_contract(
 
 
 def run_prompt_loop_to_artifact(
-    prompt: str,
+    prompt: str | None,
     output_dir: Path,
     *,
     mock: bool = False,
@@ -93,25 +112,31 @@ def run_prompt_loop_to_artifact(
     misreader_firing_decision: bool | None = None,
     firing_signals: FiringSignals | None = None,
     messages: list[ConversationMessage] | None = None,
+    preset_id: str | None = None,
+    presets_dir: Path = DEFAULT_PROMPT_LOOP_PRESETS_DIR,
+    seed: PromptLoopSeed | None = None,
     clock: Callable[[], datetime] | None = None,
     tracer: object | None = None,
 ) -> tuple[Path, Path, Path | None]:
     """Detect a prompt contract, run the minimal loop, and write artifacts."""
-    canonical_messages = (
-        list(messages) if messages is not None else conversation_from_prompt(prompt)
+    resolved_seed = seed or resolve_prompt_loop_seed(
+        prompt=prompt,
+        messages=messages,
+        preset_id=preset_id,
+        presets_dir=presets_dir,
     )
+    prompt = resolved_seed.current_principal_prompt
+    canonical_messages = list(resolved_seed.messages)
     require_unique_message_ids(canonical_messages)
     authority_provenance = derive_external_persistence_provenance(
         project_messages(canonical_messages)
     )
-    if authority_provenance is None:
-        contract = detect_prompt_contract(prompt, mock=mock)
-    else:
-        contract = detect_prompt_contract(
-            prompt,
-            mock=mock,
-            authority_provenance=authority_provenance,
-        )
+    contract = detect_prompt_contract_for_seed(
+        canonical_messages,
+        mock=mock,
+        authority_provenance=authority_provenance,
+        prompt_loop_actor_mode=resolved_seed.actor_mode,
+    )
     contract_path = write_prompt_contract(contract, output_dir)
 
     graph = compile_minimal_loop_graph(mock=mock, tracer=tracer)
@@ -121,6 +146,10 @@ def run_prompt_loop_to_artifact(
         misreader_firing_decision=misreader_firing_decision,
         firing_signals=firing_signals,
         messages=canonical_messages,
+        history_source=resolved_seed.history_source,
+        prompt_loop_preset_id=resolved_seed.prompt_loop_preset_id,
+        prompt_loop_actor_mode=resolved_seed.actor_mode,
+        prior_completed_agent_turns=resolved_seed.prior_completed_agent_turns,
         clock=clock,
     )
     initial_state["prompt_contract_artifact"] = contract_path.name
@@ -213,6 +242,34 @@ def _should_emit_prompt_loop_generated(contract: PromptContract) -> bool:
     return _is_supported_prompt_contract(contract)
 
 
+def detect_prompt_contract_for_seed(
+    messages: list[ConversationMessage],
+    *,
+    mock: bool,
+    authority_provenance: AuthorityProvenance | None,
+    prompt_loop_actor_mode: PromptLoopActorMode | None,
+) -> PromptContract:
+    from whose_agent.prompt_contract_detector import (
+        detect_prompt_contract,
+        detect_prompt_contract_from_history,
+    )
+
+    current_prompt = messages[-1].content
+    if authority_provenance is not None or prompt_loop_actor_mode is not None:
+        return detect_prompt_contract(
+            current_prompt,
+            mock=mock,
+            authority_provenance=authority_provenance,
+            prompt_loop_actor_mode=prompt_loop_actor_mode,
+        )
+    if len(messages) > 1:
+        return detect_prompt_contract_from_history(
+            project_messages(messages),
+            mock=mock,
+        )
+    return detect_prompt_contract(current_prompt, mock=mock)
+
+
 def _is_supported_prompt_contract(contract: PromptContract) -> bool:
     return contract.status == "contract_detected" and contract.selected_skill_id is not None
 
@@ -226,6 +283,7 @@ def _last_do_step_index(state: WhoseAgentState) -> int | None:
 
 __all__ = [
     "PROMPT_LOOP_SCENARIO_ID",
+    "detect_prompt_contract_for_seed",
     "initial_loop_state_from_prompt_contract",
     "run_prompt_loop_to_artifact",
 ]

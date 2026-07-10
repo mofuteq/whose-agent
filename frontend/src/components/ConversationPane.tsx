@@ -1,3 +1,4 @@
+import type { FormEvent } from 'react'
 import type { BrowserMessage, RunStatus, SafeError } from '../state/types'
 
 interface ConversationPaneProps {
@@ -8,6 +9,13 @@ interface ConversationPaneProps {
   observerVisible: boolean
   observerTitle: string
   observerBody: string
+  composerText: string
+  composerDisabled: boolean
+  sendDisabled: boolean
+  completedLocked: boolean
+  onComposerChange: (value: string) => void
+  onSend: () => void
+  onReset: () => void
   onOpenInspector: () => void
 }
 
@@ -19,8 +27,20 @@ export function ConversationPane({
   observerVisible,
   observerTitle,
   observerBody,
+  composerText,
+  composerDisabled,
+  sendDisabled,
+  completedLocked,
+  onComposerChange,
+  onSend,
+  onReset,
   onOpenInspector,
 }: ConversationPaneProps) {
+  function submitComposer(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    onSend()
+  }
+
   return (
     <section className="chat-panel" aria-labelledby="conversation-title">
       <h2 id="conversation-title" className="sr-only">
@@ -28,7 +48,7 @@ export function ConversationPane({
       </h2>
       <div className="conversation-stream">
         {messages.length === 0 ? (
-          <p className="empty-copy">Loading conversation.</p>
+          <p className="empty-copy">No prior messages.</p>
         ) : (
           messages.map((message) => (
             <article className={`message-bubble role-${message.role}`} key={message.clientId}>
@@ -69,6 +89,29 @@ export function ConversationPane({
           </article>
         ) : null}
       </div>
+      <form className="composer" aria-label="Message composer" onSubmit={submitComposer}>
+        <textarea
+          aria-label="Message"
+          value={composerText}
+          disabled={composerDisabled}
+          onChange={(event) => onComposerChange(event.target.value)}
+          rows={3}
+        />
+        <div className="composer-actions">
+          {completedLocked ? (
+            <button type="button" className="secondary-action" onClick={onReset}>
+              Reset
+            </button>
+          ) : null}
+          <button
+            type="submit"
+            className="primary-action"
+            disabled={sendDisabled}
+          >
+            Send
+          </button>
+        </div>
+      </form>
     </section>
   )
 }
